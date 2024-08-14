@@ -2,7 +2,7 @@ use crate::todo::{Todo, TodoBuilder};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take},
-    character::complete::{alphanumeric1, line_ending, multispace1, one_of, space0, space1},
+    character::complete::{alphanumeric1, line_ending, multispace1, one_of, space0},
     combinator::opt,
     error::{Error, ErrorKind},
     multi::{fold_many1, many0},
@@ -108,6 +108,7 @@ enum Word {
 }
 
 fn project(i: &str) -> IResult<&str, Word> {
+    let (i, _) = space0(i)?;
     let (i, p) = preceded(tag("+"), alphanumeric1)(i)?;
     Ok((i, Word::Project(p.to_string())))
 }
@@ -129,6 +130,7 @@ fn test_project() {
 }
 
 fn context(i: &str) -> IResult<&str, Word> {
+    let (i, _) = space0(i)?;
     let (i, c) = preceded(tag("@"), alphanumeric1)(i)?;
     Ok((i, Word::Context(c.to_string())))
 }
@@ -173,6 +175,7 @@ fn test_non_whitespace() {
 }
 
 fn metadata(i: &str) -> IResult<&str, Word> {
+    let (i, _) = space0(i)?;
     let (i, key) = is_not(": \t\r\n")(i)?;
     let (i, _) = tag(":")(i)?;
     let (i, value) = non_whitespace(i)?;
@@ -203,23 +206,23 @@ fn test_metadata() {
 }
 
 fn plain(i: &str) -> IResult<&str, Word> {
-    let (i, (w1, p, w2)) = tuple((space0, is_not(" \t\r\n"), space0))(i)?;
-    Ok((i, Word::Plain(w1.to_string() + p + w2)))
+    let (i, (ws, p)) = tuple((space0, is_not(" \t\r\n")))(i)?;
+    Ok((i, Word::Plain(ws.to_string() + p)))
 }
 
 #[test]
 fn test_plain() {
     assert_eq!(
         plain("Hello, World!"),
-        Ok(("World!", Word::Plain("Hello, ".to_string())))
+        Ok((" World!", Word::Plain("Hello,".to_string())))
     );
     assert_eq!(
         plain(" Hello, World!"),
-        Ok(("World!", Word::Plain(" Hello, ".to_string())))
+        Ok((" World!", Word::Plain(" Hello,".to_string())))
     );
     assert_eq!(
         plain("Sometimes\tnothing"),
-        Ok(("nothing", Word::Plain("Sometimes\t".to_string())))
+        Ok(("\tnothing", Word::Plain("Sometimes".to_string())))
     );
     assert_eq!(
         plain("Nospace"),
@@ -231,40 +234,19 @@ fn test_plain() {
     );
 }
 
-fn plain_whitespace(i: &str) -> IResult<&str, Word> {
-    let (i, ws) = space1(i)?;
-    Ok((i, Word::Plain(ws.to_string())))
-}
-
-#[test]
-fn test_plain_whitespace() {
-    assert_eq!(
-        plain_whitespace(" "),
-        Ok(("", Word::Plain(" ".to_string())))
-    );
-    assert_eq!(
-        plain_whitespace("  "),
-        Ok(("", Word::Plain("  ".to_string())))
-    );
-    assert_eq!(
-        plain_whitespace(" \tword"),
-        Ok(("word", Word::Plain(" \t".to_string())))
-    );
-}
-
 fn word(i: &str) -> IResult<&str, Word> {
-    alt((context, project, metadata, plain_whitespace, plain))(i)
+    alt((context, project, metadata, plain))(i)
 }
 
 #[test]
 fn test_word() {
     assert_eq!(
         word("word +project"),
-        Ok(("+project", Word::Plain("word ".to_string())))
+        Ok((" +project", Word::Plain("word".to_string())))
     );
     assert_eq!(
         word(" word @context"),
-        Ok(("word @context", Word::Plain(" ".to_string())))
+        Ok((" @context", Word::Plain(" word".to_string())))
     );
     assert_eq!(
         word("Nospace"),
@@ -276,7 +258,7 @@ fn test_word() {
     );
     assert_eq!(
         word(" +project"),
-        Ok(("+project", Word::Plain(" ".to_string())))
+        Ok(("", Word::Project("project".to_string())))
     );
     assert_eq!(
         word("@context"),
@@ -284,7 +266,7 @@ fn test_word() {
     );
     assert_eq!(
         word(" @context"),
-        Ok(("@context", Word::Plain(" ".to_string())))
+        Ok(("", Word::Context("context".to_string())))
     );
     assert_eq!(
         word("+project word"),
@@ -317,8 +299,8 @@ fn test_text() {
         Ok((
             "",
             vec![
-                Word::Plain("Hello, ".to_string()),
-                Word::Plain("World!".to_string()),
+                Word::Plain("Hello,".to_string()),
+                Word::Plain(" World!".to_string()),
             ]
         ))
     );
@@ -327,10 +309,9 @@ fn test_text() {
         Ok((
             "",
             vec![
-                Word::Plain("Hello, ".to_string()),
-                Word::Plain("World! ".to_string()),
+                Word::Plain("Hello,".to_string()),
+                Word::Plain(" World!".to_string()),
                 Word::Project("project".to_string()),
-                Word::Plain(" ".to_string()),
                 Word::Context("context".to_string()),
             ]
         ))
@@ -340,8 +321,8 @@ fn test_text() {
         Ok((
             "",
             vec![
-                Word::Plain("Hello, ".to_string()),
-                Word::Plain("World! ".to_string()),
+                Word::Plain("Hello,".to_string()),
+                Word::Plain(" World!".to_string()),
                 Word::Metadata(("test".to_string(), "data".to_string())),
             ]
         ))
@@ -368,10 +349,9 @@ fn test_text_line() {
         Ok((
             "",
             vec![
-                Word::Plain("Hello, ".to_string()),
-                Word::Plain("World! ".to_string()),
+                Word::Plain("Hello,".to_string()),
+                Word::Plain(" World!".to_string()),
                 Word::Project("project".to_string()),
-                Word::Plain(" ".to_string()),
                 Word::Context("context".to_string()),
                 Word::Plain("\n\n".to_string()),
             ]
@@ -394,16 +374,15 @@ fn test_text_multiline() {
             "",
             vec![
                 vec![
-                    Word::Plain("Hello, ".to_string()),
-                    Word::Plain("World! ".to_string()),
+                    Word::Plain("Hello,".to_string()),
+                    Word::Plain(" World!".to_string()),
                     Word::Project("project".to_string()),
-                    Word::Plain(" ".to_string()),
                     Word::Context("context".to_string()),
                     Word::Plain("\n\n".to_string()),
                 ],
                 vec![
-                    Word::Plain("Another ".to_string()),
-                    Word::Plain("line. ".to_string()),
+                    Word::Plain("Another".to_string()),
+                    Word::Plain(" line.".to_string()),
                     Word::Metadata(("meta".to_string(), "data".to_string())),
                 ],
             ]
@@ -542,7 +521,7 @@ With multiple paragraphs, and some paragraphs that contain projects. +extra"#
                         .collect()
                 )
                 .description(Some(
-                    "This is a test todo with a description. \n\nWith multiple paragraphs, and some paragraphs that contain projects."
+                    "This is a test todo with a description.\n\nWith multiple paragraphs, and some paragraphs that contain projects."
                         .to_string()
                 ))
                 .build()
