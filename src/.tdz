@@ -1,0 +1,8 @@
+(A) 2024-08-02 Create rough tdz binary @laptop +tdz
+  Set up the project, create a binary that can scan a code base in either Rust
+  or Golang and parse the todos.
+
+  Todos can be either in comments in code files, or in separate .tdz files
+  which are formatted as todo.txt files, with the extension of nesting
+  multi-line bodies.
+(Z) 2024-08-02 Release this tool as OSS @laptop +tdz
