@@ -99,6 +99,17 @@ fn test_date() {
     );
 }
 
+// TODO (B) Add somekind of identifier to the todo parsing logic.
+//
+// This is going to be required to keep track of which todo is which (especially is we want to try
+// and sync this to another system).
+//
+// Having an identifier will mean that we can match up todos in the version control history that
+// are infact the same todo. So if the same todo appears in multiple commits in the history because
+// it's changing over time, we'll be able to identify that and merge it in the view, rather than
+// showing it as separate todos.
+// ODOT
+
 #[derive(Debug, PartialEq)]
 enum Word {
     Context(String),

@@ -1,6 +1,11 @@
 use std::io::BufRead;
 
-pub fn extract_todos(file_path: &str) -> Vec<(u32, String)> {
+// TODO (C) 2024-08-15 Separate out the parsing logic and test it. +testing
+//
+// No tests for this currently, but def should be. Need to separate out the parsing logic so it
+// takes a line terator or something like that, then we can pass in some raw strings for testing.
+// ODOT
+pub fn extract_todos(file_path: &str) -> Vec<(usize, usize, String)> {
     let filehandle = match std::fs::File::open(file_path) {
         Ok(file) => file,
         Err(err) => {
@@ -11,17 +16,18 @@ pub fn extract_todos(file_path: &str) -> Vec<(u32, String)> {
     let line_comment_delimiter = format!("// {}", crate::constants::TODOOZY_DELIMITER);
     let block_comment_delimiter = format!("/* {}", crate::constants::TODOOZY_DELIMITER);
 
-    /* TDZ (Z) 2024-08-06 Can it handle indented todos? +Testing
+    /* TODO (Z) 2024-08-06 Can it handle indented todos? +Testing
      *
      * This is a test todo with some indented lines:
      *   - This is an even more indented line.
-     * ZDT */
+     *
+     * Need to add a test for this before we can close this one.
+     * ODOT */
     let reader = std::io::BufReader::new(filehandle);
     let mut lines = reader.lines();
 
-    let mut todos = Vec::<(u32, String)>::new();
+    let mut todos = Vec::<(usize, usize, String)>::new();
 
-    // TDZ (A) 2024-08-09 This needs to work with single line todos. +Testing ZDT
     let mut line_number = 0;
     while let Some(line) = lines.next() {
         line_number += 1;
@@ -40,7 +46,7 @@ pub fn extract_todos(file_path: &str) -> Vec<(u32, String)> {
                                 .trim_end()
                                 .to_owned(),
                         );
-                        todos.push((line_number, todo.join("\n")));
+                        todos.push((line_number, line_number, todo.join("\n")));
                         continue;
                     }
 
@@ -54,8 +60,10 @@ pub fn extract_todos(file_path: &str) -> Vec<(u32, String)> {
                         line_number += 1;
                         match line {
                             Ok(line) => {
-                                if line.contains("ZDT") {
-                                    let v = line.split("ZDT").collect::<Vec<&str>>();
+                                if line.contains(crate::constants::TODOOZY_DELIMITER_END) {
+                                    let v = line
+                                        .split(crate::constants::TODOOZY_DELIMITER_END)
+                                        .collect::<Vec<&str>>();
                                     if v[0].len() > prefix {
                                         let txt = v[0][prefix..].trim_end();
                                         if txt.len() > 0 {
@@ -75,7 +83,7 @@ pub fn extract_todos(file_path: &str) -> Vec<(u32, String)> {
                         }
                     }
 
-                    todos.push((first_line_number, todo.join("\n")));
+                    todos.push((first_line_number, line_number, todo.join("\n")));
                 }
             }
             Err(err) => eprintln!("Error: {}", err),

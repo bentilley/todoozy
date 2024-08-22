@@ -1,6 +1,8 @@
 mod constants;
+pub mod filter;
 mod lang;
 mod parse;
+pub mod sort;
 mod todo;
 
 pub use todo::Todo;
@@ -36,13 +38,14 @@ fn test_get_extension_from_filename() {
     assert_eq!(get_extension_from_filename("test"), None);
 }
 
-fn parse_raw(raw_todos: Vec<(u32, String)>, file_path: &str) -> Vec<todo::Todo> {
+fn parse_raw(raw_todos: Vec<(usize, usize, String)>, file_path: &str) -> Vec<todo::Todo> {
     let mut todos = Vec::<todo::Todo>::new();
-    for (i, raw) in raw_todos {
+    for (start, end, raw) in raw_todos {
         match parse::todo(&raw) {
             Ok((_, mut t)) => {
                 t.file = Some(file_path.to_owned());
-                t.line_number = Some(i as usize);
+                t.line_number = Some(start as usize);
+                t.end_line_number = Some(end as usize);
                 todos.push(t)
             }
             Err(err) => eprintln!("Error: {}", err),

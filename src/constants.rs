@@ -1,2 +1,2 @@
-pub const TODOOZY_DELIMITER: &str = "TDZ";
-pub const TODOOZY_DELIMITER_END: &str = "ZDT";
+pub const TODOOZY_DELIMITER: &str = "TODO";
+pub const TODOOZY_DELIMITER_END: &str = "ODOT";

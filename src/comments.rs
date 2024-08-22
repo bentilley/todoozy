@@ -47,15 +47,6 @@ fn test_comment_multiline() {
     );
 }
 
-// pub enum Comment {
-//     SingleLine(String),
-//     MultiLine(String),
-// }
-
-// TDZ (A) 2024-08-13 What does it mean to write a todoozy block with line comments? +ideas
-//
-// This is a weird case, because it's not clear if the line comments are part of the todo or not.
-// I guess it should end with the todoozy end delimiter... ZDT
 fn parse_comments(i: &str) -> IResult<&str, Vec<&str>> {
     let (i, comments) = fold_many0(
         alt((comment_singleline, comment_multiline, take(1u8))),

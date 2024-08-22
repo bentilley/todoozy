@@ -1,12 +1,9 @@
 use ratatui::{
     backend::CrosstermBackend,
     crossterm::{
-        // event::{self, Event, KeyCode},
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
         ExecutableCommand,
     },
-    // widgets::{Block, List, Paragraph},
-    // Frame, Terminal,
     Terminal,
 };
 use std::io::{self, stdout};
@@ -33,8 +30,6 @@ fn main() {
     for results in walk {
         match results {
             Ok(entry) => {
-                /* TDZ (C) 2024-08-02 Handle this unwrap error +ErrHandling
-                ZDT */
                 if entry.file_type().unwrap().is_dir() {
                     continue;
                 }
@@ -46,25 +41,20 @@ fn main() {
         }
     }
 
-    // for t in todos {
-    //     println!("{:?}\n", t);
-    //     // match t.file {
-    //     //     Some(ref file) => match t.line_number {
-    //     //         Some(line_number) => println!("{}:{}: {}", file, line_number, t.title),
-    //     //         None => println!("{}: {}", file, t.title),
-    //     //     },
-    //     //     None => println!("{}", t.title),
-    //     // }
-    //     // match t.description {
-    //     //     Some(ref description) => println!("{}", description),
-    //     //     None => (),
-    //     // }
+    // for todo in &todos {
+    //     println!("{:?}", todo);
     // }
 
-    let _ = draw(todos);
+    let _ = draw(
+        cli::app::AppConfig {
+            filter: args.filter,
+            sorter: args.sorter,
+        },
+        todos,
+    );
 }
 
-fn draw(todos: Vec<todoozy::Todo>) -> io::Result<()> {
+fn draw(config: cli::app::AppConfig, todos: Vec<todoozy::Todo>) -> io::Result<()> {
     // tui::init_error_hooks()?;
     // let terminal = tui::init_terminal()?;
 
@@ -72,7 +62,7 @@ fn draw(todos: Vec<todoozy::Todo>) -> io::Result<()> {
     stdout().execute(EnterAlternateScreen)?;
     let terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
-    let mut app = cli::app::App::new(&todos);
+    let mut app = cli::app::App::new(config, &todos);
     app.run(terminal)?;
 
     // let mut should_quit = false;
