@@ -71,6 +71,53 @@ impl<'a> TodoList<'a> {
     }
 }
 
+const MAX_LOCATION_WIDTH: usize = 16;
+
+// TODO (E) Refactor some of the logic in app.rs into separate files
+//
+// Nothing major, but the size of this file is quite big now and it would be good to try and just
+// keep the rendering logic in here, rather than other stuff...
+// ODOT
+fn truncate_path(path: &str) -> String {
+    let p = match path.strip_prefix("./") {
+        Some(p) => p,
+        None => path,
+    };
+    let mut abbrev = String::new();
+    let mut length = p.len();
+    let mut parts = p.split('/').peekable();
+
+    while length > MAX_LOCATION_WIDTH {
+        match parts.next() {
+            Some(part) => {
+                match parts.peek() {
+                    Some(_) => {
+                        abbrev.push(part.chars().next().unwrap());
+                        abbrev.push('/');
+                        length -= part.len() - 1;
+                    }
+                    None => {
+                        abbrev.push_str(&part);
+                        break;
+                    }
+                };
+            }
+            None => break,
+        };
+    }
+    let p = parts.collect::<Vec<&str>>().join("/");
+    abbrev.push_str(&p);
+
+    if abbrev.len() > MAX_LOCATION_WIDTH {
+        return format!(
+            "...{}",
+            abbrev[abbrev.len() - (MAX_LOCATION_WIDTH - 3)..].to_string()
+        );
+    }
+
+    abbrev
+}
+
 #[derive(Debug, Clone)]
 struct TodoItem<'a> {
     todo: &'a todoozy::Todo,
@@ -136,6 +183,12 @@ impl<'a> App<'a> {
         }
 
         // TODO (B) 2024-08-22 Add a way to refresh the current todo list. ODOT
+
+        // TODO (C) 2024-08-23 A way to scroll the list view to the right
+        //
+        // So we can see all the info of long todos who's information can't fit on the current
+        // terminal width.
+        // ODOT
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => {
                 if self.selected.is_some() {
@@ -247,12 +300,18 @@ impl App<'_> {
     }
 
     fn render_list(&mut self, area: Rect, buf: &mut Buffer) {
+        let short_paths: Vec<String> = self
+            .todo_data
+            .iter()
+            .map(|t| truncate_path(&t.location_start()))
+            .collect();
+        let max_path_width = short_paths.iter().map(|s| s.len()).max().unwrap_or(0);
+
         let items: Vec<ListItem> = self
             .todo_list
             .items
             .iter()
-            .enumerate()
-            .map(|(_i, todo_item)| ListItem::from(todo_item))
+            .map(|todo_item| make_listitem(todo_item, max_path_width))
             .collect();
 
         let list = List::new(items)
@@ -333,50 +392,43 @@ impl App<'_> {
     }
 }
 
-impl From<&TodoItem<'_>> for ListItem<'_> {
-    fn from(value: &TodoItem) -> Self {
-        let mut location = match value.todo.file {
-            Some(ref file) => match value.todo.line_number {
-                Some(line_number) => format!("{}:{}", file, line_number),
-                None => file.to_string(),
-            },
-            None => "".to_string(),
-        };
-        // TODO (A) 2024-08-22 Fix the cropping of the location. +bug
-        //
-        // This naive cropping is going to run out of space in no time (it already is).
-        // ODOT
-        if location.len() < 20 {
-            location.push_str(&" ".repeat(20 - location.len()));
-        }
-        location.truncate(20);
+fn make_listitem<'a>(todo_item: &TodoItem<'a>, max_path_width: usize) -> ListItem<'a> {
+    let mut location = truncate_path(todo_item.todo.location_start().as_str());
+    if location.len() < max_path_width {
+        location.push_str(&" ".repeat(max_path_width - location.len()));
+    }
 
-        // TODO (A) 2024-08-22 Render the projects (and maybe context...) in the item list
-        // + feature
-        // ODOT
+    let projects: Vec<Span> = todo_item
+        .todo
+        .projects
+        .iter()
+        .map(|p| Span::styled(format!(" +{}", p), Style::new().fg(Color::Magenta)))
+        .collect();
 
-        let line = Line::from(vec![
-            Span::styled("[ ] ", Style::new().fg(Color::Magenta)),
+    let contexts: Vec<Span> = todo_item
+        .todo
+        .contexts
+        .iter()
+        .map(|p| Span::styled(format!(" @{}", p), Style::new().fg(Color::Cyan)))
+        .collect();
+
+    let line = Line::from(
+        vec![
+            Span::styled("[ ] ", Style::new().fg(Color::Red)),
             Span::styled(format!("{} ", location), Style::new().fg(Color::Blue)),
             Span::styled(
-                format!("({}) ", value.todo.priority.unwrap_or('Z')),
+                format!("({}) ", todo_item.todo.priority.unwrap_or('Z')),
                 Style::new().fg(Color::Yellow),
             ),
-            Span::styled(
-                format!("{}", value.todo.title),
-                Style::new().fg(Color::White),
-            ),
-        ]);
+            Span::styled(todo_item.todo.title.clone(), Style::new().fg(Color::White)),
+        ]
+        .into_iter()
+        .chain(projects.into_iter())
+        .chain(contexts.into_iter())
+        .collect::<Vec<Span>>(),
+    );
 
-        // let line = match value.status {
-        //     Status::Todo => Line::styled(format!(" ☐ {}", value.todo.title), TEXT_FG_COLOR),
-        //     Status::Completed => {
-        //         Line::styled(format!(" ✓ {}", value.todo.title), COMPLETED_TEXT_FG_COLOR)
-        //     }
-        // };
-
-        ListItem::new(line)
-    }
+    ListItem::new(line)
 }
 
 // mod tui {

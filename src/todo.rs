@@ -31,6 +31,19 @@ pub struct Todo {
 }
 
 impl Todo {
+    pub fn location_start(&self) -> String {
+        match self.file {
+            Some(ref file) => {
+                if let Some(line_number) = self.line_number {
+                    format!("{}:{}", file, line_number)
+                } else {
+                    file.clone()
+                }
+            }
+            None => "".to_string(),
+        }
+    }
+
     pub fn has_project(&self, project: &str) -> bool {
         self.projects.iter().any(|p| p == project)
     }
