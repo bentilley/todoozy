@@ -10,59 +10,35 @@ use std::io::{self, stdout};
 
 mod cli;
 
-fn main() {
+// fn test() {}
+
+// struct A {}
+
+fn main() -> io::Result<()> {
     let args = cli::args::parse_args().unwrap();
 
-    let mut exclude = ignore::overrides::OverrideBuilder::new("./");
-    exclude.add("!.git/").unwrap();
+    // test();
 
-    for e in args.exclude {
-        exclude.add(&format!("!{}", e)).unwrap();
-    }
+    // return Ok(());
 
-    let walk = ignore::WalkBuilder::new("./")
-        .hidden(false)
-        .overrides(exclude.build().unwrap())
-        .build();
-
-    let mut todos = Vec::<todoozy::Todo>::new();
-
-    for results in walk {
-        match results {
-            Ok(entry) => {
-                if entry.file_type().unwrap().is_dir() {
-                    continue;
-                }
-
-                let file_path = entry.path().to_str().unwrap();
-                todos.append(&mut todoozy::parse_file(file_path));
-            }
-            Err(err) => eprintln!("Error: {}", err),
-        }
-    }
-
-    // for todo in &todos {
-    //     println!("{:?}", todo);
-    // }
-
-    let _ = draw(
-        cli::app::AppConfig {
-            filter: args.filter,
-            sorter: args.sorter,
-        },
-        todos,
-    );
+    run(cli::app::AppConfig {
+        exclude: args.exclude,
+        filter: args.filter,
+        sorter: args.sorter,
+    })
 }
 
-fn draw(config: cli::app::AppConfig, todos: Vec<todoozy::Todo>) -> io::Result<()> {
+fn run(config: cli::app::AppConfig) -> io::Result<()> {
     // tui::init_error_hooks()?;
     // let terminal = tui::init_terminal()?;
+
+    let todos = todoozy::get_todos(&config.exclude).unwrap();
 
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
-    let mut app = cli::app::App::new(config, &todos);
+    let mut app = cli::app::App::new(config, todos);
     app.run(terminal)?;
 
     // let mut should_quit = false;

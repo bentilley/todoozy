@@ -1,6 +1,7 @@
 use std::io;
 use std::io::stdout;
 use std::process::Command;
+use std::rc::Rc;
 // use std::{error::Error, io};
 
 use ratatui::{
@@ -31,13 +32,17 @@ const TEXT_FG_COLOR: Color = Color::White;
 ///
 /// Check the event handling at the bottom to see how to change the state on incoming events. Check
 /// the drawing logic for items on how to specify the highlighting style for selected items.
-pub struct App<'a> {
+pub struct App {
     should_exit: bool,
+
+    /// A list of files to exclude from the search.
+    exclude: Vec<String>,
+
     /// The complete list of todos that this app manages.
-    todo_data: &'a [todoozy::Todo],
+    todo_view: Vec<Rc<todoozy::Todo>>,
 
     /// The list of todos that are currently displayed after filters / sorts have been applied.
-    todo_list: TodoList<'a>,
+    todo_list: TodoList,
     selected: Option<usize>,
 
     filter: Box<dyn todoozy::filter::Filter>,
@@ -45,21 +50,37 @@ pub struct App<'a> {
 }
 
 pub struct AppConfig {
+    pub exclude: Vec<String>,
     pub filter: Box<dyn todoozy::filter::Filter>,
     pub sorter: Box<dyn todoozy::sort::Sorter>,
 }
 
-struct TodoList<'a> {
-    items: Vec<TodoItem<'a>>,
+#[derive(Debug, Default)]
+struct TodoList {
+    items: Vec<TodoItem>,
     state: ListState,
 }
 
-impl<'a> TodoList<'a> {
-    fn new(items: Vec<TodoItem<'a>>) -> Self {
+impl TodoList {
+    fn new(
+        todo_view: Vec<Rc<todoozy::Todo>>,
+        filter: &Box<dyn todoozy::filter::Filter>,
+        sorter: &Box<dyn todoozy::sort::Sorter>,
+    ) -> Self {
         let mut state = ListState::default();
+
+        let mut items: Vec<TodoItem> = todo_view
+            .into_iter()
+            .filter(|t| filter.filter(t))
+            .map(|todo| TodoItem::new(Status::Todo, todo))
+            .collect();
+
+        items.sort_unstable_by(|a, b| sorter.compare(&a.todo, &b.todo));
+
         if !items.is_empty() {
             state.select(Some(0));
         }
+
         Self { items, state }
     }
 
@@ -69,58 +90,16 @@ impl<'a> TodoList<'a> {
             None => None,
         }
     }
-}
 
-const MAX_LOCATION_WIDTH: usize = 16;
-
-// TODO (E) Refactor some of the logic in app.rs into separate files
-//
-// Nothing major, but the size of this file is quite big now and it would be good to try and just
-// keep the rendering logic in here, rather than other stuff...
-// ODOT
-fn truncate_path(path: &str) -> String {
-    let p = match path.strip_prefix("./") {
-        Some(p) => p,
-        None => path,
-    };
-    let mut abbrev = String::new();
-    let mut length = p.len();
-    let mut parts = p.split('/').peekable();
-
-    while length > MAX_LOCATION_WIDTH {
-        match parts.next() {
-            Some(part) => {
-                match parts.peek() {
-                    Some(_) => {
-                        abbrev.push(part.chars().next().unwrap());
-                        abbrev.push('/');
-                        length -= part.len() - 1;
-                    }
-                    None => {
-                        abbrev.push_str(&part);
-                        break;
-                    }
-                };
-            }
-            None => break,
-        };
-    }
-    let p = parts.collect::<Vec<&str>>().join("/");
-    abbrev.push_str(&p);
-
-    if abbrev.len() > MAX_LOCATION_WIDTH {
-        return format!(
-            "...{}",
-            abbrev[abbrev.len() - (MAX_LOCATION_WIDTH - 3)..].to_string()
-        );
-    }
-
-    abbrev
+    // fn sort(&mut self, sorter: &Box<dyn todoozy::sort::Sorter>) {
+    //     self.items
+    //         .sort_unstable_by(|a, b| sorter.compare(a.todo, b.todo));
+    // }
 }
 
 #[derive(Debug, Clone)]
-struct TodoItem<'a> {
-    todo: &'a todoozy::Todo,
+struct TodoItem {
+    todo: Rc<todoozy::Todo>,
     status: Status,
 }
 
@@ -130,41 +109,27 @@ enum Status {
     Completed,
 }
 
-impl<'a> TodoItem<'a> {
-    fn new(status: Status, todo: &'a todoozy::Todo) -> Self {
+impl TodoItem {
+    fn new(status: Status, todo: Rc<todoozy::Todo>) -> Self {
         Self { status, todo }
     }
 }
 
-impl<'a> App<'a> {
-    pub fn new(config: AppConfig, todo_data: &'a [todoozy::Todo]) -> Self {
+impl App {
+    pub fn new(config: AppConfig, todo_data: Vec<todoozy::Todo>) -> Self {
         let mut app = Self {
             should_exit: false,
-            todo_data,
-            todo_list: TodoList::new(Vec::new()),
+            exclude: config.exclude,
+            todo_view: todo_data.into_iter().map(|t| Rc::new(t)).collect(),
+            todo_list: TodoList::default(),
             selected: None,
             filter: config.filter,
             sorter: config.sorter,
         };
-        app.filter_todo_list();
-        app.sort_todo_list();
+
+        app.todo_list = TodoList::new(app.todo_view.clone(), &app.filter, &app.sorter);
+
         app
-    }
-
-    fn filter_todo_list(&mut self) {
-        let items: Vec<TodoItem> = self
-            .todo_data
-            .iter()
-            .filter(|t| self.filter.filter(t))
-            .map(|todo| TodoItem::new(Status::Todo, todo))
-            .collect();
-        self.todo_list = TodoList::new(items);
-    }
-
-    fn sort_todo_list(&mut self) {
-        self.todo_list
-            .items
-            .sort_unstable_by(|a, b| self.sorter.compare(a.todo, b.todo));
     }
 
     pub fn run(&mut self, mut terminal: Terminal<impl Backend>) -> io::Result<()> {
@@ -181,8 +146,6 @@ impl<'a> App<'a> {
         if key.kind != KeyEventKind::Press {
             return;
         }
-
-        // TODO (B) 2024-08-22 Add a way to refresh the current todo list. ODOT
 
         // TODO (C) 2024-08-23 A way to scroll the list view to the right
         //
@@ -207,6 +170,7 @@ impl<'a> App<'a> {
                 self.selected = self.todo_list.state.selected();
             }
             KeyCode::Char('l') | KeyCode::Right => self.toggle_status(),
+            KeyCode::Char('R') => self.refresh_todos(),
             _ => {}
         }
     }
@@ -261,9 +225,15 @@ impl<'a> App<'a> {
             }
         }
     }
+
+    fn refresh_todos(&mut self) {
+        let todo_data = todoozy::get_todos(&self.exclude).unwrap();
+        self.todo_view = todo_data.into_iter().map(|t| Rc::new(t)).collect();
+        self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
+    }
 }
 
-impl Widget for &mut App<'_> {
+impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let [main_area, footer_area] = Layout::vertical([
             // Constraint::Length(2),
@@ -289,7 +259,7 @@ impl Widget for &mut App<'_> {
     }
 }
 
-impl App<'_> {
+impl App {
     // TODO (B) 2024-08-22 Fix the instructions in the footer ODOT
     fn render_footer(area: Rect, buf: &mut Buffer) {
         Paragraph::new("Use ↓↑ to move, ← to unselect, → to change status, g/G to go top/bottom.")
@@ -301,9 +271,10 @@ impl App<'_> {
 
     fn render_list(&mut self, area: Rect, buf: &mut Buffer) {
         let short_paths: Vec<String> = self
-            .todo_data
+            .todo_list
+            .items
             .iter()
-            .map(|t| truncate_path(&t.location_start()))
+            .map(|t| super::display::truncate_path(&t.todo.location_start()))
             .collect();
         let max_path_width = short_paths.iter().map(|s| s.len()).max().unwrap_or(0);
 
@@ -325,7 +296,7 @@ impl App<'_> {
     }
 
     fn render_selected_item(&self, area: Rect, buf: &mut Buffer) {
-        let todo = self.todo_list.selected().unwrap().todo;
+        let todo = &self.todo_list.selected().unwrap().todo;
 
         let block = Block::new()
             .title(Line::raw(format!("[info]")).left_aligned())
@@ -392,8 +363,8 @@ impl App<'_> {
     }
 }
 
-fn make_listitem<'a>(todo_item: &TodoItem<'a>, max_path_width: usize) -> ListItem<'a> {
-    let mut location = truncate_path(todo_item.todo.location_start().as_str());
+fn make_listitem<'a>(todo_item: &TodoItem, max_path_width: usize) -> ListItem<'a> {
+    let mut location = super::display::truncate_path(todo_item.todo.location_start().as_str());
     if location.len() < max_path_width {
         location.push_str(&" ".repeat(max_path_width - location.len()));
     }

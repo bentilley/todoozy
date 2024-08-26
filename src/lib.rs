@@ -1,5 +1,6 @@
 mod constants;
 pub mod filter;
+pub mod fs;
 mod lang;
 mod parse;
 pub mod sort;
@@ -7,7 +8,37 @@ mod todo;
 
 pub use todo::Todo;
 
-pub fn parse_file(file_path: &str) -> Vec<todo::Todo> {
+use ignore::Walk;
+use std::error;
+
+/// Search for all the available todos in the project.
+///
+/// * `exclude`: A slice of files to exclude from the search.
+pub fn get_todos(exclude: &[String]) -> Result<Vec<todo::Todo>, Box<dyn error::Error>> {
+    parse_files(fs::get_files(exclude))
+}
+
+fn parse_files(files: Walk) -> Result<Vec<todo::Todo>, Box<dyn error::Error>> {
+    let mut todos = Vec::<todo::Todo>::new();
+
+    for file in files {
+        match file {
+            Ok(entry) => {
+                if entry.file_type().unwrap().is_dir() {
+                    continue;
+                }
+
+                let file_path = entry.path().to_str().unwrap();
+                todos.append(&mut parse_file(file_path));
+            }
+            Err(err) => eprintln!("Error: {}", err),
+        }
+    }
+
+    Ok(todos)
+}
+
+fn parse_file(file_path: &str) -> Vec<todo::Todo> {
     match get_extension_from_filename(file_path) {
         Some("tdz") => parse_raw(lang::tdz::extract_todos(file_path), file_path),
         Some("rs") => parse_raw(lang::rust::extract_todos(file_path), file_path),
