@@ -254,17 +254,16 @@ impl Widget for &mut App {
             }
         }
 
-        App::render_footer(footer_area, buf);
+        self.render_footer(footer_area, buf);
     }
 }
 
 impl App {
-    // TODO (B) 2024-08-22 Fix the instructions in the footer ODOT
-    fn render_footer(area: Rect, buf: &mut Buffer) {
-        Paragraph::new("Use ↓↑ to move, ← to unselect, → to change status, g/G to go top/bottom.")
+    fn render_footer(&mut self, area: Rect, buf: &mut Buffer) {
+        let todo = &self.todo_list.selected().unwrap().todo;
+        Paragraph::new(format!("[{}]", todo.title))
             .bg(Color::Magenta)
             .fg(Color::Black)
-            .centered()
             .render(area, buf);
     }
 

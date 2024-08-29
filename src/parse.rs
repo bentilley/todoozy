@@ -99,7 +99,7 @@ fn test_date() {
     );
 }
 
-// TODO (B) Add somekind of identifier to the todo parsing logic.
+// TODO (B) Add somekind of identifier to the todo parsing logic. +feature
 //
 // This is going to be required to keep track of which todo is which (especially is we want to try
 // and sync this to another system).
