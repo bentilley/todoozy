@@ -1,82 +1,13 @@
-use ratatui::{
-    backend::CrosstermBackend,
-    crossterm::{
-        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-        ExecutableCommand,
-    },
-    Terminal,
-};
-use std::io::{self, stdout};
+use std::error;
 
 mod cli;
 
-// fn test() {}
-
-// struct A {}
-
-fn main() -> io::Result<()> {
+fn main() -> Result<(), Box<dyn error::Error>> {
     let args = cli::args::parse_args().unwrap();
 
-    // test();
-
-    // return Ok(());
-
-    run(cli::app::AppConfig {
+    cli::tui::run(cli::tui::app::AppConfig {
         exclude: args.exclude,
         filter: args.filter,
         sorter: args.sorter,
     })
 }
-
-fn run(config: cli::app::AppConfig) -> io::Result<()> {
-    // tui::init_error_hooks()?;
-    // let terminal = tui::init_terminal()?;
-
-    let todos = todoozy::get_todos(&config.exclude).unwrap();
-
-    enable_raw_mode()?;
-    stdout().execute(EnterAlternateScreen)?;
-    let terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
-
-    let mut app = cli::app::App::new(config, todos);
-    app.run(terminal)?;
-
-    // let mut should_quit = false;
-    // while !should_quit {
-    //     terminal.draw(ui)?;
-    //     should_quit = handle_events()?;
-    // }
-
-    // tui::restore_terminal()?;
-    // Ok(())
-
-    disable_raw_mode()?;
-    stdout().execute(LeaveAlternateScreen)?;
-    Ok(())
-}
-
-// fn handle_events() -> io::Result<bool> {
-//     if event::poll(std::time::Duration::from_millis(50))? {
-//         if let Event::Key(key) = event::read()? {
-//             if key.kind == event::KeyEventKind::Press && key.code == KeyCode::Char('q') {
-//                 return Ok(true);
-//             }
-//         }
-//     }
-//     Ok(false)
-// }
-
-// fn ui(frame: &mut Frame) {
-//     let list = List::new(todos)
-//         .block(Block::bordered().title("List"))
-//         .style(Style::default().fg(Color::White))
-//         .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
-//         .highlight_symbol(">>")
-//         .repeat_highlight_symbol(true)
-//         .direction(ListDirection::BottomToTop);
-
-//     frame.render_widget(
-//         Paragraph::new("Hello World!").block(Block::bordered().title("Greeting")),
-//         frame.area(),
-//     );
-// }
