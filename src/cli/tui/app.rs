@@ -280,7 +280,7 @@ impl App {
             .todo_list
             .items
             .iter()
-            .map(|todo_item| make_listitem(todo_item, max_path_width))
+            .map(|todo_item| App::make_listitem(todo_item, max_path_width))
             .collect();
 
         let list = List::new(items)
@@ -359,43 +359,44 @@ impl App {
             .wrap(Wrap { trim: false })
             .render(area, buf);
     }
-}
 
-fn make_listitem<'a>(todo_item: &TodoItem, max_path_width: usize) -> ListItem<'a> {
-    let mut location = crate::cli::display::truncate_path(todo_item.todo.location_start().as_str());
-    if location.len() < max_path_width {
-        location.push_str(&" ".repeat(max_path_width - location.len()));
+    fn make_listitem<'a>(todo_item: &TodoItem, max_path_width: usize) -> ListItem<'a> {
+        let mut location =
+            crate::cli::display::truncate_path(todo_item.todo.location_start().as_str());
+        if location.len() < max_path_width {
+            location.push_str(&" ".repeat(max_path_width - location.len()));
+        }
+
+        let projects: Vec<Span> = todo_item
+            .todo
+            .projects
+            .iter()
+            .map(|p| Span::styled(format!(" +{}", p), Style::new().fg(Color::Magenta)))
+            .collect();
+
+        let contexts: Vec<Span> = todo_item
+            .todo
+            .contexts
+            .iter()
+            .map(|p| Span::styled(format!(" @{}", p), Style::new().fg(Color::Cyan)))
+            .collect();
+
+        let line = Line::from(
+            vec![
+                Span::styled("[ ] ", Style::new().fg(Color::Red)),
+                Span::styled(format!("{} ", location), Style::new().fg(Color::Blue)),
+                Span::styled(
+                    format!("({}) ", todo_item.todo.priority.unwrap_or('Z')),
+                    Style::new().fg(Color::Yellow),
+                ),
+                Span::styled(todo_item.todo.title.clone(), Style::new().fg(Color::White)),
+            ]
+            .into_iter()
+            .chain(projects.into_iter())
+            .chain(contexts.into_iter())
+            .collect::<Vec<Span>>(),
+        );
+
+        ListItem::new(line)
     }
-
-    let projects: Vec<Span> = todo_item
-        .todo
-        .projects
-        .iter()
-        .map(|p| Span::styled(format!(" +{}", p), Style::new().fg(Color::Magenta)))
-        .collect();
-
-    let contexts: Vec<Span> = todo_item
-        .todo
-        .contexts
-        .iter()
-        .map(|p| Span::styled(format!(" @{}", p), Style::new().fg(Color::Cyan)))
-        .collect();
-
-    let line = Line::from(
-        vec![
-            Span::styled("[ ] ", Style::new().fg(Color::Red)),
-            Span::styled(format!("{} ", location), Style::new().fg(Color::Blue)),
-            Span::styled(
-                format!("({}) ", todo_item.todo.priority.unwrap_or('Z')),
-                Style::new().fg(Color::Yellow),
-            ),
-            Span::styled(todo_item.todo.title.clone(), Style::new().fg(Color::White)),
-        ]
-        .into_iter()
-        .chain(projects.into_iter())
-        .chain(contexts.into_iter())
-        .collect::<Vec<Span>>(),
-    );
-
-    ListItem::new(line)
 }
