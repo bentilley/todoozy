@@ -1,4 +1,5 @@
 pub mod app;
+mod input;
 
 use std::error;
 use std::{io, io::stdout};

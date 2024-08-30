@@ -19,8 +19,10 @@ use ratatui::{
         Block, Borders, HighlightSpacing, List, ListItem, ListState, Paragraph, StatefulWidget,
         Widget, Wrap,
     },
-    Terminal,
+    Frame, Terminal,
 };
+
+use super::input::Input;
 
 const SELECTED_STYLE: Style = Style::new().fg(Color::Black).bg(Color::Green);
 const TEXT_FG_COLOR: Color = Color::White;
@@ -45,7 +47,10 @@ pub struct App {
     selected: Option<usize>,
 
     filter: Box<dyn todoozy::filter::Filter>,
+
     sorter: Box<dyn todoozy::sort::Sorter>,
+
+    input: Option<Input>,
 }
 
 pub struct AppConfig {
@@ -89,11 +94,6 @@ impl TodoList {
             None => None,
         }
     }
-
-    // fn sort(&mut self, sorter: &Box<dyn todoozy::sort::Sorter>) {
-    //     self.items
-    //         .sort_unstable_by(|a, b| sorter.compare(a.todo, b.todo));
-    // }
 }
 
 #[derive(Debug, Clone)]
@@ -124,6 +124,7 @@ impl App {
             selected: None,
             filter: config.filter,
             sorter: config.sorter,
+            input: None,
         };
 
         app.todo_list = TodoList::new(app.todo_view.clone(), &app.filter, &app.sorter);
@@ -133,7 +134,10 @@ impl App {
 
     pub fn run(&mut self, mut terminal: Terminal<impl Backend>) -> io::Result<()> {
         while !self.should_exit {
-            terminal.draw(|f| f.render_widget(&mut *self, f.area()))?;
+            terminal.draw(|f| {
+                f.render_widget(&mut *self, f.area());
+                self.set_cursor_position(f);
+            })?;
             if let Event::Key(key) = event::read()? {
                 self.handle_key(key, &mut terminal);
             };
@@ -141,36 +145,66 @@ impl App {
         Ok(())
     }
 
+    fn set_cursor_position(&mut self, frame: &mut Frame) {
+        if let Some(ref input) = self.input {
+            input.set_cursor_position(frame);
+        }
+    }
+
     fn handle_key(&mut self, key: KeyEvent, terminal: &mut Terminal<impl Backend>) {
         if key.kind != KeyEventKind::Press {
             return;
         }
+
+        // TODO (B) 2024-08-26 Key bindings to set the sort in the UI +sort
+        //
+        // Currently only possible via the command line args at start up time, need to be able to
+        // do this in the TUI while the app is running.
+        // ODOT
 
         // TODO (C) 2024-08-23 A way to scroll the list view to the right
         //
         // So we can see all the info of long todos who's information can't fit on the current
         // terminal width.
         // ODOT
-        match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => {
-                if self.selected.is_some() {
-                    self.selected = None;
-                } else {
-                    self.should_exit = true
+
+        match self.input {
+            None => match key.code {
+                KeyCode::Char('q') | KeyCode::Esc => {
+                    if self.selected.is_some() {
+                        self.selected = None;
+                    } else {
+                        self.should_exit = true
+                    }
                 }
-            }
-            KeyCode::Char('e') => self.edit_selected(terminal).unwrap(),
-            KeyCode::Char('h') | KeyCode::Left => self.select_none(),
-            KeyCode::Char('j') | KeyCode::Down => self.select_next(),
-            KeyCode::Char('k') | KeyCode::Up => self.select_previous(),
-            KeyCode::Char('g') | KeyCode::Home => self.select_first(),
-            KeyCode::Char('G') | KeyCode::End => self.select_last(),
-            KeyCode::Enter => {
-                self.selected = self.todo_list.state.selected();
-            }
-            KeyCode::Char('l') | KeyCode::Right => self.toggle_status(),
-            KeyCode::Char('R') => self.refresh_todos(),
-            _ => {}
+                KeyCode::Char('e') => self.edit_selected(terminal).unwrap(),
+                KeyCode::Char('h') | KeyCode::Left => self.select_none(),
+                KeyCode::Char('j') | KeyCode::Down => self.select_next(),
+                KeyCode::Char('k') | KeyCode::Up => self.select_previous(),
+                KeyCode::Char('f') => self.get_new_filter(),
+                KeyCode::Char('F') => self.reset_filter(),
+                KeyCode::Char('g') | KeyCode::Home => self.select_first(),
+                KeyCode::Char('G') | KeyCode::End => self.select_last(),
+                KeyCode::Enter => {
+                    self.selected = self.todo_list.state.selected();
+                }
+                KeyCode::Char('l') | KeyCode::Right => self.toggle_status(),
+                KeyCode::Char('R') => self.refresh_todos(),
+                _ => {}
+            },
+            Some(ref mut input) => match key.code {
+                KeyCode::Enter => {
+                    let output = input.submit();
+                    self.set_new_filter(output);
+                    self.input = None;
+                }
+                KeyCode::Char(to_insert) => input.enter_char(to_insert),
+                KeyCode::Backspace => input.delete_char(),
+                KeyCode::Left => input.move_cursor_left(),
+                KeyCode::Right => input.move_cursor_right(),
+                KeyCode::Esc => self.input = None,
+                _ => {}
+            },
         }
     }
 
@@ -225,6 +259,25 @@ impl App {
         }
     }
 
+    fn reset_filter(&mut self) {
+        self.filter = Box::new(todoozy::filter::All {});
+        self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
+    }
+
+    fn get_new_filter(&mut self) {
+        self.input = Some(Input::new("filter:".to_string()));
+    }
+
+    fn set_new_filter(&mut self, filter: String) {
+        match todoozy::filter::parse_str(filter) {
+            Ok(f) => {
+                self.filter = f;
+                self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
+            }
+            Err(_) => {}
+        };
+    }
+
     fn refresh_todos(&mut self) {
         let todo_data = todoozy::get_todos(&self.exclude).unwrap();
         self.todo_view = todo_data.into_iter().map(|t| Rc::new(t)).collect();
@@ -254,7 +307,10 @@ impl Widget for &mut App {
             }
         }
 
-        self.render_footer(footer_area, buf);
+        match self.input {
+            Some(ref mut input) => input.render(footer_area, buf),
+            None => self.render_footer(footer_area, buf),
+        }
     }
 }
 
