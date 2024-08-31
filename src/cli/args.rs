@@ -9,7 +9,7 @@ impl Args {
         Args {
             exclude: Vec::new(),
             filter: Box::new(todoozy::filter::All {}),
-            sorter: Box::new(todoozy::sort::Priority {}),
+            sorter: Box::new(todoozy::sort::PropertySorter::default()),
         }
     }
 }
@@ -54,16 +54,11 @@ pub fn parse_args() -> Result<Args, lexopt::Error> {
                 };
             }
 
-            // TODO (B) 2024-08-20 Refine sorting options +feature +sort
-            //
-            // Add a --sort option, so you can mix and match more easily and write more complex
-            // expressions. I imagine the syntax being something like 'priority > date > user',
-            // meaning that the tasks should be sorted by priority first, then by date, and finally
-            // by user. Maybe there is precendent for this type of syntax though in one of those
-            // databases that has it's own piping query language...
-            // ODOT
             Short('s') | Long("sort") => {
-                args.sorter = todoozy::sort::parse_str(parser.value()?.parse()?);
+                args.sorter = match todoozy::sort::parse_str(parser.value()?.parse()?) {
+                    Ok(s) => s,
+                    Err(e) => panic!("{}", e),
+                };
             }
 
             Long("help") => {
