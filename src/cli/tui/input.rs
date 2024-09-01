@@ -6,10 +6,10 @@ use ratatui::{
     Frame,
 };
 
-// pub enum InputMode {
-//     Normal,
-//     Editing,
-// }
+pub enum InputFor {
+    Filter,
+    Sort,
+}
 
 /// Input is a UI component for capturing user input.
 pub struct Input {

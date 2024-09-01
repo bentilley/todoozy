@@ -9,7 +9,7 @@ impl Args {
         Args {
             exclude: Vec::new(),
             filter: Box::new(todoozy::filter::All {}),
-            sorter: Box::new(todoozy::sort::PropertySorter::default()),
+            sorter: Box::new(todoozy::sort::SortPipeline::app_default()),
         }
     }
 }

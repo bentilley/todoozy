@@ -22,7 +22,7 @@ use ratatui::{
     Frame, Terminal,
 };
 
-use super::input::Input;
+use super::input::{Input, InputFor};
 
 const SELECTED_STYLE: Style = Style::new().fg(Color::Black).bg(Color::Green);
 const TEXT_FG_COLOR: Color = Color::White;
@@ -51,6 +51,7 @@ pub struct App {
     sorter: Box<dyn todoozy::sort::Sorter>,
 
     input: Option<Input>,
+    input_for: Option<InputFor>,
 }
 
 pub struct AppConfig {
@@ -125,6 +126,7 @@ impl App {
             filter: config.filter,
             sorter: config.sorter,
             input: None,
+            input_for: None,
         };
 
         app.todo_list = TodoList::new(app.todo_view.clone(), &app.filter, &app.sorter);
@@ -156,12 +158,6 @@ impl App {
             return;
         }
 
-        // TODO (B) 2024-08-26 Key bindings to set the sort in the UI +sort
-        //
-        // Currently only possible via the command line args at start up time, need to be able to
-        // do this in the TUI while the app is running.
-        // ODOT
-
         // TODO (C) 2024-08-23 A way to scroll the list view to the right
         //
         // So we can see all the info of long todos who's information can't fit on the current
@@ -181,7 +177,7 @@ impl App {
                 KeyCode::Char('h') | KeyCode::Left => self.select_none(),
                 KeyCode::Char('j') | KeyCode::Down => self.select_next(),
                 KeyCode::Char('k') | KeyCode::Up => self.select_previous(),
-                KeyCode::Char('f') => self.get_new_filter(),
+                KeyCode::Char('f') => self.get_input(InputFor::Filter),
                 KeyCode::Char('F') => self.reset_filter(),
                 KeyCode::Char('g') | KeyCode::Home => self.select_first(),
                 KeyCode::Char('G') | KeyCode::End => self.select_last(),
@@ -190,12 +186,14 @@ impl App {
                 }
                 KeyCode::Char('l') | KeyCode::Right => self.toggle_status(),
                 KeyCode::Char('R') => self.refresh_todos(),
+                KeyCode::Char('s') => self.get_input(InputFor::Sort),
+                KeyCode::Char('S') => self.reset_sort(),
                 _ => {}
             },
             Some(ref mut input) => match key.code {
                 KeyCode::Enter => {
                     let output = input.submit();
-                    self.set_new_filter(output);
+                    self.handle_input(output);
                     self.input = None;
                 }
                 KeyCode::Char(to_insert) => input.enter_char(to_insert),
@@ -259,16 +257,23 @@ impl App {
         }
     }
 
-    fn reset_filter(&mut self) {
-        self.filter = Box::new(todoozy::filter::All {});
-        self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
+    fn get_input(&mut self, input_for: InputFor) {
+        self.input = match input_for {
+            InputFor::Filter => Some(Input::new("filter:".to_string())),
+            InputFor::Sort => Some(Input::new("sort:".to_string())),
+        };
+        self.input_for = Some(input_for);
     }
 
-    fn get_new_filter(&mut self) {
-        self.input = Some(Input::new("filter:".to_string()));
+    fn handle_input(&mut self, input: String) {
+        match self.input_for {
+            Some(InputFor::Filter) => self.set_filter(input),
+            Some(InputFor::Sort) => self.set_sort(input),
+            None => {}
+        };
     }
 
-    fn set_new_filter(&mut self, filter: String) {
+    fn set_filter(&mut self, filter: String) {
         match todoozy::filter::parse_str(filter) {
             Ok(f) => {
                 self.filter = f;
@@ -276,6 +281,26 @@ impl App {
             }
             Err(_) => {}
         };
+    }
+
+    fn reset_filter(&mut self) {
+        self.filter = Box::new(todoozy::filter::All {});
+        self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
+    }
+
+    fn set_sort(&mut self, sort: String) {
+        match todoozy::sort::parse_str(sort) {
+            Ok(s) => {
+                self.sorter = s;
+                self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
+            }
+            Err(_) => {}
+        };
+    }
+
+    fn reset_sort(&mut self) {
+        self.sorter = Box::new(todoozy::sort::SortPipeline::app_default());
+        self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
     }
 
     fn refresh_todos(&mut self) {

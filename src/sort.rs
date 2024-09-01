@@ -24,7 +24,7 @@ enum Direction {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct PropertySorter {
+struct PropertySorter {
     property: Property,
     direction: Direction,
 }
@@ -60,13 +60,28 @@ impl Sorter for PropertySorter {
 }
 
 #[derive(Default)]
-struct SortPipeline {
+pub struct SortPipeline {
     sorters: Vec<Box<dyn Sorter>>,
 }
 
 impl SortPipeline {
     fn new(sorters: Vec<Box<dyn Sorter>>) -> Self {
         SortPipeline { sorters }
+    }
+
+    pub fn app_default() -> Self {
+        SortPipeline {
+            sorters: vec![
+                Box::new(PropertySorter {
+                    property: Property::Priority,
+                    direction: Direction::Ascending,
+                }),
+                Box::new(PropertySorter {
+                    property: Property::CreationDate,
+                    direction: Direction::Descending,
+                }),
+            ],
+        }
     }
 
     fn add_sorter(&mut self, sorter: Box<dyn Sorter>) {
