@@ -426,6 +426,13 @@ impl App {
             ));
         }
 
+        if let Some(creation_date) = todo.creation_date {
+            text.push_line(Line::styled(
+                format!("creation_date: {}", creation_date),
+                Style::new().fg(Color::Red),
+            ));
+        }
+
         text.push_line("\n");
 
         if let Some(ref description) = todo.description {
