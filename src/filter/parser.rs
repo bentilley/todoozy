@@ -1,8 +1,9 @@
-use super::{ConjunctionFilter, DisjunctionFilter, Filter, Property, PropertyFilter, Relation};
+use super::{Conjunction, Disjunction, Filter, Negation, Property, PropertyFilter, Relation};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag},
     character::complete::{char, space0, space1},
+    combinator::opt,
     multi::many0,
     sequence::{delimited, tuple},
     IResult,
@@ -172,14 +173,75 @@ fn parens(i: &str) -> IResult<&str, Box<dyn Filter>> {
     delimited(space0, delimited(char('('), conjunction, char(')')), space0)(i)
 }
 
+fn not(i: &str) -> IResult<&str, &str> {
+    delimited(space0, tag("not"), space1)(i)
+}
+
+#[test]
+fn test_not() {
+    assert_eq!(not("not "), Ok(("", "not")));
+    assert_eq!(not(" not "), Ok(("", "not")));
+    assert_eq!(not("  not  "), Ok(("", "not")));
+    assert_eq!(not("  not "), Ok(("", "not")));
+}
+
 fn clause(i: &str) -> IResult<&str, Box<dyn Filter>> {
-    alt((parens, term))(i)
+    let (i, n) = opt(not)(i)?;
+    let (i, f) = alt((parens, term))(i)?;
+    if n.is_some() {
+        Ok((i, Box::new(Negation { filter: f })))
+    } else {
+        Ok((i, f))
+    }
+}
+
+#[test]
+fn test_clause() {
+    let (i, f) = clause("project=Test").expect("Failed to parse");
+    assert_eq!(i, "");
+    let todo = crate::todo::TodoBuilder::default()
+        .projects(vec!["Test".to_owned()])
+        .build()
+        .unwrap();
+    assert!(f.filter(&todo));
+
+    let (i, f) = clause("not project=Test").expect("Failed to parse");
+    assert_eq!(i, "");
+    let todo = crate::todo::TodoBuilder::default()
+        .projects(vec!["Else".to_owned()])
+        .build()
+        .unwrap();
+    assert!(f.filter(&todo));
+
+    let (i, f) = clause("not (project=Test)").expect("Failed to parse");
+    assert_eq!(i, "");
+    let todo = crate::todo::TodoBuilder::default()
+        .projects(vec!["Else".to_owned()])
+        .build()
+        .unwrap();
+    assert!(f.filter(&todo));
+
+    let (i, f) = clause("not (project=Test and project=Else)").expect("Failed to parse");
+    assert_eq!(i, "");
+    let todo = crate::todo::TodoBuilder::default()
+        .projects(vec!["Test".to_owned()])
+        .build()
+        .unwrap();
+    assert!(f.filter(&todo));
+
+    let (i, f) = clause("not (project=Test or project=Else)").expect("Failed to parse");
+    assert_eq!(i, "");
+    let todo = crate::todo::TodoBuilder::default()
+        .projects(vec!["Test".to_owned()])
+        .build()
+        .unwrap();
+    assert!(!f.filter(&todo));
 }
 
 fn disjunction(i: &str) -> IResult<&str, Box<dyn Filter>> {
     let (i, s) = clause(i)?;
     let (i, exprs) = many0(tuple((or, clause)))(i)?;
-    let mut filter = DisjunctionFilter { filters: vec![s] };
+    let mut filter = Disjunction { filters: vec![s] };
     for (_, s) in exprs {
         filter.filters.push(s);
     }
@@ -200,7 +262,7 @@ fn test_disjunction() {
 fn conjunction(i: &str) -> IResult<&str, Box<dyn Filter>> {
     let (i, s) = disjunction(i)?;
     let (i, exprs) = many0(tuple((and, disjunction)))(i)?;
-    let mut filter = ConjunctionFilter { filters: vec![s] };
+    let mut filter = Conjunction { filters: vec![s] };
     for (_, s) in exprs {
         filter.filters.push(s);
     }
@@ -209,29 +271,7 @@ fn conjunction(i: &str) -> IResult<&str, Box<dyn Filter>> {
 
 #[test]
 fn test_conjunction() {
-    let (i, f) = conjunction("project=p1 and project=p2").expect("Failed to parse");
-    assert_eq!(i, "");
-    let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p1".to_owned(), "p2".to_owned()])
-        .build()
-        .unwrap();
-    assert!(f.filter(&todo));
-}
-
-fn expression(i: &str) -> IResult<&str, Box<dyn Filter>> {
-    alt((conjunction, disjunction, term))(i)
-}
-
-pub fn parse_expression(filter_def: &str) -> Result<Box<dyn Filter>, String> {
-    match expression(filter_def) {
-        Ok((_, f)) => Ok(f),
-        Err(e) => Err(format!("Failed to parse filter expression: {:?}", e)),
-    }
-}
-
-#[test]
-fn test_expression() {
-    let (i, f) = expression("priority=A").expect("Failed to parse");
+    let (i, f) = conjunction("priority=A").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
         .priority(Some('A'))
@@ -244,7 +284,7 @@ fn test_expression() {
         .unwrap();
     assert!(!f.filter(&todo));
 
-    let (i, f) = expression("project=p1 and project=p2").expect("Failed to parse");
+    let (i, f) = conjunction("project=p1 and project=p2").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
         .projects(vec!["p1".to_owned(), "p2".to_owned()])
@@ -257,7 +297,7 @@ fn test_expression() {
         .unwrap();
     assert!(!f.filter(&todo));
 
-    let (i, f) = expression("project=p1 or project=p2").expect("Failed to parse");
+    let (i, f) = conjunction("project=p1 or project=p2").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
         .projects(vec!["p1".to_owned()])
@@ -272,7 +312,7 @@ fn test_expression() {
     let todo = crate::todo::TodoBuilder::default().build().unwrap();
     assert!(!f.filter(&todo));
 
-    let (i, f) = expression("project=p1 and project=p2 or project=p3").expect("Failed to parse");
+    let (i, f) = conjunction("project=p1 and project=p2 or project=p3").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
         .projects(vec!["p1".to_owned(), "p2".to_owned()])
@@ -295,7 +335,26 @@ fn test_expression() {
         .unwrap();
     assert!(!f.filter(&todo));
 
-    let (i, f) = expression("(project=p1 and project=p2) or project=p3").expect("Failed to parse");
+    let (i, f) = conjunction("(project=A and project=B) and (project=C and project=D)")
+        .expect("Failed to parse");
+    assert_eq!(i, "");
+    let todo = crate::todo::TodoBuilder::default()
+        .projects(vec![
+            "A".to_owned(),
+            "B".to_owned(),
+            "C".to_owned(),
+            "D".to_owned(),
+        ])
+        .build()
+        .unwrap();
+    assert!(f.filter(&todo));
+    let todo = crate::todo::TodoBuilder::default()
+        .projects(vec!["A".to_owned(), "B".to_owned(), "C".to_owned()])
+        .build()
+        .unwrap();
+    assert!(!f.filter(&todo));
+
+    let (i, f) = conjunction("(project=p1 and project=p2) or project=p3").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
         .projects(vec!["p1".to_owned(), "p2".to_owned()])
@@ -318,7 +377,7 @@ fn test_expression() {
         .unwrap();
     assert!(!f.filter(&todo));
 
-    let (i, f) = expression("(project=p1 and (project=p2 or project=p3)) or project=p4")
+    let (i, f) = conjunction("(project=p1 and (project=p2 or project=p3)) or project=p4")
         .expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
@@ -342,7 +401,7 @@ fn test_expression() {
         .unwrap();
     assert!(!f.filter(&todo));
 
-    let (i, f) = expression("creation_date>=2024-08-22").expect("Failed to parse");
+    let (i, f) = conjunction("creation_date>=2024-08-22").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
         .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 08, 23))
@@ -359,4 +418,11 @@ fn test_expression() {
         .build()
         .unwrap();
     assert!(!f.filter(&todo));
+}
+
+pub fn parse_expression(filter_def: &str) -> Result<Box<dyn Filter>, String> {
+    match conjunction(filter_def) {
+        Ok((_, f)) => Ok(f),
+        Err(e) => Err(format!("Failed to parse filter conjunction: {:?}", e)),
+    }
 }

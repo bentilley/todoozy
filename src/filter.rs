@@ -24,7 +24,6 @@ enum Relation {
     LessEqual,
 }
 
-// TODO (B) 2024-08-22 Add a "not" operation to the PropertyFilter +feature
 #[derive(Debug, PartialEq)]
 pub struct PropertyFilter {
     property: Property,
@@ -134,23 +133,33 @@ fn test_property_filter() {
     );
 }
 
-pub struct DisjunctionFilter {
+pub struct Disjunction {
     pub filters: Vec<Box<dyn Filter>>,
 }
 
-impl Filter for DisjunctionFilter {
+impl Filter for Disjunction {
     fn filter(&self, todo: &crate::todo::Todo) -> bool {
         self.filters.iter().any(|clause| clause.filter(todo))
     }
 }
 
-pub struct ConjunctionFilter {
+pub struct Conjunction {
     pub filters: Vec<Box<dyn Filter>>,
 }
 
-impl Filter for ConjunctionFilter {
+impl Filter for Conjunction {
     fn filter(&self, todo: &crate::todo::Todo) -> bool {
         self.filters.iter().all(|clause| clause.filter(todo))
+    }
+}
+
+pub struct Negation {
+    pub filter: Box<dyn Filter>,
+}
+
+impl Filter for Negation {
+    fn filter(&self, todo: &crate::todo::Todo) -> bool {
+        !self.filter.filter(todo)
     }
 }
 
