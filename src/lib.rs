@@ -38,6 +38,13 @@ fn parse_files(files: Walk) -> Result<Vec<todo::Todo>, Box<dyn error::Error>> {
     Ok(todos)
 }
 
+// TODO (C) 2024-09-01 Update todo extraction logic? +improvement
+//
+// I was thinking of a protocol where if we see a comment that starts with the todo token, we drink
+// up all the contiguous lines of comments until we hit code or whitespace, and that makes up the
+// todo. It would remove the need for the "odot" delimiter, but I guess it will make it easier to
+// write broken todos...
+// ODOT
 fn parse_file(file_path: &str) -> Vec<todo::Todo> {
     match get_extension_from_filename(file_path) {
         Some("tdz") => parse_raw(lang::tdz::extract_todos(file_path), file_path),

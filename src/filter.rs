@@ -4,41 +4,134 @@ pub trait Filter {
     fn filter(&self, todo: &crate::todo::Todo) -> bool;
 }
 
-// TODO (C) 2024-08-22 Add creation date and completion date filters +feature
-//
-// Non-trivial as this would require adding > and < comparators to the mini-query language.
-// +parsing +nom
-// ODOT
 #[derive(Debug, PartialEq)]
-enum FilterProperty {
+enum Property {
     File,
     Priority,
     Project,
     Context,
+    CreationDate,
+    CompletionDate,
 }
 
-// TODO (B) 2024-08-22 Add some "operation" property to the PropertyFilter +feature
-//
-// This would allow us to specify a filter like "priority > A" or "priority < B" or "priority = C".
-// This will be needed for the creation date and completion date filters too, but just realised
-// that it's also super useful for priority!
-// ODOT
+#[derive(Debug, PartialEq)]
+enum Relation {
+    Equal,
+    NotEqual,
+    Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
+}
+
 // TODO (B) 2024-08-22 Add a "not" operation to the PropertyFilter +feature
 #[derive(Debug, PartialEq)]
 pub struct PropertyFilter {
-    property: FilterProperty,
+    property: Property,
+    relation: Relation,
     pub value: String,
 }
 
 impl Filter for PropertyFilter {
     fn filter(&self, todo: &crate::todo::Todo) -> bool {
         match self.property {
-            FilterProperty::File => todo.file == Some(self.value.clone()),
-            FilterProperty::Priority => todo.priority == Some(self.value.chars().next().unwrap()),
-            FilterProperty::Project => todo.has_project(&self.value),
-            FilterProperty::Context => todo.has_context(&self.value),
+            Property::File => {
+                let value = Some(self.value.clone());
+                match self.relation {
+                    Relation::Equal => todo.file == value,
+                    Relation::NotEqual => todo.file != value,
+                    Relation::Greater => todo.file > value,
+                    Relation::GreaterEqual => todo.file >= value,
+                    Relation::Less => todo.file < value,
+                    Relation::LessEqual => todo.file <= value,
+                }
+            }
+            Property::Priority => {
+                let priority = todo.priority.unwrap_or('Z');
+                let value = self.value.chars().next().unwrap();
+                match self.relation {
+                    Relation::Equal => priority == value,
+                    Relation::NotEqual => priority != value,
+                    // These are reversed because char 'A' is actually < char 'B' etc. I guess it's
+                    // done based on their ASCII values...
+                    Relation::Greater => priority < value,
+                    Relation::GreaterEqual => priority <= value,
+                    Relation::Less => priority > value,
+                    Relation::LessEqual => priority >= value,
+                }
+            }
+            Property::Project => match self.relation {
+                Relation::Equal => todo.has_project(&self.value),
+                Relation::NotEqual => !todo.has_project(&self.value),
+                _ => false,
+            },
+            Property::Context => match self.relation {
+                Relation::Equal => todo.has_context(&self.value),
+                Relation::NotEqual => !todo.has_context(&self.value),
+                _ => false,
+            },
+            Property::CreationDate => {
+                let date = match self.value.parse::<chrono::NaiveDate>() {
+                    Ok(date) => date,
+                    Err(e) => {
+                        eprintln!("Error parsing date: {}", e);
+                        return false;
+                    }
+                };
+                match self.relation {
+                    Relation::Equal => todo.creation_date == Some(date),
+                    Relation::NotEqual => todo.creation_date != Some(date),
+                    Relation::Greater => todo.creation_date > Some(date),
+                    Relation::GreaterEqual => todo.creation_date >= Some(date),
+                    Relation::Less => todo.creation_date < Some(date),
+                    Relation::LessEqual => todo.creation_date <= Some(date),
+                }
+            }
+            Property::CompletionDate => {
+                let date = self.value.parse::<chrono::NaiveDate>().unwrap();
+                match self.relation {
+                    Relation::Equal => todo.completion_date == Some(date),
+                    Relation::NotEqual => todo.completion_date != Some(date),
+                    Relation::Greater => todo.completion_date > Some(date),
+                    Relation::GreaterEqual => todo.completion_date >= Some(date),
+                    Relation::Less => todo.completion_date < Some(date),
+                    Relation::LessEqual => todo.completion_date <= Some(date),
+                }
+            }
         }
     }
+}
+
+#[test]
+fn test_property_filter() {
+    let filter = PropertyFilter {
+        property: Property::Priority,
+        relation: Relation::Equal,
+        value: "A".to_string(),
+    };
+    assert_eq!(
+        filter.filter(
+            &crate::todo::TodoBuilder::default()
+                .priority(Some('A'))
+                .build()
+                .unwrap()
+        ),
+        true
+    );
+    let filter = PropertyFilter {
+        property: Property::Priority,
+        relation: Relation::Greater,
+        value: "A".to_string(),
+    };
+    assert_eq!(
+        filter.filter(
+            &crate::todo::TodoBuilder::default()
+                .priority(Some('B'))
+                .build()
+                .unwrap()
+        ),
+        true
+    );
 }
 
 pub struct DisjunctionFilter {

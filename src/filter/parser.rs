@@ -1,37 +1,83 @@
-use super::{ConjunctionFilter, DisjunctionFilter, Filter, FilterProperty, PropertyFilter};
+use super::{ConjunctionFilter, DisjunctionFilter, Filter, Property, PropertyFilter, Relation};
 use nom::{
     branch::alt,
-    bytes::complete::tag,
-    character::complete::{alphanumeric1, char, space0, space1},
+    bytes::complete::{is_not, tag},
+    character::complete::{char, space0, space1},
     multi::many0,
     sequence::{delimited, tuple},
     IResult,
 };
 
-fn property(i: &str) -> IResult<&str, FilterProperty> {
-    let (i, p) = alt((tag("project"), tag("priority"), tag("context"), tag("file")))(i)?;
+fn property(i: &str) -> IResult<&str, Property> {
+    let (i, p) = alt((
+        tag("file"),
+        tag("priority"),
+        tag("project"),
+        tag("context"),
+        tag("creation_date"),
+        tag("completion_date"),
+    ))(i)?;
     match p {
-        "project" => Ok((i, FilterProperty::Project)),
-        "priority" => Ok((i, FilterProperty::Priority)),
-        "context" => Ok((i, FilterProperty::Context)),
-        "file" => Ok((i, FilterProperty::File)),
+        "file" => Ok((i, Property::File)),
+        "priority" => Ok((i, Property::Priority)),
+        "project" => Ok((i, Property::Project)),
+        "context" => Ok((i, Property::Context)),
+        "creation_date" => Ok((i, Property::CreationDate)),
+        "completion_date" => Ok((i, Property::CompletionDate)),
         _ => unreachable!(),
     }
 }
 
 #[test]
 fn test_property() {
-    assert_eq!(property("project"), Ok(("", FilterProperty::Project)));
-    assert_eq!(property("context"), Ok(("", FilterProperty::Context)));
-    assert_eq!(property("file"), Ok(("", FilterProperty::File)));
+    assert_eq!(property("file"), Ok(("", Property::File)));
+    assert_eq!(property("priority"), Ok(("", Property::Priority)));
+    assert_eq!(property("project"), Ok(("", Property::Project)));
+    assert_eq!(property("context"), Ok(("", Property::Context)));
+    assert_eq!(property("creation_date"), Ok(("", Property::CreationDate)));
+    assert_eq!(
+        property("completion_date"),
+        Ok(("", Property::CompletionDate))
+    );
+}
+
+fn relation(i: &str) -> IResult<&str, Relation> {
+    let (i, p) = alt((
+        tag("="),
+        tag("!="),
+        tag(">="),
+        tag(">"),
+        tag("<="),
+        tag("<"),
+    ))(i)?;
+    match p {
+        "=" => Ok((i, Relation::Equal)),
+        "!=" => Ok((i, Relation::NotEqual)),
+        ">" => Ok((i, Relation::Greater)),
+        ">=" => Ok((i, Relation::GreaterEqual)),
+        "<" => Ok((i, Relation::Less)),
+        "<=" => Ok((i, Relation::LessEqual)),
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_relation() {
+    assert_eq!(relation("="), Ok(("", Relation::Equal)));
+    assert_eq!(relation("!="), Ok(("", Relation::NotEqual)));
+    assert_eq!(relation(">"), Ok(("", Relation::Greater)));
+    assert_eq!(relation(">="), Ok(("", Relation::GreaterEqual)));
+    assert_eq!(relation("<"), Ok(("", Relation::Less)));
+    assert_eq!(relation("<="), Ok(("", Relation::LessEqual)));
 }
 
 fn property_filter(i: &str) -> IResult<&str, PropertyFilter> {
-    let (i, (p, _, v)) = tuple((property, tag(":"), alphanumeric1))(i)?;
+    let (i, (p, r, v)) = tuple((property, relation, is_not(" )")))(i)?;
     Ok((
         i,
         PropertyFilter {
             property: p,
+            relation: r,
             value: v.to_owned(),
         },
     ))
@@ -40,31 +86,34 @@ fn property_filter(i: &str) -> IResult<&str, PropertyFilter> {
 #[test]
 fn test_property_filter() {
     assert_eq!(
-        property_filter("project:Test"),
+        property_filter("project=Test"),
         Ok((
             "",
             PropertyFilter {
-                property: FilterProperty::Project,
+                property: Property::Project,
+                relation: Relation::Equal,
                 value: "Test".to_owned()
             }
         ))
     );
     assert_eq!(
-        property_filter("context:Test"),
+        property_filter("context=Test"),
         Ok((
             "",
             PropertyFilter {
-                property: FilterProperty::Context,
+                property: Property::Context,
+                relation: Relation::Equal,
                 value: "Test".to_owned()
             }
         ))
     );
     assert_eq!(
-        property_filter("file:Test"),
+        property_filter("file=Test"),
         Ok((
             "",
             PropertyFilter {
-                property: FilterProperty::File,
+                property: Property::File,
+                relation: Relation::Equal,
                 value: "Test".to_owned()
             }
         ))
@@ -102,7 +151,7 @@ fn term(i: &str) -> IResult<&str, Box<dyn Filter>> {
 
 #[test]
 fn test_term() {
-    let (i, f) = term("project:Test").expect("Failed to parse");
+    let (i, f) = term("project=Test").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
         .projects(vec!["Test".to_owned()])
@@ -110,8 +159,8 @@ fn test_term() {
         .unwrap();
     assert!(f.filter(&todo));
 
-    let (i, f) = term("project:Test and project:Else").expect("Failed to parse");
-    assert_eq!(i, " and project:Else");
+    let (i, f) = term("project=Test and project=Else").expect("Failed to parse");
+    assert_eq!(i, " and project=Else");
     let todo = crate::todo::TodoBuilder::default()
         .projects(vec!["Test".to_owned()])
         .build()
@@ -139,7 +188,7 @@ fn disjunction(i: &str) -> IResult<&str, Box<dyn Filter>> {
 
 #[test]
 fn test_disjunction() {
-    let (i, f) = disjunction("project:p1 or project:p2").expect("Failed to parse");
+    let (i, f) = disjunction("project=p1 or project=p2").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
         .projects(vec!["p1".to_owned()])
@@ -160,7 +209,7 @@ fn conjunction(i: &str) -> IResult<&str, Box<dyn Filter>> {
 
 #[test]
 fn test_conjunction() {
-    let (i, f) = conjunction("project:p1 and project:p2").expect("Failed to parse");
+    let (i, f) = conjunction("project=p1 and project=p2").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
         .projects(vec!["p1".to_owned(), "p2".to_owned()])
@@ -182,7 +231,7 @@ pub fn parse_expression(filter_def: &str) -> Result<Box<dyn Filter>, String> {
 
 #[test]
 fn test_expression() {
-    let (i, f) = expression("priority:A").expect("Failed to parse");
+    let (i, f) = expression("priority=A").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
         .priority(Some('A'))
@@ -195,7 +244,7 @@ fn test_expression() {
         .unwrap();
     assert!(!f.filter(&todo));
 
-    let (i, f) = expression("project:p1 and project:p2").expect("Failed to parse");
+    let (i, f) = expression("project=p1 and project=p2").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
         .projects(vec!["p1".to_owned(), "p2".to_owned()])
@@ -208,7 +257,7 @@ fn test_expression() {
         .unwrap();
     assert!(!f.filter(&todo));
 
-    let (i, f) = expression("project:p1 or project:p2").expect("Failed to parse");
+    let (i, f) = expression("project=p1 or project=p2").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
         .projects(vec!["p1".to_owned()])
@@ -223,7 +272,7 @@ fn test_expression() {
     let todo = crate::todo::TodoBuilder::default().build().unwrap();
     assert!(!f.filter(&todo));
 
-    let (i, f) = expression("project:p1 and project:p2 or project:p3").expect("Failed to parse");
+    let (i, f) = expression("project=p1 and project=p2 or project=p3").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
         .projects(vec!["p1".to_owned(), "p2".to_owned()])
@@ -246,7 +295,7 @@ fn test_expression() {
         .unwrap();
     assert!(!f.filter(&todo));
 
-    let (i, f) = expression("(project:p1 and project:p2) or project:p3").expect("Failed to parse");
+    let (i, f) = expression("(project=p1 and project=p2) or project=p3").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
         .projects(vec!["p1".to_owned(), "p2".to_owned()])
@@ -269,7 +318,7 @@ fn test_expression() {
         .unwrap();
     assert!(!f.filter(&todo));
 
-    let (i, f) = expression("(project:p1 and (project:p2 or project:p3)) or project:p4")
+    let (i, f) = expression("(project=p1 and (project=p2 or project=p3)) or project=p4")
         .expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
@@ -289,6 +338,24 @@ fn test_expression() {
     assert!(f.filter(&todo));
     let todo = crate::todo::TodoBuilder::default()
         .projects(vec!["p1".to_owned()])
+        .build()
+        .unwrap();
+    assert!(!f.filter(&todo));
+
+    let (i, f) = expression("creation_date>=2024-08-22").expect("Failed to parse");
+    assert_eq!(i, "");
+    let todo = crate::todo::TodoBuilder::default()
+        .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 08, 23))
+        .build()
+        .unwrap();
+    assert!(f.filter(&todo));
+    let todo = crate::todo::TodoBuilder::default()
+        .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 08, 22))
+        .build()
+        .unwrap();
+    assert!(f.filter(&todo));
+    let todo = crate::todo::TodoBuilder::default()
+        .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 08, 21))
         .build()
         .unwrap();
     assert!(!f.filter(&todo));
