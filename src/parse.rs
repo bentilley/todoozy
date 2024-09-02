@@ -99,17 +99,6 @@ fn test_date() {
     );
 }
 
-// TODO (B) Add somekind of identifier to the todo parsing logic. +feature
-//
-// This is going to be required to keep track of which todo is which (especially is we want to try
-// and sync this to another system).
-//
-// Having an identifier will mean that we can match up todos in the version control history that
-// are infact the same todo. So if the same todo appears in multiple commits in the history because
-// it's changing over time, we'll be able to identify that and merge it in the view, rather than
-// showing it as separate todos.
-// ODOT
-
 #[derive(Debug, PartialEq)]
 enum Word {
     Context(String),
@@ -414,6 +403,7 @@ pub fn todo(s: &str) -> IResult<&str, Todo> {
 
     let (i, text) = text(i)?;
 
+    let mut id = None;
     let mut title = String::new();
     let mut projects: Vec<String> = Vec::new();
     let mut contexts: Vec<String> = Vec::new();
@@ -425,7 +415,15 @@ pub fn todo(s: &str) -> IResult<&str, Todo> {
             Word::Project(p) => projects.push(p),
             Word::Context(c) => contexts.push(c),
             Word::Metadata((k, v)) => {
-                metadata.insert(k, v);
+                // Metadata keys starting with an underscore are reserved for internal use.
+                if k.starts_with("_") {
+                    match k.as_str() {
+                        "_id" => id = Some(v),
+                        _ => {}
+                    }
+                } else {
+                    metadata.insert(k, v);
+                }
             }
         }
     }
@@ -443,7 +441,15 @@ pub fn todo(s: &str) -> IResult<&str, Todo> {
                         Word::Project(p) => projects.push(p.to_owned()),
                         Word::Context(c) => contexts.push(c.to_owned()),
                         Word::Metadata((k, v)) => {
-                            metadata.insert(k, v);
+                            // Metadata keys starting with an underscore are reserved for internal use.
+                            if k.starts_with("_") {
+                                match k.as_str() {
+                                    "_id" => id = Some(v),
+                                    _ => {}
+                                }
+                            } else {
+                                metadata.insert(k, v);
+                            }
                         }
                     }
                 }
@@ -456,6 +462,7 @@ pub fn todo(s: &str) -> IResult<&str, Todo> {
     Ok((
         i,
         TodoBuilder::default()
+            .id(id)
             .priority(priority)
             .completion_date(completion_date)
             .creation_date(creation_date)

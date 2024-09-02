@@ -3,6 +3,9 @@ use derive_builder::Builder;
 #[derive(Builder, Debug, PartialEq, Default)]
 pub struct Todo {
     #[builder(default)]
+    pub id: Option<String>,
+
+    #[builder(default)]
     pub file: Option<String>,
     #[builder(default)]
     pub line_number: Option<usize>,

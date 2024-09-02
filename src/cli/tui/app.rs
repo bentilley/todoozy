@@ -46,8 +46,10 @@ pub struct App {
     todo_list: TodoList,
     selected: Option<usize>,
 
+    // TODO (C) 2024-09-02 Show the current filter in the UI somewhere ODOT
     filter: Box<dyn todoozy::filter::Filter>,
 
+    // TODO (C) 2024-09-02 Show the current sorter in the UI somewhere ODOT
     sorter: Box<dyn todoozy::sort::Sorter>,
 
     input: Option<Input>,
@@ -385,10 +387,20 @@ impl App {
 
         let mut text = Text::default();
 
-        text.push_line(Line::styled(
+        let mut spans: Vec<Span> = Vec::new();
+        if let Some(id) = &todo.id {
+            spans.push(Span::styled(
+                format!("#{} ", id),
+                Style::new().fg(Color::Red),
+            ));
+        }
+        spans.push(Span::styled(
             todo.title.clone(),
             Style::new().fg(Color::Green),
         ));
+        text.push_line(Line::default().spans(spans));
+
+        text.push_line("\n");
 
         // TODO (E) 2024-08-15 Make it so the status is actually toggle-able +features
         //
@@ -435,6 +447,20 @@ impl App {
 
         text.push_line("\n");
 
+        let mut has_metadata = false;
+        for (key, value) in todo.metadata.iter() {
+            has_metadata = true;
+            text.push_line(Line::styled(
+                format!("{}: {}", key, value),
+                Style::new().fg(Color::Cyan),
+            ));
+        }
+
+        if has_metadata {
+            text.push_line("\n");
+        }
+
+        // TODO (C) 2024-09-02 How is an extra newline creeping in here? ODOT
         if let Some(ref description) = todo.description {
             for line in Text::from(description.clone()).iter() {
                 text.push_line(line.clone());
