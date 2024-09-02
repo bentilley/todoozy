@@ -117,6 +117,7 @@ fn test_property_filter() {
         ),
         true
     );
+
     let filter = PropertyFilter {
         property: Property::Priority,
         relation: Relation::Greater,
@@ -129,7 +130,7 @@ fn test_property_filter() {
                 .build()
                 .unwrap()
         ),
-        true
+        false
     );
 }
 
