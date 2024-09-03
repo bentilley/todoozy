@@ -38,22 +38,15 @@ fn parse_files(files: Walk) -> Result<Vec<todo::Todo>, Box<dyn error::Error>> {
     Ok(todos)
 }
 
-// TODO (B) 2024-09-01 Update todo extraction logic? +improvement
+// TODO (C) 2024-09-02 Add more language support +improvement
 //
-// I was thinking of a protocol where if we see a comment that starts with the todo token, we drink
-// up all the contiguous lines of comments until we hit code or whitespace, and that makes up the
-// todo. It would remove the need for the "odot" delimiter, but I guess it will make it easier to
-// write broken todos...
-// ODOT
-
-// TODO (B) 2024-09-02 Add more language support +improvement
-//
-// Notably, we'll need Go and Python support to run this in the fez project.
-// ODOT
+// Not sure what else we'll need, but there'll def be others!
 fn parse_file(file_path: &str) -> Vec<todo::Todo> {
     match get_extension_from_filename(file_path) {
-        Some("tdz") => parse_raw(lang::tdz::extract_todos(file_path), file_path),
+        Some("go") => parse_raw(lang::go::extract_todos(file_path), file_path),
+        Some("py") => parse_raw(lang::python::extract_todos(file_path), file_path),
         Some("rs") => parse_raw(lang::rust::extract_todos(file_path), file_path),
+        Some("tdz") => parse_raw(lang::tdz::extract_todos(file_path), file_path),
         _ => {
             // eprintln!("[{}]: Unsupported file type", file_path);
             Vec::new()

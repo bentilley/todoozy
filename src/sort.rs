@@ -12,7 +12,7 @@ enum Property {
     Priority,
     CreationDate,
     CompletionDate,
-    // TODO (Z) 2024-08-31 Can you sort by project and context? ODOT
+    // TODO (Z) 2024-08-31 Can you sort by project and context?
     // Project,
     // Context,
 }

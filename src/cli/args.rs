@@ -23,7 +23,6 @@ impl Args {
 // Philosophy: Maybe if we manage to sync this data with external project management tools, this is
 // somewhere where we would expect them to pick up the slack, rather that making this a full
 // project management software stack.
-// ODOT
 pub fn parse_args() -> Result<Args, lexopt::Error> {
     use lexopt::prelude::*;
 
@@ -40,7 +39,6 @@ pub fn parse_args() -> Result<Args, lexopt::Error> {
             //
             // Unsure if we need exclude atm, now that the todo comment parsing logic is tighter.
             // Needs more data from use in the field!
-            // ODOT
             Short('E') | Long("exclude") => {
                 let e: String = parser.value()?.parse()?;
                 args.exclude

@@ -46,10 +46,10 @@ pub struct App {
     todo_list: TodoList,
     selected: Option<usize>,
 
-    // TODO (C) 2024-09-02 Show the current filter in the UI somewhere ODOT
+    // TODO (C) 2024-09-02 Show the current filter in the UI somewhere
     filter: Box<dyn todoozy::filter::Filter>,
 
-    // TODO (C) 2024-09-02 Show the current sorter in the UI somewhere ODOT
+    // TODO (C) 2024-09-02 Show the current sorter in the UI somewhere
     sorter: Box<dyn todoozy::sort::Sorter>,
 
     input: Option<Input>,
@@ -164,7 +164,6 @@ impl App {
         //
         // So we can see all the info of long todos who's information can't fit on the current
         // terminal width.
-        // ODOT
 
         match self.input {
             None => match key.code {
@@ -416,7 +415,6 @@ impl App {
         // (i.e. any todos that appear in the commit history) is a must then. If a user adds a todo
         // while coding and then deletes it before they come to commit, then I kinda think it
         // wasn't important enough to capture ¯\_(ツ)_/¯
-        // ODOT
         text.push_line(Line::styled(
             "status: in progress",
             Style::new().fg(Color::Magenta),
@@ -460,7 +458,6 @@ impl App {
             text.push_line("\n");
         }
 
-        // TODO (C) 2024-09-02 How is an extra newline creeping in here? ODOT
         if let Some(ref description) = todo.description {
             for line in Text::from(description.clone()).iter() {
                 text.push_line(line.clone());
