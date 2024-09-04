@@ -14,7 +14,7 @@ impl Args {
     }
 }
 
-// TODO (E) Add args to list available projects / contexts instead of dropping into the TUI.
+// TODO (E) 2024-08-22 Add args to list available projects / contexts instead of dropping into the TUI.
 //
 // Essentially, some other options / tools to explore the todo data in different ways. The only way
 // to view the data is via each todo atm, it would also be useful to query the project, context,

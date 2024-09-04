@@ -21,10 +21,6 @@ pub struct Input {
     /// Position of cursor in the editor area.
     character_index: usize,
     cursor_position: Position,
-    // /// Current input mode
-    // input_mode: InputMode,
-    // /// History of recorded messages
-    // messages: Vec<String>,
 }
 
 impl Input {
@@ -33,8 +29,6 @@ impl Input {
             prompt_length: prompt.len() as u16,
             prompt,
             input: String::new(),
-            // input_mode: InputMode::Normal,
-            // messages: Vec::new(),
             character_index: 0,
             cursor_position: Position::default(),
         }
@@ -105,36 +99,6 @@ impl Input {
         input
     }
 
-    // fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
-    //     loop {
-    //         terminal.draw(|frame| self.draw(frame))?;
-
-    //         if let Event::Key(key) = event::read()? {
-    //             match self.input_mode {
-    //                 InputMode::Normal => match key.code {
-    //                     KeyCode::Char('e') => {
-    //                         self.input_mode = InputMode::Editing;
-    //                     }
-    //                     KeyCode::Char('q') => {
-    //                         return Ok(());
-    //                     }
-    //                     _ => {}
-    //                 },
-    //                 InputMode::Editing if key.kind == KeyEventKind::Press => match key.code {
-    //                     KeyCode::Enter => self.submit_message(),
-    //                     KeyCode::Char(to_insert) => self.enter_char(to_insert),
-    //                     KeyCode::Backspace => self.delete_char(),
-    //                     KeyCode::Left => self.move_cursor_left(),
-    //                     KeyCode::Right => self.move_cursor_right(),
-    //                     KeyCode::Esc => self.input_mode = InputMode::Normal,
-    //                     _ => {}
-    //                 },
-    //                 InputMode::Editing => {}
-    //             }
-    //         }
-    //     }
-    // }
-
     pub fn set_cursor_position(&self, frame: &mut Frame) {
         frame.set_cursor_position(self.cursor_position);
     }
@@ -146,19 +110,12 @@ impl Widget for &mut Input {
         text.push(' ');
         text.push_str(&self.input);
         Paragraph::new(text)
-            .style(Style::default().bg(Color::Magenta).fg(Color::Black))
-            // .style(match self.input_mode {
-            //     InputMode::Normal => Style::default(),
-            //     InputMode::Editing => Style::default().fg(Color::Yellow),
-            // })
-            // .block(Block::bordered().title("Input"))
+            .style(Style::default().bg(Color::Black).fg(Color::White))
             .render(area, buf);
 
         self.cursor_position = Position::new(
             area.x + self.character_index as u16 + self.prompt_length + 1,
             area.y,
-            // Move one line down, from the border to the input line
-            // area.y + 1,
         )
     }
 }

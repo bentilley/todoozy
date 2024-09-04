@@ -1,6 +1,7 @@
+use core::fmt::{self, Display};
 mod parser;
 
-pub trait Filter {
+pub trait Filter: Display {
     fn filter(&self, todo: &crate::todo::Todo) -> bool;
 }
 
@@ -14,6 +15,19 @@ enum Property {
     CompletionDate,
 }
 
+impl Display for Property {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Property::File => write!(f, "file"),
+            Property::Priority => write!(f, "priority"),
+            Property::Project => write!(f, "project"),
+            Property::Context => write!(f, "context"),
+            Property::CreationDate => write!(f, "creation_date"),
+            Property::CompletionDate => write!(f, "completion_date"),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 enum Relation {
     Equal,
@@ -22,6 +36,19 @@ enum Relation {
     GreaterEqual,
     Less,
     LessEqual,
+}
+
+impl Display for Relation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Relation::Equal => write!(f, "="),
+            Relation::NotEqual => write!(f, "!="),
+            Relation::Greater => write!(f, ">"),
+            Relation::GreaterEqual => write!(f, ">="),
+            Relation::Less => write!(f, "<"),
+            Relation::LessEqual => write!(f, "<="),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -134,6 +161,22 @@ fn test_property_filter() {
     );
 }
 
+impl Display for PropertyFilter {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}{}{}", self.property, self.relation, self.value)
+    }
+}
+
+#[test]
+fn test_display_property_filter() {
+    let filter = PropertyFilter {
+        property: Property::Priority,
+        relation: Relation::GreaterEqual,
+        value: "A".to_string(),
+    };
+    assert_eq!(format!("{}", filter), "priority>=A");
+}
+
 pub struct Disjunction {
     pub filters: Vec<Box<dyn Filter>>,
 }
@@ -142,6 +185,36 @@ impl Filter for Disjunction {
     fn filter(&self, todo: &crate::todo::Todo) -> bool {
         self.filters.iter().any(|clause| clause.filter(todo))
     }
+}
+
+impl Display for Disjunction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let filters: Vec<String> = self.filters.iter().map(|f| format!("{}", f)).collect();
+        if filters.len() == 1 {
+            write!(f, "{}", filters[0])
+        } else {
+            write!(f, "({})", filters.join(" or "))
+        }
+    }
+}
+
+#[test]
+fn test_display_disjunction() {
+    let filter = Disjunction {
+        filters: vec![
+            Box::new(PropertyFilter {
+                property: Property::Priority,
+                relation: Relation::Equal,
+                value: "A".to_string(),
+            }),
+            Box::new(PropertyFilter {
+                property: Property::Priority,
+                relation: Relation::NotEqual,
+                value: "B".to_string(),
+            }),
+        ],
+    };
+    assert_eq!(format!("{}", filter), "(priority=A or priority!=B)");
 }
 
 pub struct Conjunction {
@@ -154,6 +227,36 @@ impl Filter for Conjunction {
     }
 }
 
+impl Display for Conjunction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let filters: Vec<String> = self.filters.iter().map(|f| format!("{}", f)).collect();
+        if filters.len() == 1 {
+            write!(f, "{}", filters[0])
+        } else {
+            write!(f, "({})", filters.join(" and "))
+        }
+    }
+}
+
+#[test]
+fn test_display_conjunction() {
+    let filter = Conjunction {
+        filters: vec![
+            Box::new(PropertyFilter {
+                property: Property::Priority,
+                relation: Relation::Greater,
+                value: "A".to_string(),
+            }),
+            Box::new(PropertyFilter {
+                property: Property::Priority,
+                relation: Relation::LessEqual,
+                value: "B".to_string(),
+            }),
+        ],
+    };
+    assert_eq!(format!("{}", filter), "(priority>A and priority<=B)");
+}
+
 pub struct Negation {
     pub filter: Box<dyn Filter>,
 }
@@ -164,12 +267,36 @@ impl Filter for Negation {
     }
 }
 
+impl Display for Negation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "not {}", self.filter)
+    }
+}
+
+#[test]
+fn test_display_negation() {
+    let filter = Negation {
+        filter: Box::new(PropertyFilter {
+            property: Property::Priority,
+            relation: Relation::Equal,
+            value: "A".to_string(),
+        }),
+    };
+    assert_eq!(format!("{}", filter), "not priority=A");
+}
+
 #[derive(Debug, PartialEq)]
 pub struct All {}
 
 impl Filter for All {
     fn filter(&self, _todo: &crate::todo::Todo) -> bool {
         true
+    }
+}
+
+impl Display for All {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "all")
     }
 }
 

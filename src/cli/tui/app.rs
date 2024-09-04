@@ -11,7 +11,7 @@ use ratatui::{
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
         ExecutableCommand,
     },
-    layout::{Constraint, Layout, Rect},
+    layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Style, Stylize},
     symbols,
     text::{Line, Span, Text},
@@ -46,7 +46,6 @@ pub struct App {
     todo_list: TodoList,
     selected: Option<usize>,
 
-    // TODO (C) 2024-09-02 Show the current filter in the UI somewhere
     filter: Box<dyn todoozy::filter::Filter>,
 
     // TODO (C) 2024-09-02 Show the current sorter in the UI somewhere
@@ -313,9 +312,10 @@ impl App {
 
 impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let [main_area, footer_area] = Layout::vertical([
+        let [main_area, footer_area, input_area] = Layout::vertical([
             // Constraint::Length(2),
             Constraint::Fill(1),
+            Constraint::Length(1),
             Constraint::Length(1),
         ])
         .areas(area);
@@ -333,20 +333,28 @@ impl Widget for &mut App {
             }
         }
 
-        match self.input {
-            Some(ref mut input) => input.render(footer_area, buf),
-            None => self.render_footer(footer_area, buf),
+        self.render_footer(footer_area, buf);
+
+        if let Some(ref mut input) = self.input {
+            input.render(input_area, buf);
         }
     }
 }
 
 impl App {
     fn render_footer(&mut self, area: Rect, buf: &mut Buffer) {
-        let todo = &self.todo_list.selected().unwrap().todo;
-        Paragraph::new(format!("[{}]", todo.title))
+        let [left, right] =
+            Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).areas(area);
+
+        Paragraph::new(format!("{}", self.filter))
             .bg(Color::Magenta)
             .fg(Color::Black)
-            .render(area, buf);
+            .render(left, buf);
+        Paragraph::new("<sort todo>")
+            .bg(Color::Magenta)
+            .fg(Color::Black)
+            .alignment(Alignment::Right)
+            .render(right, buf);
     }
 
     fn render_list(&mut self, area: Rect, buf: &mut Buffer) {
