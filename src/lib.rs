@@ -50,9 +50,15 @@ pub fn extract_todos(file_path: &str, parser: Parser) -> Vec<RawTodo> {
     parser.parse_todos(&data)
 }
 
-// TODO (C) 2024-09-02 Add more language support +improvement
+// TODO (E) 2024-09-02 Add more language support +improvement
 //
-// Not sure what else we'll need, but there'll def be others!
+// Candidates:
+//   - terraform (.tf)
+//   - yaml (.yaml, .yml)
+//   - Dockerfile
+//   - Makefile
+//   - Markdown? (.md)
+//   - Protobuf? (.proto)
 fn parse_file(file_path: &str) -> Vec<todo::Todo> {
     match get_extension_from_filename(file_path) {
         Some("go") => parse_raw(extract_todos(file_path, Parser::new(&GO)), file_path),

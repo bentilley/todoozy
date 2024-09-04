@@ -158,10 +158,14 @@ impl App {
             return;
         }
 
-        // TODO (C) 2024-08-23 A way to scroll the list view to the right
+        // TODO (Z) 2024-08-23 A way to scroll the list view to the right
         //
         // So we can see all the info of long todos who's information can't fit on the current
         // terminal width.
+        //
+        // Putting this in the backlog for now because file formatting will mean that there
+        // shouldn't be any massive long todos. If there are then you can always press enter to
+        // view the whole todo expanded.
 
         match self.input {
             None => match key.code {
@@ -312,7 +316,6 @@ impl App {
 impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let [main_area, footer_area, input_area] = Layout::vertical([
-            // Constraint::Length(2),
             Constraint::Fill(1),
             Constraint::Length(1),
             Constraint::Length(1),
@@ -408,14 +411,12 @@ impl App {
 
         text.push_line("\n");
 
-        // TODO (E) 2024-08-15 Make it so the status is actually toggle-able +features
+        // TODO (E) 2024-08-15 Make it so the status reflects todos done since opening the tui
+        // +feature
         //
-        // This needs some work on the parser - I guess we keep the status in the todo, before the
-        // priority, as something like [x] or [ ] or [@], etc. Then the big win would be allowing
-        // that to be toggled via the TUI... :)
-        //
-        // Or, maybe while you're editing todos in the app it keeps track of which ones you've
-        // deleted since you started your session...?
+        // While you're editing todos in the app it keeps track of which ones you've deleted since
+        // you started your session. This requires all todos to have an ID so that we can actually
+        // keep track of which todo is which.
         //
         // This feature needs some work before implementing. Philosophically, the old todos are
         // being managed in the version control system anyway. Having a way of viewing old todos

@@ -14,19 +14,12 @@ impl Args {
     }
 }
 
-// TODO (E) 2024-08-22 Add args to list available projects / contexts instead of dropping into the TUI.
-//
-// Essentially, some other options / tools to explore the todo data in different ways. The only way
-// to view the data is via each todo atm, it would also be useful to query the project, context,
-// priority data in different ways.
-//
-// Philosophy: Maybe if we manage to sync this data with external project management tools, this is
-// somewhere where we would expect them to pick up the slack, rather that making this a full
-// project management software stack.
 pub fn parse_args() -> Result<Args, lexopt::Error> {
     use lexopt::prelude::*;
 
     let mut args = Args::new();
+    let mut list_projects = false;
+    let mut list_contexts = false;
 
     let mut parser = lexopt::Parser::from_env();
 
@@ -59,12 +52,34 @@ pub fn parse_args() -> Result<Args, lexopt::Error> {
                 };
             }
 
+            Long("list-projects") => {
+                list_projects = true;
+            }
+
+            Long("list-contexts") => {
+                list_contexts = true;
+            }
+
             Long("help") => {
                 println!("Usage: hello [-E|--exclude=PATH[,PATH]]");
                 std::process::exit(0);
             }
             _ => return Err(arg.unexpected()),
         }
+    }
+
+    // TODO (Z) 2024-09-04 These probably shouldn't live here. +refactor
+    //
+    // My take is that this function should only be parsing args. Deciding what to do with them is
+    // downstream's problem.
+    if list_projects {
+        super::list_projects(&args.exclude);
+        std::process::exit(0);
+    }
+
+    if list_contexts {
+        super::list_contexts(&args.exclude);
+        std::process::exit(0);
     }
 
     Ok(args)
