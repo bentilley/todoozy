@@ -1,7 +1,8 @@
 use super::{Parser, SyntaxRule};
 
-const PYTHON: [SyntaxRule; 1] = [
+const PYTHON: [SyntaxRule; 2] = [
     SyntaxRule::LineComment("#"),
+    SyntaxRule::RawString("\"\"\"", "\"\"\""),
     // SyntaxRule::BlockComment("/*", "*/"),
     // String(b"\""),
 ];
@@ -16,10 +17,6 @@ fn parse_todos(text: &str) -> Vec<(usize, usize, String)> {
     parser.parse_todos(text)
 }
 
-// TODO (C) 2024-09-03 Stop picking up these tests in the TUI +feature
-//
-// These tests are showing up in the TUI because they are understood as todos. Either need a way to
-// ignore this, or make the comment parser string-aware...
 #[test]
 fn test_parse_todos() {
     // Todo as line comments
@@ -45,14 +42,14 @@ This is the description."#
 
     // Todo with indented lines
     let text = r#"
-    some := "code"
+    some = "code"
 
     # TODO 2020-08-06 Can it handle indented todos? +Testing
     #
     # This is a test todo with some indented lines:
     #   - This is an even more indented line.
 
-    more := "code
+    more = "code
 "#;
     assert_eq!(
         parse_todos(text)[0],
@@ -63,6 +60,34 @@ This is the description."#
 
 This is a test todo with some indented lines:
   - This is an even more indented line."#
+                .to_string()
+        )
+    );
+
+    // File with raw strings
+    let text = r##"
+    some = "code"
+    text = """
+        # TODO 2020-08-06 Can it handle this fake todo? +Testing
+        #
+        # This todo is in a raw string, so ignore it.
+    """
+
+    # TODO 2020-08-06 Does it find the real todo? +Testing
+    #
+    # This todo isn't in a raw string.
+
+    more = "code"
+"##;
+    assert_eq!(parse_todos(text).len(), 1);
+    assert_eq!(
+        parse_todos(text)[0],
+        (
+            9 as usize,
+            11 as usize,
+            r#"2020-08-06 Does it find the real todo? +Testing
+
+This todo isn't in a raw string."#
                 .to_string()
         )
     );

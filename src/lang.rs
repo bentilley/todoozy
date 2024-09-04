@@ -8,6 +8,7 @@ pub mod tdz;
 pub enum SyntaxRule<'a> {
     LineComment(&'a str),
     BlockComment(&'a str, &'a str),
+    RawString(&'a str, &'a str),
     // String(&'a [u8]),
 }
 
@@ -19,26 +20,32 @@ struct CommentFormat<T> {
 pub struct Parser {
     line_comment_delimiters: Vec<CommentFormat<String>>,
     block_comment_delimiters: Vec<CommentFormat<(String, String)>>,
+    raw_string_delimiters: Vec<(String, String)>,
 }
 
 impl Parser {
     fn new(syntax_rules: &[SyntaxRule]) -> Self {
         let mut line_comment_delimiters = Vec::new();
         let mut block_comment_delimiters = Vec::new();
+        let mut raw_string_delimiters = Vec::new();
 
         for rule in syntax_rules {
+            use SyntaxRule::*;
             match rule {
-                SyntaxRule::LineComment(token) => {
+                LineComment(token) => {
                     line_comment_delimiters.push(CommentFormat {
                         token: token.to_string(),
                         todo_token: format!("{} {}", token, TODOOZY_DELIMITER),
                     });
                 }
-                SyntaxRule::BlockComment(start, end) => {
+                BlockComment(start, end) => {
                     block_comment_delimiters.push(CommentFormat {
                         token: (start.to_string(), end.to_string()),
                         todo_token: format!("{} {}", start, TODOOZY_DELIMITER),
                     });
+                }
+                RawString(start, end) => {
+                    raw_string_delimiters.push((start.to_string(), end.to_string()));
                 }
             }
         }
@@ -46,6 +53,7 @@ impl Parser {
         Self {
             line_comment_delimiters,
             block_comment_delimiters,
+            raw_string_delimiters,
         }
     }
 
@@ -53,8 +61,18 @@ impl Parser {
         let mut todos = Vec::<(usize, usize, String)>::new();
 
         let mut lines = text.lines().enumerate().peekable();
-        while let Some((i, line)) = lines.next() {
+        'outer: while let Some((i, line)) = lines.next() {
             let trimmed = line.trim_start();
+
+            for raw_string_delimiter in &self.raw_string_delimiters {
+                if trimmed.contains(&raw_string_delimiter.0) {
+                    while let Some((_, line)) = lines.next() {
+                        if line.contains(&raw_string_delimiter.1) {
+                            continue 'outer;
+                        }
+                    }
+                }
+            }
 
             for line_comment_delimiter in &self.line_comment_delimiters {
                 if trimmed.starts_with(&line_comment_delimiter.todo_token) {
@@ -67,7 +85,7 @@ impl Parser {
                     while let Some((j, line)) = lines.peek() {
                         if !line.trim_start().starts_with(&line_comment_delimiter.token) {
                             todos.push((i + 1, *j, todo.join("\n")));
-                            break;
+                            continue 'outer;
                         }
                         let (_, line) = lines.next().unwrap();
 
@@ -100,7 +118,7 @@ impl Parser {
                             }
 
                             todos.push((i + 1, end_line, todo.join("\n")));
-                            break;
+                            continue 'outer;
                         }
 
                         if line.len() < prefix {
