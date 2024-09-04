@@ -1,24 +1,15 @@
-use super::{Parser, SyntaxRule};
+use super::SyntaxRule;
 
-const GO: [SyntaxRule; 3] = [
+pub const GO: [SyntaxRule; 3] = [
     SyntaxRule::LineComment("//"),
     SyntaxRule::BlockComment("/*", "*/"),
     SyntaxRule::RawString("`", "`"),
-    // String(b"\""),
 ];
-
-pub fn extract_todos(file_path: &str) -> Vec<(usize, usize, String)> {
-    let data = std::fs::read_to_string(file_path).expect("Unable to read file");
-    parse_todos(&data)
-}
-
-fn parse_todos(text: &str) -> Vec<(usize, usize, String)> {
-    let parser = Parser::new(&GO);
-    parser.parse_todos(text)
-}
 
 #[test]
 fn test_parse_todos() {
+    let parser = super::Parser::new(&GO);
+
     // Todo as line comments
     let text = r#"
     some := "code
@@ -29,7 +20,7 @@ fn test_parse_todos() {
     more := "code"
 "#;
     assert_eq!(
-        parse_todos(text)[0],
+        parser.parse_todos(text)[0],
         (
             4 as usize,
             6 as usize,
@@ -51,7 +42,7 @@ This is the description."#
     }
 "#;
     assert_eq!(
-        parse_todos(text)[0],
+        parser.parse_todos(text)[0],
         (
             3 as usize,
             5 as usize,
@@ -72,7 +63,7 @@ This is the description."#
     }
 "#;
     assert_eq!(
-        parse_todos(text)[0],
+        parser.parse_todos(text)[0],
         (
             3 as usize,
             5 as usize,
@@ -96,7 +87,7 @@ This is the description."#
     more := "code
 "#;
     assert_eq!(
-        parse_todos(text)[0],
+        parser.parse_todos(text)[0],
         (
             4 as usize,
             7 as usize,
@@ -123,9 +114,9 @@ This is a test todo with some indented lines:
 
     more := "code"
 "##;
-    assert_eq!(parse_todos(text).len(), 1);
+    assert_eq!(parser.parse_todos(text).len(), 1);
     assert_eq!(
-        parse_todos(text)[0],
+        parser.parse_todos(text)[0],
         (
             9 as usize,
             11 as usize,

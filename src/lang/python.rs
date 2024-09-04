@@ -1,24 +1,14 @@
-use super::{Parser, SyntaxRule};
+use super::SyntaxRule;
 
-const PYTHON: [SyntaxRule; 2] = [
+pub const PYTHON: [SyntaxRule; 2] = [
     SyntaxRule::LineComment("#"),
     SyntaxRule::RawString("\"\"\"", "\"\"\""),
-    // SyntaxRule::BlockComment("/*", "*/"),
-    // String(b"\""),
 ];
-
-pub fn extract_todos(file_path: &str) -> Vec<(usize, usize, String)> {
-    let data = std::fs::read_to_string(file_path).expect("Unable to read file");
-    parse_todos(&data)
-}
-
-fn parse_todos(text: &str) -> Vec<(usize, usize, String)> {
-    let parser = Parser::new(&PYTHON);
-    parser.parse_todos(text)
-}
 
 #[test]
 fn test_parse_todos() {
+    let parser = super::Parser::new(&PYTHON);
+
     // Todo as line comments
     let text = r#"
     some = "code"
@@ -29,7 +19,7 @@ fn test_parse_todos() {
     more = "code"
 "#;
     assert_eq!(
-        parse_todos(text)[0],
+        parser.parse_todos(text)[0],
         (
             4 as usize,
             6 as usize,
@@ -52,7 +42,7 @@ This is the description."#
     more = "code
 "#;
     assert_eq!(
-        parse_todos(text)[0],
+        parser.parse_todos(text)[0],
         (
             4 as usize,
             7 as usize,
@@ -79,9 +69,9 @@ This is a test todo with some indented lines:
 
     more = "code"
 "##;
-    assert_eq!(parse_todos(text).len(), 1);
+    assert_eq!(parser.parse_todos(text).len(), 1);
     assert_eq!(
-        parse_todos(text)[0],
+        parser.parse_todos(text)[0],
         (
             9 as usize,
             11 as usize,

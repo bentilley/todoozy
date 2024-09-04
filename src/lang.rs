@@ -24,7 +24,7 @@ pub struct Parser {
 }
 
 impl Parser {
-    fn new(syntax_rules: &[SyntaxRule]) -> Self {
+    pub fn new(syntax_rules: &[SyntaxRule]) -> Self {
         let mut line_comment_delimiters = Vec::new();
         let mut block_comment_delimiters = Vec::new();
         let mut raw_string_delimiters = Vec::new();
@@ -57,7 +57,7 @@ impl Parser {
         }
     }
 
-    fn parse_todos(&self, text: &str) -> Vec<(usize, usize, String)> {
+    pub fn parse_todos(&self, text: &str) -> Vec<(usize, usize, String)> {
         let mut todos = Vec::<(usize, usize, String)>::new();
 
         let mut lines = text.lines().enumerate().peekable();

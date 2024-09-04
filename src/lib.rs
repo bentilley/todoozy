@@ -38,14 +38,26 @@ fn parse_files(files: Walk) -> Result<Vec<todo::Todo>, Box<dyn error::Error>> {
     Ok(todos)
 }
 
+type RawTodo = (usize, usize, String);
+
+use lang::go::GO;
+use lang::python::PYTHON;
+use lang::rust::RUST;
+use lang::Parser;
+
+pub fn extract_todos(file_path: &str, parser: Parser) -> Vec<RawTodo> {
+    let data = std::fs::read_to_string(file_path).expect("Unable to read file");
+    parser.parse_todos(&data)
+}
+
 // TODO (C) 2024-09-02 Add more language support +improvement
 //
 // Not sure what else we'll need, but there'll def be others!
 fn parse_file(file_path: &str) -> Vec<todo::Todo> {
     match get_extension_from_filename(file_path) {
-        Some("go") => parse_raw(lang::go::extract_todos(file_path), file_path),
-        Some("py") => parse_raw(lang::python::extract_todos(file_path), file_path),
-        Some("rs") => parse_raw(lang::rust::extract_todos(file_path), file_path),
+        Some("go") => parse_raw(extract_todos(file_path, Parser::new(&GO)), file_path),
+        Some("py") => parse_raw(extract_todos(file_path, Parser::new(&PYTHON)), file_path),
+        Some("rs") => parse_raw(extract_todos(file_path, Parser::new(&RUST)), file_path),
         Some("tdz") => parse_raw(lang::tdz::extract_todos(file_path), file_path),
         _ => {
             // eprintln!("[{}]: Unsupported file type", file_path);
@@ -74,7 +86,7 @@ fn test_get_extension_from_filename() {
     assert_eq!(get_extension_from_filename("test"), None);
 }
 
-fn parse_raw(raw_todos: Vec<(usize, usize, String)>, file_path: &str) -> Vec<todo::Todo> {
+fn parse_raw(raw_todos: Vec<RawTodo>, file_path: &str) -> Vec<todo::Todo> {
     let mut todos = Vec::<todo::Todo>::new();
     for (start, end, raw) in raw_todos {
         match parse::todo(&raw) {
