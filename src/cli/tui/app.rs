@@ -48,7 +48,6 @@ pub struct App {
 
     filter: Box<dyn todoozy::filter::Filter>,
 
-    // TODO (C) 2024-09-02 Show the current sorter in the UI somewhere
     sorter: Box<dyn todoozy::sort::Sorter>,
 
     input: Option<Input>,
@@ -350,7 +349,7 @@ impl App {
             .bg(Color::Magenta)
             .fg(Color::Black)
             .render(left, buf);
-        Paragraph::new("<sort todo>")
+        Paragraph::new(format!("{}", self.sorter))
             .bg(Color::Magenta)
             .fg(Color::Black)
             .alignment(Alignment::Right)

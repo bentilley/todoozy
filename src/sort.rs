@@ -1,6 +1,7 @@
+use core::fmt::Display;
 mod parser;
 
-pub trait Sorter {
+pub trait Sorter: Display {
     fn compare(&self, a: &crate::todo::Todo, b: &crate::todo::Todo) -> std::cmp::Ordering;
 }
 
@@ -17,10 +18,32 @@ enum Property {
     // Context,
 }
 
+impl Display for Property {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Property::Title => write!(f, "title"),
+            Property::File => write!(f, "file"),
+            Property::LineNumber => write!(f, "line_number"),
+            Property::Priority => write!(f, "priority"),
+            Property::CreationDate => write!(f, "creation_date"),
+            Property::CompletionDate => write!(f, "completion_date"),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 enum Direction {
     Ascending,
     Descending,
+}
+
+impl Display for Direction {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Direction::Ascending => write!(f, "asc"),
+            Direction::Descending => write!(f, "desc"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -56,6 +79,12 @@ impl Sorter for PropertySorter {
             Direction::Ascending => ord,
             Direction::Descending => ord.reverse(),
         }
+    }
+}
+
+impl Display for PropertySorter {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}:{}", self.property, self.direction)
     }
 }
 
@@ -98,6 +127,13 @@ impl Sorter for SortPipeline {
             }
         }
         std::cmp::Ordering::Equal
+    }
+}
+
+impl Display for SortPipeline {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let sorters: Vec<String> = self.sorters.iter().map(|f| format!("{}", f)).collect();
+        write!(f, "{}", sorters.join(" > "))
     }
 }
 
