@@ -6,28 +6,16 @@ use derive_builder::Builder;
 
 #[derive(Builder, Debug, PartialEq, Default)]
 pub struct Todo {
-    // TODO (A) 2024-09-05 This ID needs some thought +improvement
+    // TODO (A) 2024-09-05 Update id with custom # format +improvement
     //
-    // I'm not sure if this is the right place for it, maybe it should just be a token that appears
-    // after the name, e.g. "TODO 123 (B) blah blah". If you were syncing these with JIRA or
-    // Github, then you would probably want their ID in a prominent place. Also, this way it
-    // doesn't take up an extra line. And would make programatically adding it to the code easier
-    // as you know it just needs to go between the "TODO" and the next token. We could prepend it
-    // with a "#" to make it easier to pick out by eye when scanning?
+    // Add the ID to the title format, i.e. "TODO #123 (B) blah blah". If you're syncing to JIRA or
+    // GitHub then we'll need to keep the external ID in the metadata.
     //
-    // The issue that this is bringing up for me is, what happens when you start syncing with an
-    // external system. If you start using todoozy without, then you'd had some native todoozy IDs,
-    // then you sync to JIRA and it's going to create a bunch of JIRA IDs - where do they go? Then
-    // what happens if you want to sync with JIRA AND GitHub, you get another set of IDs from each
-    // additional backend. This is where the metadata approach would shine as you could have
-    // _jira_id:SOME-123 and _github_id:456 and everything still plays nice.
-    //
-    // This makes me think we need a todoozy ID AND then separate metadata IDs for each backend
-    // (snore). However, there is still the question then of how to keep track of each todoozy ID
-    // and ensure it's unique. If we used an incrementing number, al la Github, then we'd need to
-    // do a full todo history scan each time we need a new ID to make sure that we're not re using
-    // IDs that were already commited to the history. If we just use a UUID, then it's super long
-    // and going to take up a bunch of todo real estate.
+    // This also requires storing some state about how many todos we've seen. This needs to be done
+    // in a file that is also kept under version control. I think a todoozy.yaml file that can also
+    // have project config in would be the place for this. When you add new todos, todoozy will
+    // number them for you and then increment the number in the file. The user then has to remember
+    // to commit the todoozy.yaml file with the new todos.
     #[builder(default)]
     pub id: Option<String>,
 

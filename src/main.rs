@@ -11,6 +11,10 @@ mod cli;
 // A few useful tools like listing projects and contexts efels fine, but slicing and dicing the
 // todo metadata feels like too much.
 fn main() -> Result<(), Box<dyn error::Error>> {
+    // TODO (A) 2024-09-05 Add a todoozy.yaml file for project config. +feature
+    //
+    // This will allow the user to set the filter and sort to be used on start up as well as keep
+    // track of the todo ID number.
     let args = cli::args::parse_args().unwrap();
 
     cli::tui::run(cli::tui::app::AppConfig {
