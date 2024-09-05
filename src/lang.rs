@@ -1,9 +1,9 @@
-use crate::constants::TODOOZY_DELIMITER;
-
 pub mod go;
 pub mod python;
 pub mod rust;
 pub mod tdz;
+
+pub const TODO_TOKEN: &str = "TODO";
 
 pub enum SyntaxRule<'a> {
     LineComment(&'a str),
@@ -35,13 +35,13 @@ impl Parser {
                 LineComment(token) => {
                     line_comment_delimiters.push(CommentFormat {
                         token: token.to_string(),
-                        todo_token: format!("{} {}", token, TODOOZY_DELIMITER),
+                        todo_token: format!("{} {}", token, TODO_TOKEN),
                     });
                 }
                 BlockComment(start, end) => {
                     block_comment_delimiters.push(CommentFormat {
                         token: (start.to_string(), end.to_string()),
-                        todo_token: format!("{} {}", start, TODOOZY_DELIMITER),
+                        todo_token: format!("{} {}", start, TODO_TOKEN),
                     });
                 }
                 RawString(start, end) => {
@@ -78,7 +78,7 @@ impl Parser {
                 if trimmed.starts_with(&line_comment_delimiter.todo_token) {
                     let mut todo: Vec<String> = Vec::new();
 
-                    let v: Vec<&str> = line.split(TODOOZY_DELIMITER).collect();
+                    let v: Vec<&str> = line.split(TODO_TOKEN).collect();
                     todo.push(v[1].trim().to_string());
                     let prefix = v[0].len();
 
@@ -102,7 +102,7 @@ impl Parser {
                 if trimmed.starts_with(&block_comment_delimiter.todo_token) {
                     let mut todo: Vec<String> = Vec::new();
 
-                    let v: Vec<&str> = line.split(TODOOZY_DELIMITER).collect();
+                    let v: Vec<&str> = line.split(TODO_TOKEN).collect();
                     todo.push(v[1].trim().to_string());
                     let prefix = v[0].len();
 
