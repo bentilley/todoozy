@@ -3,16 +3,16 @@ use todoozy::todo::sort;
 
 pub struct Args {
     pub exclude: Vec<String>,
-    pub filter: Box<dyn filter::Filter>,
-    pub sorter: Box<dyn sort::Sorter>,
+    pub filter: Option<Box<dyn filter::Filter>>,
+    pub sorter: Option<Box<dyn sort::Sorter>>,
 }
 
 impl Args {
     pub fn new() -> Args {
         Args {
             exclude: Vec::new(),
-            filter: Box::new(filter::All {}),
-            sorter: Box::new(sort::SortPipeline::app_default()),
+            filter: None,
+            sorter: None,
         }
     }
 }
@@ -43,14 +43,14 @@ pub fn parse_args() -> Result<Args, lexopt::Error> {
 
             Short('f') | Long("filter") => {
                 args.filter = match filter::parse_str(parser.value()?.parse()?) {
-                    Ok(f) => f,
+                    Ok(f) => Some(f),
                     Err(e) => panic!("{}", e),
                 };
             }
 
             Short('s') | Long("sort") => {
                 args.sorter = match sort::parse_str(parser.value()?.parse()?) {
-                    Ok(s) => s,
+                    Ok(s) => Some(s),
                     Err(e) => panic!("{}", e),
                 };
             }
