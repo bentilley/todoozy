@@ -2,7 +2,6 @@ mod constants;
 pub mod filter;
 pub mod fs;
 mod lang;
-mod parse;
 pub mod sort;
 mod todo;
 
@@ -72,7 +71,7 @@ fn parse_file(file_path: &str) -> Option<Vec<todo::Todo>> {
 fn parse_raw(raw_todos: Vec<RawTodo>, file_path: &str) -> Vec<todo::Todo> {
     let mut todos = Vec::<todo::Todo>::new();
     for (start, end, raw) in raw_todos {
-        match parse::todo(&raw) {
+        match todo::parser::todo(&raw) {
             Ok((_, mut t)) => {
                 t.file = Some(file_path.to_owned());
                 t.line_number = Some(start as usize);

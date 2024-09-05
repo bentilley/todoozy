@@ -1,3 +1,5 @@
+pub mod parser;
+
 use derive_builder::Builder;
 
 #[derive(Builder, Debug, PartialEq, Default)]
