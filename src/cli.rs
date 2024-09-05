@@ -12,7 +12,7 @@ pub fn list_projects(exclude: &[String]) {
         }
     }
     for (project, _) in projects {
-        println!("+{}", project);
+        println!("{}", project);
     }
 }
 
@@ -26,6 +26,6 @@ pub fn list_contexts(exclude: &[String]) {
         }
     }
     for (context, _) in contexts {
-        println!("@{}", context);
+        println!("{}", context);
     }
 }
