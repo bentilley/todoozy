@@ -17,6 +17,11 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     // track of the todo ID number.
     let args = cli::args::parse_args().unwrap();
 
+    // TODO (A) 2024-09-05 Give IDs to any todos without and write back to file +feature
+    //
+    // Maybe this should happen in the TUI code as we'll want to display a popup informing the user
+    // that we're about to write some data back to their files.
+
     cli::tui::run(cli::tui::app::AppConfig {
         exclude: args.exclude,
         filter: args.filter,
