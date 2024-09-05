@@ -504,6 +504,16 @@ impl App {
 
         let line = Line::from(
             vec![
+                // TODO (E) 2024-09-05 What are we going to do with the [ ] checkbox in the UI?
+                //
+                // Not sure how useful this is as toggling the status of todos from the UI is still
+                // not well defined. It would be nice to see in progress etc. especially if someone
+                // was working on one on another branch but it wasn't finished yet and they're
+                // partially committed their work.
+                //
+                // Currently, we just have a list, and when you complete stuff it disappears, which
+                // feels like it might not be the most satisfying experience (although it has been
+                // motivating me for a few weeks now on this project).
                 Span::styled("[ ] ", Style::new().fg(Color::Red)),
                 Span::styled(format!("{} ", location), Style::new().fg(Color::Blue)),
                 Span::styled(
