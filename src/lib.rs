@@ -29,7 +29,9 @@ fn parse_files(files: Walk) -> Result<Vec<todo::Todo>, Box<dyn error::Error>> {
                 }
 
                 let file_path = entry.path().to_str().unwrap();
-                todos.append(&mut parse_file(file_path));
+                if let Some(ref mut tdz) = parse_file(file_path) {
+                    todos.append(tdz);
+                }
             }
             Err(err) => eprintln!("Error: {}", err),
         }
@@ -49,45 +51,22 @@ type RawTodo = (usize, usize, String);
 //   - Makefile
 //   - Markdown? (.md)
 //   - Protobuf? (.proto)
-fn parse_file(file_path: &str) -> Vec<todo::Todo> {
+fn parse_file(file_path: &str) -> Option<Vec<todo::Todo>> {
     let text = std::fs::read_to_string(file_path).expect("Unable to read file");
-    let raw_todos = match get_extension_from_filename(file_path) {
-        Some("go") => lang::go::extract_todos(&text),
-        Some("py") => lang::python::extract_todos(&text),
-        Some("rs") => lang::rust::extract_todos(&text),
-        Some("tdz") => lang::tdz::extract_todos(&text),
-        _ => {
-            // eprintln!("[{}]: Unsupported file type", file_path);
-            Vec::new()
-        }
+
+    use crate::fs::FileType;
+    let raw_todos = match crate::fs::get_filetype(file_path) {
+        Some(FileType::Go) => Some(lang::go::extract_todos(&text)),
+        Some(FileType::Python) => Some(lang::python::extract_todos(&text)),
+        Some(FileType::Rust) => Some(lang::rust::extract_todos(&text)),
+        Some(FileType::Todoozy) => Some(lang::tdz::extract_todos(&text)),
+        _ => None,
     };
-    parse_raw(raw_todos, file_path)
-}
 
-// TODO (B) 2024-09-05 Improve filetype parsing +improvements
-//
-// We should have an enum with the filetype and return that here, not the extension. Then we can
-// handle detecting filetypes that don't use an extension, e.g. Makefile, Dockerfile, etc.
-fn get_extension_from_filename(filename: &str) -> Option<&str> {
-    if filename.ends_with(".tdz") {
-        return Some("tdz");
+    if raw_todos.is_none() {
+        return None;
     }
-    std::path::Path::new(filename)
-        .extension()
-        .and_then(std::ffi::OsStr::to_str)
-}
-
-#[test]
-fn test_get_extension_from_filename() {
-    assert_eq!(get_extension_from_filename("dir/test.tdz"), Some("tdz"));
-    assert_eq!(get_extension_from_filename("test.tdz"), Some("tdz"));
-    assert_eq!(get_extension_from_filename("dir/.tdz"), Some("tdz"));
-    assert_eq!(get_extension_from_filename("./.tdz"), Some("tdz"));
-    assert_eq!(get_extension_from_filename(".tdz"), Some("tdz"));
-    assert_eq!(get_extension_from_filename("test.rs"), Some("rs"));
-    assert_eq!(get_extension_from_filename("test.go"), Some("go"));
-    assert_eq!(get_extension_from_filename("test.py"), Some("py"));
-    assert_eq!(get_extension_from_filename("test"), None);
+    Some(parse_raw(raw_todos.unwrap(), file_path))
 }
 
 fn parse_raw(raw_todos: Vec<RawTodo>, file_path: &str) -> Vec<todo::Todo> {
