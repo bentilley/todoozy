@@ -1,11 +1,12 @@
 use super::SyntaxRule;
 
-pub const RUST: [SyntaxRule; 5] = [
+pub const RUST: [SyntaxRule; 6] = [
     SyntaxRule::LineComment("//!"),
     SyntaxRule::LineComment("///"),
     SyntaxRule::LineComment("//"),
     SyntaxRule::BlockComment("/*", "*/"),
     SyntaxRule::RawString("r#\"", "\"#"),
+    SyntaxRule::RawString("r##\"", "\"##"),
 ];
 
 pub fn extract_todos(text: &str) -> Vec<crate::RawTodo> {
