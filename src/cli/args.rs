@@ -1,15 +1,18 @@
+use todoozy::todo::filter;
+use todoozy::todo::sort;
+
 pub struct Args {
     pub exclude: Vec<String>,
-    pub filter: Box<dyn todoozy::filter::Filter>,
-    pub sorter: Box<dyn todoozy::sort::Sorter>,
+    pub filter: Box<dyn filter::Filter>,
+    pub sorter: Box<dyn sort::Sorter>,
 }
 
 impl Args {
     pub fn new() -> Args {
         Args {
             exclude: Vec::new(),
-            filter: Box::new(todoozy::filter::All {}),
-            sorter: Box::new(todoozy::sort::SortPipeline::app_default()),
+            filter: Box::new(filter::All {}),
+            sorter: Box::new(sort::SortPipeline::app_default()),
         }
     }
 }
@@ -39,14 +42,14 @@ pub fn parse_args() -> Result<Args, lexopt::Error> {
             }
 
             Short('f') | Long("filter") => {
-                args.filter = match todoozy::filter::parse_str(parser.value()?.parse()?) {
+                args.filter = match filter::parse_str(parser.value()?.parse()?) {
                     Ok(f) => f,
                     Err(e) => panic!("{}", e),
                 };
             }
 
             Short('s') | Long("sort") => {
-                args.sorter = match todoozy::sort::parse_str(parser.value()?.parse()?) {
+                args.sorter = match sort::parse_str(parser.value()?.parse()?) {
                     Ok(s) => s,
                     Err(e) => panic!("{}", e),
                 };

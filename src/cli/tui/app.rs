@@ -23,6 +23,8 @@ use ratatui::{
 };
 
 use super::input::{Input, InputFor};
+use todoozy::todo::filter;
+use todoozy::todo::sort;
 
 const SELECTED_STYLE: Style = Style::new().fg(Color::Black).bg(Color::Green);
 const TEXT_FG_COLOR: Color = Color::White;
@@ -46,9 +48,9 @@ pub struct App {
     todo_list: TodoList,
     selected: Option<usize>,
 
-    filter: Box<dyn todoozy::filter::Filter>,
+    filter: Box<dyn filter::Filter>,
 
-    sorter: Box<dyn todoozy::sort::Sorter>,
+    sorter: Box<dyn sort::Sorter>,
 
     input: Option<Input>,
     input_for: Option<InputFor>,
@@ -56,8 +58,8 @@ pub struct App {
 
 pub struct AppConfig {
     pub exclude: Vec<String>,
-    pub filter: Box<dyn todoozy::filter::Filter>,
-    pub sorter: Box<dyn todoozy::sort::Sorter>,
+    pub filter: Box<dyn filter::Filter>,
+    pub sorter: Box<dyn sort::Sorter>,
 }
 
 #[derive(Debug, Default)]
@@ -69,8 +71,8 @@ struct TodoList {
 impl TodoList {
     fn new(
         todo_view: Vec<Rc<todoozy::Todo>>,
-        filter: &Box<dyn todoozy::filter::Filter>,
-        sorter: &Box<dyn todoozy::sort::Sorter>,
+        filter: &Box<dyn filter::Filter>,
+        sorter: &Box<dyn sort::Sorter>,
     ) -> Self {
         let mut state = ListState::default();
 
@@ -277,7 +279,7 @@ impl App {
     }
 
     fn set_filter(&mut self, filter: String) {
-        match todoozy::filter::parse_str(filter) {
+        match filter::parse_str(filter) {
             Ok(f) => {
                 self.filter = f;
                 self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
@@ -287,12 +289,12 @@ impl App {
     }
 
     fn reset_filter(&mut self) {
-        self.filter = Box::new(todoozy::filter::All {});
+        self.filter = Box::new(filter::All {});
         self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
     }
 
     fn set_sort(&mut self, sort: String) {
-        match todoozy::sort::parse_str(sort) {
+        match sort::parse_str(sort) {
             Ok(s) => {
                 self.sorter = s;
                 self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
@@ -302,7 +304,7 @@ impl App {
     }
 
     fn reset_sort(&mut self) {
-        self.sorter = Box::new(todoozy::sort::SortPipeline::app_default());
+        self.sorter = Box::new(sort::SortPipeline::app_default());
         self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
     }
 
