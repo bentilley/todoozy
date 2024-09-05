@@ -25,7 +25,7 @@ pub fn parse_args() -> Result<Args, lexopt::Error> {
 
     while let Some(arg) = parser.next()? {
         match arg {
-            // TODO (Z) 2024-08-05 Implement a .tdzignore file +ideas
+            // TODO (Z) 2024-08-05 Implement a .tdzignore file +idea
             //
             // This would allow users to specify a list of directories or files to exclude without
             // having to pass them as arguments in every tdz call.
