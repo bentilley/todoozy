@@ -5,6 +5,11 @@ pub const PYTHON: [SyntaxRule; 2] = [
     SyntaxRule::RawString("\"\"\"", "\"\"\""),
 ];
 
+pub fn extract_todos(text: &str) -> Vec<crate::RawTodo> {
+    let parser = super::Parser::new(&PYTHON);
+    parser.parse_todos(&text)
+}
+
 #[test]
 fn test_parse_todos() {
     let parser = super::Parser::new(&PYTHON);
