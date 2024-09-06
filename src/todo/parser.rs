@@ -2,13 +2,34 @@ use crate::todo::{Todo, TodoBuilder};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take},
-    character::complete::{alphanumeric1, line_ending, multispace1, one_of, space0},
+    character::complete::{
+        alphanumeric1, digit1, line_ending, multispace1, one_of, space0, space1,
+    },
     combinator::opt,
     error::{Error, ErrorKind},
     multi::{fold_many1, many0},
     sequence::{delimited, preceded, terminated, tuple},
     IResult, InputTakeAtPosition,
 };
+
+fn id(i: &str) -> IResult<&str, u32> {
+    let (i, _) = space0(i)?;
+    let (i, p) = delimited(tag("#"), digit1, space1)(i)?;
+    Ok((i, p.parse().unwrap()))
+}
+
+#[test]
+fn test_id() {
+    assert_eq!(id("#123 "), Ok(("", 123)));
+    assert_eq!(
+        id("#123"),
+        Err(nom::Err::Error(Error::new("", ErrorKind::Space)))
+    );
+    assert_eq!(
+        id("123"),
+        Err(nom::Err::Error(Error::new("123", ErrorKind::Tag)))
+    );
+}
 
 fn uppercase(i: &str) -> IResult<&str, char> {
     let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -174,6 +195,23 @@ fn test_non_whitespace() {
     );
 }
 
+// TODO #3 (C) 2024-09-06 Meta data parsing interferes with code in todos +bug
+//
+// This code won't all be parsed correctly because it contains ':' characters which immediately
+// flip the parser into metadata munching.
+//
+// Span::styled(
+//     format!("#{} ", todo_item.todo.id.unwrap_or(0)),
+//     Style::new().fg(Color::Red),
+// ),
+//
+// Not sure what the solution is yet, as lots of languages use ':' in their syntax so taking it on
+// a case by case basis feels impossible. I think we'd need to specify markdown ` or ``` always
+// required for code.
+//
+// This will also apply to + and @ symbols. If those appeared in code in a todo, they would also be
+// parsed as projects and contexts. Maybe we need a way to escape their usage to use literal
+// characters in the todo without them being parsed specifically.
 fn metadata(i: &str) -> IResult<&str, Word> {
     let (i, _) = space0(i)?;
     let (i, key) = is_not(": \t\r\n")(i)?;
@@ -391,7 +429,8 @@ fn test_text_multiline() {
 }
 
 pub fn todo(s: &str) -> IResult<&str, Todo> {
-    let (i, priority) = opt(priority)(s)?;
+    let (i, id) = opt(id)(s)?;
+    let (i, priority) = opt(priority)(i)?;
     let (i, date1) = opt(date)(i)?;
     let (i, date2) = opt(date)(i)?;
 
@@ -403,7 +442,6 @@ pub fn todo(s: &str) -> IResult<&str, Todo> {
 
     let (i, text) = text(i)?;
 
-    let mut id = None;
     let mut title = String::new();
     let mut projects: Vec<String> = Vec::new();
     let mut contexts: Vec<String> = Vec::new();
@@ -418,7 +456,6 @@ pub fn todo(s: &str) -> IResult<&str, Todo> {
                 // Metadata keys starting with an underscore are reserved for internal use.
                 if k.starts_with("_") {
                     match k.as_str() {
-                        "_id" => id = Some(v),
                         _ => {}
                     }
                 } else {
@@ -444,7 +481,6 @@ pub fn todo(s: &str) -> IResult<&str, Todo> {
                             // Metadata keys starting with an underscore are reserved for internal use.
                             if k.starts_with("_") {
                                 match k.as_str() {
-                                    "_id" => id = Some(v),
                                     _ => {}
                                 }
                             } else {
@@ -494,6 +530,18 @@ fn test_todo() {
             "",
             TodoBuilder::default()
                 .title("This is a test todo".to_string())
+                .priority(Some('A'))
+                .build()
+                .unwrap()
+        ))
+    );
+    assert_eq!(
+        todo("#123 (A) This is a test todo"),
+        Ok((
+            "",
+            TodoBuilder::default()
+                .title("This is a test todo".to_string())
+                .id(Some(123))
                 .priority(Some('A'))
                 .build()
                 .unwrap()

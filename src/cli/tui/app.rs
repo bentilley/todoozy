@@ -504,7 +504,17 @@ impl App {
 
         let line = Line::from(
             vec![
-                // TODO (E) 2024-09-05 What are we going to do with the [ ] checkbox in the UI?
+                // TODO #1 (B) 2024-09-06 Add the todo ID to the list +ui
+                //
+                // Not sure if it should go before the status check box or after. Depends on
+                // whether we're even keeping the check box or not.
+                //
+                // Span::styled(
+                //     format!("#{} ", todo_item.todo.id.unwrap_or(0)),
+                //     Style::new().fg(Color::Red),
+                // ),
+
+                // TODO #2 (E) 2024-09-05 What are we going to do with the [ ] checkbox in the UI?
                 //
                 // Not sure how useful this is as toggling the status of todos from the UI is still
                 // not well defined. It would be nice to see in progress etc. especially if someone

@@ -6,18 +6,8 @@ use derive_builder::Builder;
 
 #[derive(Builder, Debug, PartialEq, Default)]
 pub struct Todo {
-    // TODO (A) 2024-09-05 Update id with custom # format +improvement
-    //
-    // Add the ID to the title format, i.e. "TODO #123 (B) blah blah". If you're syncing to JIRA or
-    // GitHub then we'll need to keep the external ID in the metadata.
-    //
-    // This also requires storing some state about how many todos we've seen. This needs to be done
-    // in a file that is also kept under version control. I think a todoozy.yaml file that can also
-    // have project config in would be the place for this. When you add new todos, todoozy will
-    // number them for you and then increment the number in the file. The user then has to remember
-    // to commit the todoozy.yaml file with the new todos.
     #[builder(default)]
-    pub id: Option<String>,
+    pub id: Option<u32>,
 
     #[builder(default)]
     pub file: Option<String>,

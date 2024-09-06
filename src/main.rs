@@ -21,6 +21,12 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     //
     // Maybe this should happen in the TUI code as we'll want to display a popup informing the user
     // that we're about to write some data back to their files.
+    //
+    // This also requires storing some state about how many todos we've seen. This needs to be done
+    // in a file that is also kept under version control. I think a todoozy.yaml file that can also
+    // have project config in would be the place for this. When you add new todos, todoozy will
+    // number them for you and then increment the number in the file. The user then has to remember
+    // to commit the todoozy.yaml file with the new todos.
 
     cli::tui::run(cli::tui::app::AppConfig {
         exclude: args.exclude,
