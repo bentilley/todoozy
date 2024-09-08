@@ -15,6 +15,16 @@ impl Args {
             sorter: None,
         }
     }
+
+    pub fn apply(&mut self, config: &mut crate::cli::config::Config) {
+        config.exclude.append(&mut self.exclude.clone());
+        if let Some(f) = self.filter.take() {
+            config.filter = Some(f);
+        }
+        if let Some(s) = self.sorter.take() {
+            config.sorter = Some(s);
+        }
+    }
 }
 
 pub fn parse_args() -> Result<Args, lexopt::Error> {

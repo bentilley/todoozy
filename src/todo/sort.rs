@@ -1,8 +1,59 @@
 use core::fmt::Display;
+use serde::{Deserialize, Serialize};
+
 mod parser;
 
-pub trait Sorter: Display {
+pub trait Sorter: Display + std::fmt::Debug {
     fn compare(&self, a: &crate::todo::Todo, b: &crate::todo::Todo) -> std::cmp::Ordering;
+}
+
+impl Serialize for Box<dyn Sorter> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.to_string().serialize(serializer)
+    }
+}
+
+#[test]
+fn test_serialize_json_sorter() {
+    let sorter: Box<dyn Sorter> = Box::new(PropertySorter {
+        property: Property::Priority,
+        direction: Direction::Ascending,
+    });
+    let json = serde_json::to_string(&sorter).unwrap();
+    assert_eq!(json, "\"priority:asc\"");
+}
+
+impl<'de> Deserialize<'de> for Box<dyn Sorter> {
+    fn deserialize<D>(deserializer: D) -> Result<Box<dyn Sorter>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        parse_str(s).map_err(serde::de::Error::custom)
+    }
+}
+
+#[test]
+fn test_deserialize_json_sorter() {
+    let sorter: Box<dyn Sorter> = serde_json::from_str("\"priority:desc\"").unwrap();
+    let mut todos = vec![
+        crate::todo::TodoBuilder::default()
+            .title("A".to_string())
+            .priority(Some('A'))
+            .build()
+            .unwrap(),
+        crate::todo::TodoBuilder::default()
+            .title("B".to_string())
+            .priority(Some('B'))
+            .build()
+            .unwrap(),
+    ];
+    todos.sort_by(|a, b| sorter.compare(a, b));
+    assert_eq!(todos[0].title, "B");
+    assert_eq!(todos[1].title, "A");
 }
 
 #[derive(Debug, PartialEq)]
@@ -88,7 +139,7 @@ impl Display for PropertySorter {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct SortPipeline {
     sorters: Vec<Box<dyn Sorter>>,
 }

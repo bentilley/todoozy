@@ -1,7 +1,5 @@
 use std::error;
 
-use todoozy::todo::{filter, sort};
-
 mod cli;
 
 // TODO (Z) 2024-09-04 Sync with external project management tools +feature
@@ -13,9 +11,10 @@ mod cli;
 // A few useful tools like listing projects and contexts efels fine, but slicing and dicing the
 // todo metadata feels like too much.
 fn main() -> Result<(), Box<dyn error::Error>> {
-    let config = cli::config::load_config()?;
+    let mut config = cli::config::Config::load_config()?;
 
-    let args = cli::args::parse_args().unwrap();
+    let mut args = cli::args::parse_args().unwrap();
+    args.apply(&mut config);
 
     // TODO (A) 2024-09-05 Give IDs to any todos without and write back to file +feature
     //
@@ -28,15 +27,5 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     // number them for you and then increment the number in the file. The user then has to remember
     // to commit the todoozy.yaml file with the new todos.
 
-    cli::tui::run(cli::tui::app::AppConfig {
-        exclude: args.exclude,
-        filter: args
-            .filter
-            .unwrap_or(config.filter.unwrap_or(Box::new(filter::All {}))),
-        sorter: args.sorter.unwrap_or(
-            config
-                .sorter
-                .unwrap_or(Box::new(sort::SortPipeline::app_default())),
-        ),
-    })
+    cli::tui::run(config)
 }

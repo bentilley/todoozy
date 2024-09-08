@@ -1,69 +1,53 @@
 use serde::{Deserialize, Serialize};
 
-use todoozy::todo::{
-    filter::{self, Filter},
-    sort::{self, Sorter},
-};
+use todoozy::todo::{filter::Filter, sort::Sorter};
 
 const CONFIG_FILE_NAME: &str = "todoozy.json";
 
 #[derive(Debug, Serialize, Deserialize)]
-struct RawConfig {
-    pub _num_todos: u64,
-    pub filter: Option<String>,
-    pub sort: Option<String>,
-}
-
-// TODO (C) 2024-09-05 Add exclude to the config file.
 pub struct Config {
-    pub _num_todos: u64,
+    #[serde(skip_serializing, default)]
+    file_name: std::path::PathBuf,
+
+    #[serde(rename = "_num_todos")]
+    pub num_todos: u32,
+
+    pub exclude: Vec<String>,
+
     pub filter: Option<Box<dyn Filter>>,
     pub sorter: Option<Box<dyn Sorter>>,
 }
 
-impl From<RawConfig> for Config {
-    fn from(raw: RawConfig) -> Self {
-        Config {
-            _num_todos: raw._num_todos,
-            filter: match raw.filter {
-                Some(f) => Some(filter::parse_str(f).expect("Invalid filter in config file")),
-                None => None,
-            },
-            sorter: match raw.sort {
-                Some(f) => Some(sort::parse_str(f).expect("Invalid sort in config file")),
-                None => None,
-            },
+impl Config {
+    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let data = serde_json::to_string_pretty(self)?;
+        std::fs::write(&self.file_name, data)?;
+        Ok(())
+    }
+
+    pub fn load_config() -> Result<Config, Box<dyn std::error::Error>> {
+        let repo = git2::Repository::open_from_env()?;
+        let root = repo.workdir().ok_or("Could not find workdir")?;
+        let config_file = root.join(CONFIG_FILE_NAME);
+
+        match std::fs::read_to_string(&config_file) {
+            Ok(data) => {
+                let mut c: Config = serde_json::from_str(&data)?;
+                c.file_name = config_file;
+                Ok(c)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let config = Config {
+                    file_name: config_file,
+                    num_todos: 0,
+                    exclude: Vec::new(),
+                    filter: None,
+                    sorter: Some(Box::new(todoozy::todo::sort::SortPipeline::app_default())),
+                };
+                config.save()?;
+                Ok(config)
+            }
+            Err(e) => Err(e.into()),
         }
     }
-}
-
-pub fn load_config() -> Result<Config, Box<dyn std::error::Error>> {
-    let repo = git2::Repository::open_from_env()?;
-    let root = repo.workdir().ok_or("Could not find workdir")?;
-
-    match std::fs::read_to_string(root.join(CONFIG_FILE_NAME)) {
-        Ok(data) => {
-            let c: RawConfig = serde_json::from_str(&data)?;
-            Ok(c.into())
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            write_initial_config()?;
-            Ok(Config {
-                _num_todos: 0,
-                filter: None,
-                sorter: None,
-            })
-        }
-        Err(e) => Err(e.into()),
-    }
-}
-
-fn write_initial_config() -> Result<(), Box<dyn std::error::Error>> {
-    let repo = git2::Repository::open_from_env()?;
-    let root = repo.workdir().ok_or("Could not find workdir")?;
-    let data = r#"{
-  "_num_todos": 0
-}"#;
-    std::fs::write(root.join(CONFIG_FILE_NAME), data)?;
-    Ok(())
 }

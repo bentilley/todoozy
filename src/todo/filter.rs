@@ -1,8 +1,54 @@
 use core::fmt::{self, Display};
+use serde::{Deserialize, Serialize};
+
 mod parser;
 
-pub trait Filter: Display {
+pub trait Filter: Display + std::fmt::Debug {
     fn filter(&self, todo: &crate::todo::Todo) -> bool;
+}
+
+impl Serialize for Box<dyn Filter> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer,
+    {
+        self.to_string().serialize(serializer)
+    }
+}
+
+#[test]
+fn test_serialize_json_filter() {
+    let filter: Box<dyn Filter> = Box::new(PropertyFilter {
+        property: Property::Priority,
+        relation: Relation::Equal,
+        value: "A".to_string(),
+    });
+    assert_eq!(serde_json::to_string(&filter).unwrap(), "\"priority=A\"");
+}
+
+impl<'de> Deserialize<'de> for Box<dyn Filter> {
+    fn deserialize<D>(deserializer: D) -> Result<Box<dyn Filter>, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        parse_str(s).map_err(serde::de::Error::custom)
+    }
+}
+
+#[test]
+fn test_deserialize_json_filter() {
+    let filter: Box<dyn Filter> = serde_json::from_str("\"priority=A\"").unwrap();
+    let todo_true = crate::todo::TodoBuilder::default()
+        .priority(Some('A'))
+        .build()
+        .unwrap();
+    let todo_false = crate::todo::TodoBuilder::default()
+        .priority(Some('B'))
+        .build()
+        .unwrap();
+    assert_eq!(filter.filter(&todo_true), true);
+    assert_eq!(filter.filter(&todo_false), false);
 }
 
 #[derive(Debug, PartialEq)]
@@ -128,6 +174,15 @@ impl Filter for PropertyFilter {
     }
 }
 
+// impl Serialize for PropertyFilter {
+//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: serde::ser::Serializer,
+//     {
+//         format!("{}", self).serialize(serializer)
+//     }
+// }
+
 #[test]
 fn test_property_filter() {
     let filter = PropertyFilter {
@@ -177,6 +232,7 @@ fn test_display_property_filter() {
     assert_eq!(format!("{}", filter), "priority>=A");
 }
 
+#[derive(Debug)]
 pub struct Disjunction {
     pub filters: Vec<Box<dyn Filter>>,
 }
@@ -217,6 +273,7 @@ fn test_display_disjunction() {
     assert_eq!(format!("{}", filter), "(priority=A or priority!=B)");
 }
 
+#[derive(Debug)]
 pub struct Conjunction {
     pub filters: Vec<Box<dyn Filter>>,
 }
@@ -257,6 +314,7 @@ fn test_display_conjunction() {
     assert_eq!(format!("{}", filter), "(priority>A and priority<=B)");
 }
 
+#[derive(Debug)]
 pub struct Negation {
     pub filter: Box<dyn Filter>,
 }
@@ -285,7 +343,7 @@ fn test_display_negation() {
     assert_eq!(format!("{}", filter), "not priority=A");
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct All {}
 
 impl Filter for All {

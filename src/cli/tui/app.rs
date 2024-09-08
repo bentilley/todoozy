@@ -56,12 +56,6 @@ pub struct App {
     input_for: Option<InputFor>,
 }
 
-pub struct AppConfig {
-    pub exclude: Vec<String>,
-    pub filter: Box<dyn filter::Filter>,
-    pub sorter: Box<dyn sort::Sorter>,
-}
-
 #[derive(Debug, Default)]
 struct TodoList {
     items: Vec<TodoItem>,
@@ -117,16 +111,19 @@ impl TodoItem {
     }
 }
 
+use crate::cli::config::Config;
 impl App {
-    pub fn new(config: AppConfig, todo_data: Vec<todoozy::Todo>) -> Self {
+    pub fn new(config: Config, todo_data: Vec<todoozy::Todo>) -> Self {
         let mut app = Self {
             should_exit: false,
             exclude: config.exclude,
             todo_view: todo_data.into_iter().map(|t| Rc::new(t)).collect(),
             todo_list: TodoList::default(),
             selected: None,
-            filter: config.filter,
-            sorter: config.sorter,
+            filter: config.filter.unwrap_or(Box::new(filter::All::default())),
+            sorter: config
+                .sorter
+                .unwrap_or(Box::new(sort::SortPipeline::app_default())),
             input: None,
             input_for: None,
         };
@@ -289,7 +286,7 @@ impl App {
     }
 
     fn reset_filter(&mut self) {
-        self.filter = Box::new(filter::All {});
+        self.filter = Box::new(filter::All::default());
         self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
     }
 
@@ -345,6 +342,23 @@ impl Widget for &mut App {
     }
 }
 
+fn num_digits(n: u32) -> u32 {
+    if n == 0 {
+        return 1;
+    }
+    ((n as f64).log10() + 1.0).floor() as u32
+}
+
+#[test]
+fn test_num_digits() {
+    assert_eq!(num_digits(0), 1);
+    assert_eq!(num_digits(1), 1);
+    assert_eq!(num_digits(9), 1);
+    assert_eq!(num_digits(10), 2);
+    assert_eq!(num_digits(99), 2);
+    assert_eq!(num_digits(100), 3);
+}
+
 impl App {
     fn render_footer(&mut self, area: Rect, buf: &mut Buffer) {
         let [left, right] =
@@ -369,12 +383,20 @@ impl App {
             .map(|t| crate::cli::display::truncate_path(&t.todo.location_start()))
             .collect();
         let max_path_width = short_paths.iter().map(|s| s.len()).max().unwrap_or(0);
+        let max_id = self
+            .todo_list
+            .items
+            .iter()
+            .map(|t| t.todo.id.unwrap_or(0))
+            .max()
+            .unwrap_or(0);
+        let max_id_digits = num_digits(max_id);
 
         let items: Vec<ListItem> = self
             .todo_list
             .items
             .iter()
-            .map(|todo_item| App::make_listitem(todo_item, max_path_width))
+            .map(|todo_item| App::make_listitem(todo_item, max_id_digits, max_path_width))
             .collect();
 
         let list = List::new(items)
@@ -481,7 +503,11 @@ impl App {
             .render(area, buf);
     }
 
-    fn make_listitem<'a>(todo_item: &TodoItem, max_path_width: usize) -> ListItem<'a> {
+    fn make_listitem<'a>(
+        todo_item: &TodoItem,
+        max_id_digits: u32,
+        max_path_width: usize,
+    ) -> ListItem<'a> {
         let mut location =
             crate::cli::display::truncate_path(todo_item.todo.location_start().as_str());
         if location.len() < max_path_width {
@@ -504,16 +530,14 @@ impl App {
 
         let line = Line::from(
             vec![
-                // TODO #1 (B) 2024-09-06 Add the todo ID to the list +ui
-                //
-                // Not sure if it should go before the status check box or after. Depends on
-                // whether we're even keeping the check box or not.
-                //
-                // Span::styled(
-                //     format!("#{} ", todo_item.todo.id.unwrap_or(0)),
-                //     Style::new().fg(Color::Red),
-                // ),
-
+                Span::styled(
+                    format!(
+                        "#{:<width$} ",
+                        todo_item.todo.id.unwrap_or(0),
+                        width = max_id_digits as usize
+                    ),
+                    Style::new().fg(Color::Green),
+                ),
                 // TODO #2 (E) 2024-09-05 What are we going to do with the [ ] checkbox in the UI?
                 //
                 // Not sure how useful this is as toggling the status of todos from the UI is still
