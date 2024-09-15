@@ -59,3 +59,37 @@ impl Todo {
         self.contexts.iter().any(|c| c == context)
     }
 }
+
+pub struct Todos(pub Vec<Todo>);
+
+impl Todos {
+    pub fn get_max_id(&self) -> u32 {
+        self.0.iter().map(|t| t.id.unwrap_or(0)).max().unwrap_or(0)
+    }
+    // pub fn filter(&self, filter: &dyn filter::Filter) -> Vec<Todo> {
+    //     self.iter().filter(|t| filter.matches(t)).cloned().collect()
+    // }
+    // pub fn sort(&self, sorter: &dyn sort::Sorter) -> Vec<Todo> {
+    //     let mut todos = self.to_vec();
+    //     todos.sort_by(|a, b| sorter.compare(a, b));
+    //     todos
+    // }
+}
+
+#[test]
+fn test_todos() {
+    let todos = Todos(vec![
+        TodoBuilder::default().id(Some(1)).build().unwrap(),
+        TodoBuilder::default().id(Some(2)).build().unwrap(),
+    ]);
+    assert_eq!(todos.get_max_id(), 2);
+}
+
+impl IntoIterator for Todos {
+    type Item = Todo;
+    type IntoIter = std::vec::IntoIter<Todo>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}

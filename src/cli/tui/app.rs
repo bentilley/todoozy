@@ -113,11 +113,32 @@ impl TodoItem {
 
 use crate::cli::config::Config;
 impl App {
-    pub fn new(config: Config, todo_data: Vec<todoozy::Todo>) -> Self {
+    pub fn new(mut config: Config) -> Result<Self, Box<dyn std::error::Error>> {
+        // Start up admin
+        let todos = todoozy::get_todos(&config.exclude).unwrap();
+        let max_id = std::cmp::max(todos.get_max_id(), config.num_todos);
+        if max_id > config.num_todos {
+            config.num_todos = max_id;
+            config.save()?;
+        }
+        // If there are any todos without an ID, assign them one
+        let todos: todoozy::Todos = todoozy::Todos(
+            todos
+                .into_iter()
+                .map(|mut t| {
+                    if t.id.is_none() {
+                        config.num_todos += 1;
+                        t.id = Some(config.num_todos);
+                    }
+                    t
+                })
+                .collect(),
+        );
+
         let mut app = Self {
             should_exit: false,
             exclude: config.exclude,
-            todo_view: todo_data.into_iter().map(|t| Rc::new(t)).collect(),
+            todo_view: todos.into_iter().map(|t| Rc::new(t)).collect(),
             todo_list: TodoList::default(),
             selected: None,
             filter: config.filter.unwrap_or(Box::new(filter::All::default())),
@@ -130,7 +151,7 @@ impl App {
 
         app.todo_list = TodoList::new(app.todo_view.clone(), &app.filter, &app.sorter);
 
-        app
+        Ok(app)
     }
 
     pub fn run(&mut self, mut terminal: Terminal<impl Backend>) -> io::Result<()> {

@@ -40,32 +40,11 @@ fn restore_terminal() -> io::Result<()> {
     disable_raw_mode()
 }
 
-fn get_max_todo_id(todos: &[todoozy::todo::Todo]) -> u32 {
-    todos.iter().map(|t| t.id.unwrap_or(0)).max().unwrap_or(0)
-}
-
-pub fn run(mut config: crate::cli::config::Config) -> Result<(), Box<dyn error::Error>> {
-    let todos = todoozy::get_todos(&config.exclude).unwrap();
-    let max_id = std::cmp::max(get_max_todo_id(&todos), config.num_todos);
-    if max_id > config.num_todos {
-        config.num_todos = max_id;
-        config.save()?;
-    }
-    let todos = todos
-        .into_iter()
-        .map(|mut t| {
-            if t.id.is_none() {
-                config.num_todos += 1;
-                t.id = Some(config.num_todos);
-            }
-            t
-        })
-        .collect();
-
+pub fn run(config: crate::cli::config::Config) -> Result<(), Box<dyn error::Error>> {
     init_error_hooks()?;
     let terminal = init_terminal()?;
 
-    let mut app = app::App::new(config, todos);
+    let mut app = app::App::new(config)?;
     app.run(terminal)?;
 
     restore_terminal()?;

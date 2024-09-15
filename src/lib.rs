@@ -2,7 +2,7 @@ pub mod fs;
 mod lang;
 pub mod todo;
 
-pub use todo::Todo;
+pub use todo::{Todo, Todos};
 
 use ignore::Walk;
 use std::error;
@@ -10,11 +10,11 @@ use std::error;
 /// Search for all the available todos in the project.
 ///
 /// * `exclude`: A slice of files to exclude from the search.
-pub fn get_todos(exclude: &[String]) -> Result<Vec<todo::Todo>, Box<dyn error::Error>> {
+pub fn get_todos(exclude: &[String]) -> Result<todo::Todos, Box<dyn error::Error>> {
     parse_files(fs::get_files(exclude))
 }
 
-fn parse_files(files: Walk) -> Result<Vec<todo::Todo>, Box<dyn error::Error>> {
+fn parse_files(files: Walk) -> Result<todo::Todos, Box<dyn error::Error>> {
     let mut todos = Vec::<todo::Todo>::new();
 
     for file in files {
@@ -33,7 +33,7 @@ fn parse_files(files: Walk) -> Result<Vec<todo::Todo>, Box<dyn error::Error>> {
         }
     }
 
-    Ok(todos)
+    Ok(todo::Todos(todos))
 }
 
 type RawTodo = (usize, usize, String);
