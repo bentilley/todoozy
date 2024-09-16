@@ -5,6 +5,13 @@ mod parser;
 
 pub trait Filter: Display + std::fmt::Debug {
     fn filter(&self, todo: &crate::todo::Todo) -> bool;
+    fn box_clone(&self) -> Box<dyn Filter>;
+}
+
+impl Clone for Box<dyn Filter> {
+    fn clone(&self) -> Box<dyn Filter> {
+        self.box_clone()
+    }
 }
 
 impl Serialize for Box<dyn Filter> {
@@ -51,7 +58,7 @@ fn test_deserialize_json_filter() {
     assert_eq!(filter.filter(&todo_false), false);
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum Property {
     File,
     Priority,
@@ -74,7 +81,7 @@ impl Display for Property {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum Relation {
     Equal,
     NotEqual,
@@ -97,7 +104,7 @@ impl Display for Relation {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct PropertyFilter {
     property: Property,
     relation: Relation,
@@ -172,6 +179,10 @@ impl Filter for PropertyFilter {
             }
         }
     }
+
+    fn box_clone(&self) -> Box<dyn Filter> {
+        Box::new(self.clone())
+    }
 }
 
 // impl Serialize for PropertyFilter {
@@ -232,7 +243,7 @@ fn test_display_property_filter() {
     assert_eq!(format!("{}", filter), "priority>=A");
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Disjunction {
     pub filters: Vec<Box<dyn Filter>>,
 }
@@ -240,6 +251,10 @@ pub struct Disjunction {
 impl Filter for Disjunction {
     fn filter(&self, todo: &crate::todo::Todo) -> bool {
         self.filters.iter().any(|clause| clause.filter(todo))
+    }
+
+    fn box_clone(&self) -> Box<dyn Filter> {
+        Box::new(self.clone())
     }
 }
 
@@ -273,7 +288,7 @@ fn test_display_disjunction() {
     assert_eq!(format!("{}", filter), "(priority=A or priority!=B)");
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Conjunction {
     pub filters: Vec<Box<dyn Filter>>,
 }
@@ -281,6 +296,10 @@ pub struct Conjunction {
 impl Filter for Conjunction {
     fn filter(&self, todo: &crate::todo::Todo) -> bool {
         self.filters.iter().all(|clause| clause.filter(todo))
+    }
+
+    fn box_clone(&self) -> Box<dyn Filter> {
+        Box::new(self.clone())
     }
 }
 
@@ -314,7 +333,7 @@ fn test_display_conjunction() {
     assert_eq!(format!("{}", filter), "(priority>A and priority<=B)");
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Negation {
     pub filter: Box<dyn Filter>,
 }
@@ -322,6 +341,10 @@ pub struct Negation {
 impl Filter for Negation {
     fn filter(&self, todo: &crate::todo::Todo) -> bool {
         !self.filter.filter(todo)
+    }
+
+    fn box_clone(&self) -> Box<dyn Filter> {
+        Box::new(self.clone())
     }
 }
 
@@ -343,12 +366,16 @@ fn test_display_negation() {
     assert_eq!(format!("{}", filter), "not priority=A");
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct All {}
 
 impl Filter for All {
     fn filter(&self, _todo: &crate::todo::Todo) -> bool {
         true
+    }
+
+    fn box_clone(&self) -> Box<dyn Filter> {
+        Box::new(self.clone())
     }
 }
 

@@ -5,6 +5,13 @@ mod parser;
 
 pub trait Sorter: Display + std::fmt::Debug {
     fn compare(&self, a: &crate::todo::Todo, b: &crate::todo::Todo) -> std::cmp::Ordering;
+    fn box_clone(&self) -> Box<dyn Sorter>;
+}
+
+impl Clone for Box<dyn Sorter> {
+    fn clone(&self) -> Box<dyn Sorter> {
+        self.box_clone()
+    }
 }
 
 impl Serialize for Box<dyn Sorter> {
@@ -56,7 +63,7 @@ fn test_deserialize_json_sorter() {
     assert_eq!(todos[1].title, "A");
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum Property {
     Title,
     File,
@@ -82,7 +89,7 @@ impl Display for Property {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum Direction {
     Ascending,
     Descending,
@@ -97,7 +104,7 @@ impl Display for Direction {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct PropertySorter {
     property: Property,
     direction: Direction,
@@ -131,6 +138,10 @@ impl Sorter for PropertySorter {
             Direction::Descending => ord.reverse(),
         }
     }
+
+    fn box_clone(&self) -> Box<dyn Sorter> {
+        Box::new(self.clone())
+    }
 }
 
 impl Display for PropertySorter {
@@ -139,7 +150,7 @@ impl Display for PropertySorter {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct SortPipeline {
     sorters: Vec<Box<dyn Sorter>>,
 }
@@ -178,6 +189,10 @@ impl Sorter for SortPipeline {
             }
         }
         std::cmp::Ordering::Equal
+    }
+
+    fn box_clone(&self) -> Box<dyn Sorter> {
+        Box::new(self.clone())
     }
 }
 

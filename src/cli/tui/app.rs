@@ -86,6 +86,8 @@ impl TodoItem {
     }
 }
 
+use crate::cli::config::Config;
+
 /// This struct holds the current state of the app. In particular, it has the `todo_list` field
 /// which is a wrapper around `ListState`. Keeping track of the state lets us render the
 /// associated widget with its state and have access to features such as natural scrolling.
@@ -95,8 +97,8 @@ impl TodoItem {
 pub struct App {
     should_exit: bool,
 
-    /// A list of files to exclude from the search.
-    exclude: Vec<String>,
+    /// The configuration object for the app.
+    config: Config,
 
     /// The complete list of todos that this app manages.
     todo_view: Vec<Rc<Todo>>,
@@ -117,7 +119,6 @@ pub struct App {
     popup_for: Option<PopupFor>,
 }
 
-use crate::cli::config::Config;
 impl App {
     pub fn new(mut config: Config) -> Result<Self, Box<dyn std::error::Error>> {
         // Start up admin
@@ -153,17 +154,24 @@ impl App {
             (Some(Popup::new(60, 20)), Some(PopupFor::UnownedTodos))
         };
 
+        let filter = config
+            .filter
+            .clone()
+            .unwrap_or(Box::new(filter::All::default()));
+        let sorter = config
+            .sorter
+            .clone()
+            .unwrap_or(Box::new(sort::SortPipeline::app_default()));
+
         let mut app = Self {
             should_exit: false,
-            exclude: config.exclude,
+            config,
             todo_view,
             unowned_todos,
             todo_list: TodoList::default(),
             selected: None,
-            filter: config.filter.unwrap_or(Box::new(filter::All::default())),
-            sorter: config
-                .sorter
-                .unwrap_or(Box::new(sort::SortPipeline::app_default())),
+            filter,
+            sorter,
             input: None,
             input_for: None,
             popup,
@@ -371,7 +379,7 @@ impl App {
     }
 
     fn refresh_todos(&mut self) {
-        let todo_data = todoozy::get_todos(&self.exclude).unwrap();
+        let todo_data = todoozy::get_todos(&self.config.exclude).unwrap();
         self.todo_view = todo_data.into_iter().map(|t| Rc::new(t)).collect();
         self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
     }
@@ -383,14 +391,7 @@ impl App {
                 Err(e) => eprintln!("Error writing todo: {}", e),
             }
         }
-        //match todoozy::import_todos(&self.unowned_todos) {
-        //    Ok(_) => {
-        //        self.unowned_todos.clear();
-        //        self.popup = None;
-        //        self.popup_for = None;
-        //    }
-        //    Err(e) => eprintln!("Error importing todos: {}", e),
-        //}
+        self.config.save().unwrap();
     }
 }
 
