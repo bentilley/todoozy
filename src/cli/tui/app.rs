@@ -217,7 +217,7 @@ impl App {
             return;
         }
 
-        // TODO (Z) 2024-08-23 A way to scroll the list view to the right
+        // TODO #5 (Z) 2024-08-23 A way to scroll the list view to the right
         //
         // So we can see all the info of long todos who's information can't fit on the current
         // terminal width.
@@ -518,7 +518,7 @@ impl App {
 
         text.push_line("\n");
 
-        // TODO (E) 2024-08-15 Make it so the status reflects todos done since opening the tui
+        // TODO #6 (E) 2024-08-15 Make it so the status reflects todos done since opening the tui
         // +feature
         //
         // While you're editing todos in the app it keeps track of which ones you've deleted since

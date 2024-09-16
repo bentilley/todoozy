@@ -38,7 +38,7 @@ pub fn parse_args() -> Result<Args, lexopt::Error> {
 
     while let Some(arg) = parser.next()? {
         match arg {
-            // TODO (Z) 2024-08-05 Implement a .tdzignore file +idea
+            // TODO #7 (Z) 2024-08-05 Implement a .tdzignore file +idea
             //
             // This would allow users to specify a list of directories or files to exclude without
             // having to pass them as arguments in every tdz call.
@@ -81,7 +81,7 @@ pub fn parse_args() -> Result<Args, lexopt::Error> {
         }
     }
 
-    // TODO (Z) 2024-09-04 These probably shouldn't live here. +refactor
+    // TODO #8 (Z) 2024-09-04 These probably shouldn't live here. +refactor
     //
     // My take is that this function should only be parsing args. Deciding what to do with them is
     // downstream's problem.

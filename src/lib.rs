@@ -38,7 +38,7 @@ fn parse_files(files: Walk) -> Result<todo::Todos, Box<dyn error::Error>> {
 
 type RawTodo = (usize, usize, String);
 
-// TODO (E) 2024-09-02 Add more language support +improvement
+// TODO #4 (E) 2024-09-02 Add more language support +improvement
 //
 // Candidates:
 //   - terraform (.tf)
