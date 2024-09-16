@@ -384,6 +384,14 @@ impl App {
         self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
     }
 
+    // TODO #13 (A) 2024-09-16 Remove the popup UI for importing todos
+    //
+    // I feel like I've come up with a much better way. Simply having a note in the footer with the
+    // number of unimported todos and a hotkey to press to import them. Feels slicker than the
+    // popup flow. It could even say "11 unimported todos (press 'I' to import them)".
+    //
+    // Maybe also a filter / view where you can view the unimported todos and import them one by
+    // one.
     fn import_todos(&mut self) {
         for todo in &self.unowned_todos {
             match todo.write_id() {

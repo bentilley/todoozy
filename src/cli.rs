@@ -3,6 +3,10 @@ pub mod config;
 pub mod display;
 pub mod tui;
 
+// TODO #14 (B) 2024-09-16 A way to import todos from the command line
+//
+// Something like `tdz --import-all`?
+
 pub fn list_projects(exclude: &[String]) {
     let todos = todoozy::get_todos(&exclude).unwrap();
     let mut projects = std::collections::HashMap::new();
