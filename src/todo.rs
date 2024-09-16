@@ -2,7 +2,11 @@ pub mod filter;
 pub mod parser;
 pub mod sort;
 
+use std::fs::File;
+use std::io::{self, prelude::*, BufReader, BufWriter};
+
 use derive_builder::Builder;
+use tempfile::NamedTempFile;
 
 #[derive(Builder, Debug, PartialEq, Default)]
 pub struct Todo {
@@ -57,6 +61,63 @@ impl Todo {
 
     pub fn has_context(&self, context: &str) -> bool {
         self.contexts.iter().any(|c| c == context)
+    }
+
+    pub fn write_id(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let id = match self.id {
+            Some(id) => id,
+            None => return Err(Box::new(io::Error::new(io::ErrorKind::NotFound, "No ID"))),
+        };
+        let file_name = match self.file {
+            Some(ref file) => file,
+            None => return Err(Box::new(io::Error::new(io::ErrorKind::NotFound, "No file"))),
+        };
+        let line_number = match self.line_number {
+            Some(line_number) => line_number,
+            None => {
+                return Err(Box::new(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "No line number",
+                )))
+            }
+        };
+
+        let file = File::open(file_name)?;
+        let reader = BufReader::new(file);
+
+        let tmp_file = NamedTempFile::new()?;
+        let mut writer = BufWriter::new(tmp_file.as_file());
+
+        for (i, line) in reader.lines().enumerate() {
+            match line {
+                Ok(line) => {
+                    if i + 1 == line_number {
+                        let new_line = match line.split_once("TODO") {
+                            Some((pref, suff)) => {
+                                format!("{}TODO #{}{}", pref, id, suff)
+                            }
+                            None => {
+                                return Err(Box::new(io::Error::new(
+                                    io::ErrorKind::NotFound,
+                                    "No TODO",
+                                )))
+                            }
+                        };
+                        writer.write_all(new_line.as_bytes())?;
+                        writer.write_all(b"\n")?;
+                    } else {
+                        writer.write_all(line.as_bytes())?;
+                        writer.write_all(b"\n")?;
+                    }
+                }
+                Err(e) => return Err(Box::new(e)),
+            }
+        }
+
+        writer.flush()?;
+        std::fs::copy(tmp_file.path(), file_name)?;
+
+        Ok(())
     }
 }
 

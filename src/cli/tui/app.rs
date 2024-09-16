@@ -23,38 +23,13 @@ use ratatui::{
 };
 
 use super::input::{Input, InputFor};
+use super::popup::{Popup, PopupFor};
 use todoozy::todo::filter;
 use todoozy::todo::sort;
+use todoozy::Todo;
 
 const SELECTED_STYLE: Style = Style::new().fg(Color::Black).bg(Color::Green);
 const TEXT_FG_COLOR: Color = Color::White;
-
-/// This struct holds the current state of the app. In particular, it has the `todo_list` field
-/// which is a wrapper around `ListState`. Keeping track of the state lets us render the
-/// associated widget with its state and have access to features such as natural scrolling.
-///
-/// Check the event handling at the bottom to see how to change the state on incoming events. Check
-/// the drawing logic for items on how to specify the highlighting style for selected items.
-pub struct App {
-    should_exit: bool,
-
-    /// A list of files to exclude from the search.
-    exclude: Vec<String>,
-
-    /// The complete list of todos that this app manages.
-    todo_view: Vec<Rc<todoozy::Todo>>,
-
-    /// The list of todos that are currently displayed after filters / sorts have been applied.
-    todo_list: TodoList,
-    selected: Option<usize>,
-
-    filter: Box<dyn filter::Filter>,
-
-    sorter: Box<dyn sort::Sorter>,
-
-    input: Option<Input>,
-    input_for: Option<InputFor>,
-}
 
 #[derive(Debug, Default)]
 struct TodoList {
@@ -64,7 +39,7 @@ struct TodoList {
 
 impl TodoList {
     fn new(
-        todo_view: Vec<Rc<todoozy::Todo>>,
+        todo_view: Vec<Rc<Todo>>,
         filter: &Box<dyn filter::Filter>,
         sorter: &Box<dyn sort::Sorter>,
     ) -> Self {
@@ -95,7 +70,7 @@ impl TodoList {
 
 #[derive(Debug, Clone)]
 struct TodoItem {
-    todo: Rc<todoozy::Todo>,
+    todo: Rc<Todo>,
     status: Status,
 }
 
@@ -106,9 +81,40 @@ enum Status {
 }
 
 impl TodoItem {
-    fn new(status: Status, todo: Rc<todoozy::Todo>) -> Self {
+    fn new(status: Status, todo: Rc<Todo>) -> Self {
         Self { status, todo }
     }
+}
+
+/// This struct holds the current state of the app. In particular, it has the `todo_list` field
+/// which is a wrapper around `ListState`. Keeping track of the state lets us render the
+/// associated widget with its state and have access to features such as natural scrolling.
+///
+/// Check the event handling at the bottom to see how to change the state on incoming events. Check
+/// the drawing logic for items on how to specify the highlighting style for selected items.
+pub struct App {
+    should_exit: bool,
+
+    /// A list of files to exclude from the search.
+    exclude: Vec<String>,
+
+    /// The complete list of todos that this app manages.
+    todo_view: Vec<Rc<Todo>>,
+    unowned_todos: Vec<Rc<Todo>>,
+
+    /// The list of todos that are currently displayed after filters / sorts have been applied.
+    todo_list: TodoList,
+    selected: Option<usize>,
+
+    filter: Box<dyn filter::Filter>,
+
+    sorter: Box<dyn sort::Sorter>,
+
+    input: Option<Input>,
+    input_for: Option<InputFor>,
+
+    popup: Option<Popup>,
+    popup_for: Option<PopupFor>,
 }
 
 use crate::cli::config::Config;
@@ -121,24 +127,37 @@ impl App {
             config.num_todos = max_id;
             config.save()?;
         }
-        // If there are any todos without an ID, assign them one
-        let todos: todoozy::Todos = todoozy::Todos(
-            todos
-                .into_iter()
-                .map(|mut t| {
-                    if t.id.is_none() {
-                        config.num_todos += 1;
-                        t.id = Some(config.num_todos);
-                    }
-                    t
-                })
-                .collect(),
-        );
+
+        // Assign IDs to todos that don't have them.
+        let mut unowned_todos: Vec<Rc<Todo>> = Vec::new();
+        let todo_view: Vec<Rc<Todo>> = todos
+            .into_iter()
+            .map(|mut t| {
+                let mut updated = false;
+                if t.id.is_none() {
+                    config.num_todos += 1;
+                    t.id = Some(config.num_todos);
+                    updated = true;
+                }
+                let rc = Rc::new(t);
+                if updated {
+                    unowned_todos.push(rc.clone());
+                }
+                rc
+            })
+            .collect();
+
+        let (popup, popup_for) = if unowned_todos.is_empty() {
+            (None, None)
+        } else {
+            (Some(Popup::new(60, 20)), Some(PopupFor::UnownedTodos))
+        };
 
         let mut app = Self {
             should_exit: false,
             exclude: config.exclude,
-            todo_view: todos.into_iter().map(|t| Rc::new(t)).collect(),
+            todo_view,
+            unowned_todos,
             todo_list: TodoList::default(),
             selected: None,
             filter: config.filter.unwrap_or(Box::new(filter::All::default())),
@@ -147,6 +166,8 @@ impl App {
                 .unwrap_or(Box::new(sort::SortPipeline::app_default())),
             input: None,
             input_for: None,
+            popup,
+            popup_for,
         };
 
         app.todo_list = TodoList::new(app.todo_view.clone(), &app.filter, &app.sorter);
@@ -159,6 +180,16 @@ impl App {
             terminal.draw(|f| {
                 f.render_widget(&mut *self, f.area());
                 self.set_cursor_position(f);
+
+                if let Some(ref popup) = &self.popup {
+                    match &self.popup_for {
+                        Some(PopupFor::UnownedTodos) => {
+                            let content = Popup::unowned_todos(&self.todo_view);
+                            popup.render(f, content);
+                        }
+                        None => {}
+                    }
+                }
             })?;
             if let Event::Key(key) = event::read()? {
                 self.handle_key(key, &mut terminal);
@@ -186,45 +217,58 @@ impl App {
         // Putting this in the backlog for now because file formatting will mean that there
         // shouldn't be any massive long todos. If there are then you can always press enter to
         // view the whole todo expanded.
-
-        match self.input {
-            None => match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => {
-                    if self.selected.is_some() {
-                        self.selected = None;
-                    } else {
-                        self.should_exit = true
+        match &self.popup {
+            Some(_) => match key.code {
+                KeyCode::Char('y') => match &self.popup_for {
+                    Some(PopupFor::UnownedTodos) => {
+                        self.import_todos();
+                        self.popup = None;
+                        self.popup_for = None;
                     }
-                }
-                KeyCode::Char('e') => self.edit_selected(terminal).unwrap(),
-                KeyCode::Char('h') | KeyCode::Left => self.select_none(),
-                KeyCode::Char('j') | KeyCode::Down => self.select_next(),
-                KeyCode::Char('k') | KeyCode::Up => self.select_previous(),
-                KeyCode::Char('f') => self.get_input(InputFor::Filter),
-                KeyCode::Char('F') => self.reset_filter(),
-                KeyCode::Char('g') | KeyCode::Home => self.select_first(),
-                KeyCode::Char('G') | KeyCode::End => self.select_last(),
-                KeyCode::Enter => {
-                    self.selected = self.todo_list.state.selected();
-                }
-                KeyCode::Char('l') | KeyCode::Right => self.toggle_status(),
-                KeyCode::Char('R') => self.refresh_todos(),
-                KeyCode::Char('s') => self.get_input(InputFor::Sort),
-                KeyCode::Char('S') => self.reset_sort(),
+                    None => unreachable!(),
+                },
+                KeyCode::Esc | KeyCode::Char('n') => self.popup = None,
                 _ => {}
             },
-            Some(ref mut input) => match key.code {
-                KeyCode::Enter => {
-                    let output = input.submit();
-                    self.handle_input(output);
-                    self.input = None;
-                }
-                KeyCode::Char(to_insert) => input.enter_char(to_insert),
-                KeyCode::Backspace => input.delete_char(),
-                KeyCode::Left => input.move_cursor_left(),
-                KeyCode::Right => input.move_cursor_right(),
-                KeyCode::Esc => self.input = None,
-                _ => {}
+            None => match self.input {
+                None => match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => {
+                        if self.selected.is_some() {
+                            self.selected = None;
+                        } else {
+                            self.should_exit = true
+                        }
+                    }
+                    KeyCode::Char('e') => self.edit_selected(terminal).unwrap(),
+                    KeyCode::Char('h') | KeyCode::Left => self.select_none(),
+                    KeyCode::Char('j') | KeyCode::Down => self.select_next(),
+                    KeyCode::Char('k') | KeyCode::Up => self.select_previous(),
+                    KeyCode::Char('f') => self.get_input(InputFor::Filter),
+                    KeyCode::Char('F') => self.reset_filter(),
+                    KeyCode::Char('g') | KeyCode::Home => self.select_first(),
+                    KeyCode::Char('G') | KeyCode::End => self.select_last(),
+                    KeyCode::Enter => {
+                        self.selected = self.todo_list.state.selected();
+                    }
+                    KeyCode::Char('l') | KeyCode::Right => self.toggle_status(),
+                    KeyCode::Char('R') => self.refresh_todos(),
+                    KeyCode::Char('s') => self.get_input(InputFor::Sort),
+                    KeyCode::Char('S') => self.reset_sort(),
+                    _ => {}
+                },
+                Some(ref mut input) => match key.code {
+                    KeyCode::Enter => {
+                        let output = input.submit();
+                        self.handle_input(output);
+                        self.input = None;
+                    }
+                    KeyCode::Char(to_insert) => input.enter_char(to_insert),
+                    KeyCode::Backspace => input.delete_char(),
+                    KeyCode::Left => input.move_cursor_left(),
+                    KeyCode::Right => input.move_cursor_right(),
+                    KeyCode::Esc => self.input = None,
+                    _ => {}
+                },
             },
         }
     }
@@ -330,6 +374,23 @@ impl App {
         let todo_data = todoozy::get_todos(&self.exclude).unwrap();
         self.todo_view = todo_data.into_iter().map(|t| Rc::new(t)).collect();
         self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
+    }
+
+    fn import_todos(&mut self) {
+        for todo in &self.unowned_todos {
+            match todo.write_id() {
+                Ok(_) => {}
+                Err(e) => eprintln!("Error writing todo: {}", e),
+            }
+        }
+        //match todoozy::import_todos(&self.unowned_todos) {
+        //    Ok(_) => {
+        //        self.unowned_todos.clear();
+        //        self.popup = None;
+        //        self.popup_for = None;
+        //    }
+        //    Err(e) => eprintln!("Error importing todos: {}", e),
+        //}
     }
 }
 
