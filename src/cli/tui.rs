@@ -1,6 +1,5 @@
 pub mod app;
 mod input;
-mod popup;
 
 use std::error;
 use std::{io, io::stdout};

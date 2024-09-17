@@ -39,3 +39,20 @@ pub fn truncate_path(path: &str) -> String {
 
     abbrev
 }
+
+pub fn num_digits(n: u32) -> u32 {
+    if n == 0 {
+        return 1;
+    }
+    ((n as f64).log10() + 1.0).floor() as u32
+}
+
+#[test]
+fn test_num_digits() {
+    assert_eq!(num_digits(0), 1);
+    assert_eq!(num_digits(1), 1);
+    assert_eq!(num_digits(9), 1);
+    assert_eq!(num_digits(10), 2);
+    assert_eq!(num_digits(99), 2);
+    assert_eq!(num_digits(100), 3);
+}
