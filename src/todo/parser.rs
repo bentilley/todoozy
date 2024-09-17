@@ -197,13 +197,15 @@ fn test_non_whitespace() {
 
 // TODO #3 (C) 2024-09-06 Meta data parsing interferes with code in todos +bug
 //
-// This code won't all be parsed correctly because it contains ':' characters which immediately
-// flip the parser into metadata munching.
+// This code needs to be in some kind of escaped string so that it can be parsed correctly because
+// it contains ':' characters which immediately flip the parser into metadata munching.
 //
+// ```
 // Span::styled(
 //     format!("#{} ", todo_item.todo.id.unwrap_or(0)),
 //     Style::new().fg(Color::Red),
 // ),
+// ```
 //
 // Not sure what the solution is yet, as lots of languages use ':' in their syntax so taking it on
 // a case by case basis feels impossible. I think we'd need to specify markdown ` or ``` always
@@ -459,6 +461,15 @@ pub fn todo(s: &str) -> IResult<&str, Todo> {
                         _ => {}
                     }
                 } else {
+                    // TODO #17 (C) 2024-09-17 Handle repeated metadata keys +improvement
+                    //
+                    // Currently, repeated metadata keys are not handled. This means that if a todo
+                    // is parsed with the same metadata key multiple times, only the last value will
+                    // be stored in the metadata.
+                    //
+                    // Possible directions:
+                    //   - a list metadata type, that just adds subsequent values to a list
+                    //   - validation to show an error if the same key is used multiple times
                     metadata.insert(k, v);
                 }
             }
