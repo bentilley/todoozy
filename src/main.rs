@@ -8,13 +8,23 @@ mod cli;
 // somewhere where we would expect them to pick up the slack, rather that making this a full
 // project management software stack.
 //
-// A few useful tools like listing projects and contexts efels fine, but slicing and dicing the
+// A few useful tools like listing projects and contexts feels fine, but slicing and dicing the
 // todo metadata feels like too much.
 fn main() -> Result<(), Box<dyn error::Error>> {
     let mut config = cli::config::Config::load_config()?;
 
-    let mut args = cli::args::parse_args().unwrap();
-    args.apply(&mut config);
-
-    cli::tui::run(config)
+    use cli::args::Mode::*;
+    use cli::Command::*;
+    match cli::args::parse_args() {
+        Ok(mode) => match mode {
+            Cli(ListProjects) => Ok(cli::list_projects(&config.exclude)),
+            Cli(ListContexts) => Ok(cli::list_contexts(&config.exclude)),
+            Cli(ImportAll) => Ok(cli::import_all(&mut config)?),
+            TUI(mut args) => {
+                args.apply(&mut config);
+                cli::tui::run(config)
+            }
+        },
+        Err(e) => Err(e.into()),
+    }
 }

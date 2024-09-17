@@ -3,12 +3,14 @@ pub mod config;
 pub mod display;
 pub mod tui;
 
-// TODO #14 (B) 2024-09-16 A way to import todos from the command line
-//
-// Something like `tdz --import-all`?
+pub enum Command {
+    ListProjects,
+    ListContexts,
+    ImportAll,
+}
 
 pub fn list_projects(exclude: &[String]) {
-    let todos = todoozy::get_todos(&exclude).unwrap();
+    let todos = todoozy::get_todos(exclude).unwrap();
     let mut projects = std::collections::HashMap::new();
     for todo in todos {
         for project in todo.projects {
@@ -22,7 +24,7 @@ pub fn list_projects(exclude: &[String]) {
 }
 
 pub fn list_contexts(exclude: &[String]) {
-    let todos = todoozy::get_todos(&exclude).unwrap();
+    let todos = todoozy::get_todos(exclude).unwrap();
     let mut contexts = std::collections::HashMap::new();
     for todo in todos {
         for context in todo.contexts {
@@ -33,4 +35,22 @@ pub fn list_contexts(exclude: &[String]) {
     for (context, _) in contexts {
         println!("{}", context);
     }
+}
+
+pub fn import_all(conf: &mut config::Config) -> Result<(), Box<dyn std::error::Error>> {
+    let todos = todoozy::get_todos(&conf.exclude).unwrap();
+    for mut todo in todos {
+        match todo.id {
+            Some(_) => {}
+            None => {
+                conf.num_todos += 1;
+                let id = conf.num_todos;
+                todo.id = Some(id);
+                todo.write_id()?;
+                println!("Imported: #{} {}", id, todo.title);
+            }
+        };
+    }
+    conf.save()?;
+    Ok(())
 }

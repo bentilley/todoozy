@@ -1,5 +1,11 @@
+use crate::cli::Command;
 use todoozy::todo::filter;
 use todoozy::todo::sort;
+
+pub enum Mode {
+    Cli(Command),
+    TUI(Args),
+}
 
 pub struct Args {
     pub exclude: Vec<String>,
@@ -27,13 +33,24 @@ impl Args {
     }
 }
 
-pub fn parse_args() -> Result<Args, lexopt::Error> {
+const USAGE: &str = r#"Todos as code manager
+
+Usage: tdz [OPTIONS]
+
+Options:
+    -E, --exclude <PATH<,PATH>>  Files or directories to exclude from search
+    -f, --filter <FILTER>        Filter which todos to display
+    -s, --sort <SORT>            How to sort the todos
+    --list-projects              List all projects
+    --list-contexts              List all contexts
+    --import-all                 Import all todos
+    --help                       Print help
+    "#;
+
+pub fn parse_args() -> Result<Mode, lexopt::Error> {
     use lexopt::prelude::*;
 
     let mut args = Args::new();
-    let mut list_projects = false;
-    let mut list_contexts = false;
-
     let mut parser = lexopt::Parser::from_env();
 
     while let Some(arg) = parser.next()? {
@@ -65,35 +82,22 @@ pub fn parse_args() -> Result<Args, lexopt::Error> {
                 };
             }
 
-            Long("list-projects") => {
-                list_projects = true;
-            }
-
-            Long("list-contexts") => {
-                list_contexts = true;
-            }
+            // TODO #16 (Z) 2024-09-17 Make list-projects, etc. positioned arg-like commands
+            //
+            // Maybe check the precedent before hand, but it feels like these might fit more
+            // naturally as positioned arguments, e.g. `tdz list-projects`, which could then also
+            // take their own arguments if required. +improvement
+            Long("list-projects") => return Ok(Mode::Cli(Command::ListProjects)),
+            Long("list-contexts") => return Ok(Mode::Cli(Command::ListContexts)),
+            Long("import-all") => return Ok(Mode::Cli(Command::ImportAll)),
 
             Long("help") => {
-                println!("Usage: hello [-E|--exclude=PATH[,PATH]]");
+                println!("{}", USAGE);
                 std::process::exit(0);
             }
             _ => return Err(arg.unexpected()),
         }
     }
 
-    // TODO #8 (Z) 2024-09-04 These probably shouldn't live here. +refactor
-    //
-    // My take is that this function should only be parsing args. Deciding what to do with them is
-    // downstream's problem.
-    if list_projects {
-        super::list_projects(&args.exclude);
-        std::process::exit(0);
-    }
-
-    if list_contexts {
-        super::list_contexts(&args.exclude);
-        std::process::exit(0);
-    }
-
-    Ok(args)
+    Ok(Mode::TUI(args))
 }
