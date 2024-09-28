@@ -127,24 +127,6 @@ impl App {
             config.save()?;
         }
 
-        //// Assign IDs to todos that don't have them.
-        //let mut unowned_todos: Vec<Rc<Todo>> = Vec::new();
-        //let todo_view: Vec<Rc<Todo>> = todos
-        //    .into_iter()
-        //    .map(|mut t| {
-        //        let mut updated = false;
-        //        if t.id.is_none() {
-        //            config.num_todos += 1;
-        //            t.id = Some(config.num_todos);
-        //            updated = true;
-        //        }
-        //        let rc = Rc::new(t);
-        //        if updated {
-        //            unowned_todos.push(rc.clone());
-        //        }
-        //        rc
-        //    })
-        //    .collect();
         let todo_view: Vec<Rc<RefCell<Todo>>> = todos
             .into_iter()
             .map(|t| Rc::new(RefCell::new(t)))
@@ -262,6 +244,10 @@ impl App {
         self.todo_list.state.select(None);
     }
 
+    // TODO #18 (A) 2024-09-20 Handle the end of the list +bug
+    //
+    // We currently panic if you press down at the end of the list as you get an index out of
+    // bounds error.
     fn select_next(&mut self) {
         self.todo_list.state.select_next();
     }
@@ -396,10 +382,11 @@ impl App {
                     num_imported += 1;
                     self.config.num_todos += 1;
                     todo.id = Some(self.config.num_todos);
+                    todo.write_id().unwrap();
+                    self.config.save().unwrap();
                 }
             }
         }
-        self.config.save().unwrap();
         match num_imported {
             0 => self.message = Some("No todos to import".to_string()),
             n => self.message = Some(format!("{} todos imported", n)),

@@ -1,18 +1,35 @@
-use crate::todo::{Todo, TodoBuilder};
+use crate::todo::{Metadata, Todo, TodoBuilder};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take},
     character::complete::{
         alphanumeric1, digit1, line_ending, multispace1, one_of, space0, space1,
     },
-    combinator::opt,
-    error::{Error, ErrorKind},
+    combinator::{opt, recognize},
+    error::{ErrorKind, ParseError},
     multi::{fold_many1, many0},
     sequence::{delimited, preceded, terminated, tuple},
     IResult, InputTakeAtPosition,
 };
 
-fn id(i: &str) -> IResult<&str, u32> {
+#[derive(Debug, PartialEq)]
+pub enum Error<I> {
+    BadMetadata(String),
+    InvalidDate(String),
+    Nom(I, ErrorKind),
+}
+
+impl<I> ParseError<I> for Error<I> {
+    fn from_error_kind(input: I, kind: ErrorKind) -> Self {
+        Error::Nom(input, kind)
+    }
+
+    fn append(_: I, _: ErrorKind, other: Self) -> Self {
+        other
+    }
+}
+
+fn id(i: &str) -> IResult<&str, u32, Error<&str>> {
     let (i, _) = space0(i)?;
     let (i, p) = delimited(tag("#"), digit1, space1)(i)?;
     Ok((i, p.parse().unwrap()))
@@ -23,15 +40,15 @@ fn test_id() {
     assert_eq!(id("#123 "), Ok(("", 123)));
     assert_eq!(
         id("#123"),
-        Err(nom::Err::Error(Error::new("", ErrorKind::Space)))
+        Err(nom::Err::Error(Error::Nom("", ErrorKind::Space)))
     );
     assert_eq!(
         id("123"),
-        Err(nom::Err::Error(Error::new("123", ErrorKind::Tag)))
+        Err(nom::Err::Error(Error::Nom("123", ErrorKind::Tag)))
     );
 }
 
-fn uppercase(i: &str) -> IResult<&str, char> {
+fn uppercase(i: &str) -> IResult<&str, char, Error<&str>> {
     let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     let (i, c) = one_of(chars)(i)?;
     Ok((i, c))
@@ -42,14 +59,14 @@ fn test_uppercase() {
     assert_eq!(uppercase("A"), Ok(("", 'A')));
     assert_eq!(
         uppercase("a"),
-        Err(nom::Err::Error(Error::new("a", ErrorKind::OneOf)))
+        Err(nom::Err::Error(Error::Nom("a", ErrorKind::OneOf)))
     );
     let (i, c) = uppercase("ABC").unwrap();
     assert_eq!(i, "BC");
     assert_eq!(c, 'A')
 }
 
-fn priority(i: &str) -> IResult<&str, char> {
+fn priority(i: &str) -> IResult<&str, char, Error<&str>> {
     terminated(delimited(tag("("), uppercase, tag(")")), multispace1)(i)
 }
 
@@ -58,15 +75,15 @@ fn test_priority() {
     assert_eq!(priority("(A) "), Ok(("", 'A')));
     assert_eq!(
         priority("(a)"),
-        Err(nom::Err::Error(Error::new("a)", ErrorKind::OneOf)))
+        Err(nom::Err::Error(Error::Nom("a)", ErrorKind::OneOf)))
     );
     assert_eq!(
         priority("(A]"),
-        Err(nom::Err::Error(Error::new("]", ErrorKind::Tag)))
+        Err(nom::Err::Error(Error::Nom("]", ErrorKind::Tag)))
     );
 }
 
-fn date_fmt(i: &str) -> IResult<&str, chrono::NaiveDate> {
+fn date_fmt(i: &str) -> IResult<&str, chrono::NaiveDate, Error<&str>> {
     let (i, year) = take(4usize)(i)?;
     let (i, _) = tag("-")(i)?;
     let (i, month) = take(2usize)(i)?;
@@ -79,10 +96,10 @@ fn date_fmt(i: &str) -> IResult<&str, chrono::NaiveDate> {
         day.parse().unwrap(),
     ) {
         Some(date) => Ok((i, date)),
-        None => Err(nom::Err::Error(Error::new(
-            "invalid date",
-            ErrorKind::Satisfy,
-        ))),
+        None => Err(nom::Err::Error(Error::InvalidDate(format!(
+            "{}-{}-{}",
+            year, month, day
+        )))),
     }
 }
 
@@ -94,14 +111,13 @@ fn test_date_fmt() {
     );
     assert_eq!(
         date_fmt("2024-08-32"),
-        Err(nom::Err::Error(Error::new(
-            "invalid date",
-            ErrorKind::Satisfy
+        Err(nom::Err::Error(Error::InvalidDate(
+            "2024-08-32".to_string()
         )))
     );
 }
 
-fn date(i: &str) -> IResult<&str, chrono::NaiveDate> {
+fn date(i: &str) -> IResult<&str, chrono::NaiveDate, Error<&str>> {
     terminated(date_fmt, multispace1)(i)
 }
 
@@ -113,22 +129,28 @@ fn test_date() {
     );
     assert_eq!(
         date("2024-08-32"),
-        Err(nom::Err::Error(Error::new(
-            "invalid date",
-            ErrorKind::Satisfy
+        Err(nom::Err::Error(Error::InvalidDate(
+            "2024-08-32".to_string()
         )))
     );
 }
 
+// TODO #19 (C) 2024-09-20 Word should wrap &str not String. +improvement
+//
+// This is just an artifact of my not understanding Rust very well when I started writing this. For
+// the parser the words can just be slices of the underlying string (probably :)), no need to
+// duplicate all the data at this point. We can allocate strings for the todo when we build the
+// Todo struct.
 #[derive(Debug, PartialEq)]
 enum Word {
     Context(String),
     Project(String),
     Metadata((String, String)),
     Plain(String),
+    Raw(String),
 }
 
-fn project(i: &str) -> IResult<&str, Word> {
+fn project(i: &str) -> IResult<&str, Word, Error<&str>> {
     let (i, _) = space0(i)?;
     let (i, p) = preceded(tag("+"), alphanumeric1)(i)?;
     Ok((i, Word::Project(p.to_string())))
@@ -146,11 +168,11 @@ fn test_project() {
     );
     assert_eq!(
         project("test"),
-        Err(nom::Err::Error(Error::new("test", ErrorKind::Tag)))
+        Err(nom::Err::Error(Error::Nom("test", ErrorKind::Tag)))
     );
 }
 
-fn context(i: &str) -> IResult<&str, Word> {
+fn context(i: &str) -> IResult<&str, Word, Error<&str>> {
     let (i, _) = space0(i)?;
     let (i, c) = preceded(tag("@"), alphanumeric1)(i)?;
     Ok((i, Word::Context(c.to_string())))
@@ -168,18 +190,18 @@ fn test_context() {
     );
     assert_eq!(
         context("test"),
-        Err(nom::Err::Error(Error::new("test", ErrorKind::Tag)))
+        Err(nom::Err::Error(Error::Nom("test", ErrorKind::Tag)))
     );
     assert_eq!(
         context("hello@example.com"),
-        Err(nom::Err::Error(Error::new(
+        Err(nom::Err::Error(Error::Nom(
             "hello@example.com",
             ErrorKind::Tag
         )))
     );
 }
 
-fn non_whitespace(input: &str) -> IResult<&str, &str> {
+fn non_whitespace(input: &str) -> IResult<&str, &str, Error<&str>> {
     input.split_at_position1_complete(char::is_whitespace, ErrorKind::Alpha)
 }
 
@@ -188,9 +210,34 @@ fn test_non_whitespace() {
     assert_eq!(non_whitespace("Hello, World!"), Ok((" World!", "Hello,")));
     assert_eq!(
         non_whitespace(" Hello, World!"),
-        Err(nom::Err::Error(Error::new(
+        Err(nom::Err::Error(Error::Nom(
             " Hello, World!",
             ErrorKind::Alpha
+        )))
+    );
+}
+
+fn raw_string(i: &str) -> IResult<&str, Word, Error<&str>> {
+    let (i, r) = recognize(tuple((space0, delimited(tag("`"), is_not("`"), tag("`")))))(i)?;
+    Ok((i, Word::Raw(r.to_string())))
+}
+
+#[test]
+fn test_raw_string() {
+    assert_eq!(
+        raw_string("`Hello, World!`"),
+        Ok(("", Word::Raw("`Hello, World!`".to_string())))
+    );
+    assert_eq!(raw_string("`:`"), Ok(("", Word::Raw("`:`".to_string()))));
+    assert_eq!(
+        raw_string("`Hello, World!"),
+        Err(nom::Err::Error(Error::Nom("", ErrorKind::Tag)))
+    );
+    assert_eq!(
+        raw_string("Hello, World!`"),
+        Err(nom::Err::Error(Error::Nom(
+            "Hello, World!`",
+            ErrorKind::Tag
         )))
     );
 }
@@ -198,7 +245,7 @@ fn test_non_whitespace() {
 // TODO #3 (C) 2024-09-06 Meta data parsing interferes with code in todos +bug
 //
 // This code needs to be in some kind of escaped string so that it can be parsed correctly because
-// it contains ':' characters which immediately flip the parser into metadata munching.
+// it contains `:` characters which immediately flip the parser into metadata munching.
 //
 // ```
 // Span::styled(
@@ -207,14 +254,14 @@ fn test_non_whitespace() {
 // ),
 // ```
 //
-// Not sure what the solution is yet, as lots of languages use ':' in their syntax so taking it on
+// Not sure what the solution is yet, as lots of languages use `:` in their syntax so taking it on
 // a case by case basis feels impossible. I think we'd need to specify markdown ` or ``` always
 // required for code.
 //
 // This will also apply to + and @ symbols. If those appeared in code in a todo, they would also be
 // parsed as projects and contexts. Maybe we need a way to escape their usage to use literal
 // characters in the todo without them being parsed specifically.
-fn metadata(i: &str) -> IResult<&str, Word> {
+fn metadata(i: &str) -> IResult<&str, Word, Error<&str>> {
     let (i, _) = space0(i)?;
     let (i, key) = is_not(": \t\r\n")(i)?;
     let (i, _) = tag(":")(i)?;
@@ -237,15 +284,15 @@ fn test_metadata() {
     );
     assert_eq!(
         metadata("key: value"),
-        Err(nom::Err::Error(Error::new(" value", ErrorKind::Alpha)))
+        Err(nom::Err::Error(Error::Nom(" value", ErrorKind::Alpha)))
     );
     assert_eq!(
         metadata("key value"),
-        Err(nom::Err::Error(Error::new(" value", ErrorKind::Tag)))
+        Err(nom::Err::Error(Error::Nom(" value", ErrorKind::Tag)))
     );
 }
 
-fn plain(i: &str) -> IResult<&str, Word> {
+fn plain(i: &str) -> IResult<&str, Word, Error<&str>> {
     let (i, (ws, p)) = tuple((space0, is_not(" \t\r\n")))(i)?;
     Ok((i, Word::Plain(ws.to_string() + p)))
 }
@@ -270,12 +317,12 @@ fn test_plain() {
     );
     assert_eq!(
         plain(""),
-        Err(nom::Err::Error(Error::new("", ErrorKind::IsNot)))
+        Err(nom::Err::Error(Error::Nom("", ErrorKind::IsNot)))
     );
 }
 
-fn word(i: &str) -> IResult<&str, Word> {
-    alt((context, project, metadata, plain))(i)
+fn word(i: &str) -> IResult<&str, Word, Error<&str>> {
+    alt((raw_string, context, project, metadata, plain))(i)
 }
 
 #[test]
@@ -325,7 +372,7 @@ fn test_word() {
     );
 }
 
-fn text(i: &str) -> IResult<&str, Vec<Word>> {
+fn text(i: &str) -> IResult<&str, Vec<Word>, Error<&str>> {
     fold_many1(word, Vec::new, |mut acc: Vec<_>, item| {
         acc.push(item);
         acc
@@ -369,11 +416,11 @@ fn test_text() {
     );
     assert_eq!(
         text(""),
-        Err(nom::Err::Error(Error::new("", ErrorKind::Many1)))
+        Err(nom::Err::Error(Error::Nom("", ErrorKind::Many1)))
     );
 }
 
-fn text_line(i: &str) -> IResult<&str, Vec<Word>> {
+fn text_line(i: &str) -> IResult<&str, Vec<Word>, Error<&str>> {
     let (i, mut words) = text(i)?;
     let (i, ws) = many0(line_ending)(i)?;
     if ws.len() > 0 {
@@ -399,11 +446,45 @@ fn test_text_line() {
     );
 }
 
-fn text_multiline(i: &str) -> IResult<&str, Vec<Vec<Word>>> {
-    fold_many1(text_line, Vec::new, |mut acc: Vec<_>, item| {
-        acc.push(item);
-        acc
-    })(i)
+fn raw_string_multiline(i: &str) -> IResult<&str, Vec<Word>, Error<&str>> {
+    let (i, _) = tag("```")(i)?;
+    let (i, _) = line_ending(i)?;
+    let (i, text) = is_not("```")(i)?;
+    let (i, _) = tag("```")(i)?;
+    let (i, _) = opt(line_ending)(i)?;
+    Ok((i, vec![Word::Raw(text.to_string())]))
+}
+
+#[test]
+fn test_raw_string_multiline() {
+    assert_eq!(
+        raw_string_multiline("```\nHello, World!\n```"),
+        Ok(("", vec![Word::Raw("Hello, World!\n".to_string())]))
+    );
+    // With trailing newline
+    assert_eq!(
+        raw_string_multiline("```\nHello, World!\n```\n"),
+        Ok(("", vec![Word::Raw("Hello, World!\n".to_string())]))
+    );
+    // With indentation
+    assert_eq!(
+        raw_string_multiline("```\nList:\n  - item 1\n  - item2\n```"),
+        Ok((
+            "",
+            vec![Word::Raw("List:\n  - item 1\n  - item2\n".to_string())]
+        ))
+    );
+}
+
+fn text_multiline(i: &str) -> IResult<&str, Vec<Vec<Word>>, Error<&str>> {
+    fold_many1(
+        alt((raw_string_multiline, text_line)),
+        Vec::new,
+        |mut acc: Vec<_>, item| {
+            acc.push(item);
+            acc
+        },
+    )(i)
 }
 
 #[test]
@@ -428,9 +509,68 @@ fn test_text_multiline() {
             ]
         ))
     );
+    assert_eq!(
+        text_multiline("Test raw colon.\nThis contains raw `:`."),
+        Ok((
+            "",
+            vec![
+                vec![
+                    Word::Plain("Test".to_string()),
+                    Word::Plain(" raw".to_string()),
+                    Word::Plain(" colon.".to_string()),
+                    Word::Plain("\n".to_string()),
+                ],
+                vec![
+                    Word::Plain("This".to_string()),
+                    Word::Plain(" contains".to_string()),
+                    Word::Plain(" raw".to_string()),
+                    Word::Raw(" `:`".to_string()),
+                    Word::Plain(".".to_string()),
+                ],
+            ]
+        ))
+    );
+    assert_eq!(
+        text_multiline(
+            r##"Here is some text with `:` in a multiline raw string.
+
+```
+Span::styled(
+    format!("#{} ", todo_item.todo.id.unwrap_or(0)),
+),
+```
+"##
+        ),
+        Ok((
+            "",
+            vec![
+                vec![
+                    Word::Plain("Here".to_string()),
+                    Word::Plain(" is".to_string()),
+                    Word::Plain(" some".to_string()),
+                    Word::Plain(" text".to_string()),
+                    Word::Plain(" with".to_string()),
+                    Word::Raw(" `:`".to_string()),
+                    Word::Plain(" in".to_string()),
+                    Word::Plain(" a".to_string()),
+                    Word::Plain(" multiline".to_string()),
+                    Word::Plain(" raw".to_string()),
+                    Word::Plain(" string.".to_string()),
+                    Word::Plain("\n\n".to_string()),
+                ],
+                vec![Word::Raw(
+                    r##"Span::styled(
+    format!("#{} ", todo_item.todo.id.unwrap_or(0)),
+),
+"##
+                    .to_string()
+                ),],
+            ]
+        ))
+    );
 }
 
-pub fn todo(s: &str) -> IResult<&str, Todo> {
+pub fn todo(s: &str) -> IResult<&str, Todo, Error<&str>> {
     let (i, id) = opt(id)(s)?;
     let (i, priority) = opt(priority)(i)?;
     let (i, date1) = opt(date)(i)?;
@@ -447,11 +587,12 @@ pub fn todo(s: &str) -> IResult<&str, Todo> {
     let mut title = String::new();
     let mut projects: Vec<String> = Vec::new();
     let mut contexts: Vec<String> = Vec::new();
-    let mut metadata = std::collections::HashMap::new();
+    let mut metadata = Metadata::new();
 
     for word in text {
         match word {
             Word::Plain(p) => title.push_str(&p),
+            Word::Raw(r) => title.push_str(&r),
             Word::Project(p) => projects.push(p),
             Word::Context(c) => contexts.push(c),
             Word::Metadata((k, v)) => {
@@ -461,16 +602,10 @@ pub fn todo(s: &str) -> IResult<&str, Todo> {
                         _ => {}
                     }
                 } else {
-                    // TODO #17 (C) 2024-09-17 Handle repeated metadata keys +improvement
-                    //
-                    // Currently, repeated metadata keys are not handled. This means that if a todo
-                    // is parsed with the same metadata key multiple times, only the last value will
-                    // be stored in the metadata.
-                    //
-                    // Possible directions:
-                    //   - a list metadata type, that just adds subsequent values to a list
-                    //   - validation to show an error if the same key is used multiple times
-                    metadata.insert(k, v);
+                    match metadata.set(&k, &v) {
+                        Ok(_) => {}
+                        Err(e) => return Err(nom::Err::Error(Error::BadMetadata(e))),
+                    };
                 }
             }
         }
@@ -486,6 +621,7 @@ pub fn todo(s: &str) -> IResult<&str, Todo> {
                 for word in line {
                     match word {
                         Word::Plain(p) => description.push_str(&p),
+                        Word::Raw(r) => description.push_str(&r),
                         Word::Project(p) => projects.push(p.to_owned()),
                         Word::Context(c) => contexts.push(c.to_owned()),
                         Word::Metadata((k, v)) => {
@@ -495,7 +631,10 @@ pub fn todo(s: &str) -> IResult<&str, Todo> {
                                     _ => {}
                                 }
                             } else {
-                                metadata.insert(k, v);
+                                match metadata.set(&k, &v) {
+                                    Ok(_) => {}
+                                    Err(e) => return Err(nom::Err::Error(Error::BadMetadata(e))),
+                                };
                             }
                         }
                     }
@@ -623,6 +762,59 @@ With multiple paragraphs, and some paragraphs that contain projects. +extra"#
                 .completion_date(chrono::NaiveDate::from_ymd_opt(2024, 8, 14))
                 .description(Some(
                     "- Can it handle indented lines?\n  - Yes, it can.".to_string()
+                ))
+                .build()
+                .unwrap()
+        ))
+    );
+    assert_eq!(
+        todo(
+            r#"#3 (C) 2024-09-06 Meta data parsing interferes with code in todos +bug
+
+This code needs to be in some kind of escaped string so that it can be parsed correctly because
+it contains `:` characters which immediately flip the parser into metadata munching."#
+        ),
+        Ok((
+            "",
+            TodoBuilder::default()
+                .title("Meta data parsing interferes with code in todos".to_string())
+                .id(Some(3))
+                .priority(Some('C'))
+                .projects(vec!["bug".to_string()])
+                .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 9, 6))
+                .description(Some(
+                    "This code needs to be in some kind of escaped string so that it can be parsed correctly because\nit contains `:` characters which immediately flip the parser into metadata munching.".to_string()
+                ))
+                .build()
+                .unwrap()
+        ))
+    );
+    assert_eq!(
+        todo(
+            r##"#3 (C) 2024-09-06 Meta data parsing interferes with code in todos +bug
+
+```
+Span::styled(
+    format!("#{} ", todo_item.todo.id.unwrap_or(0)),
+    Style::new().fg(Color::Red),
+),
+```
+"##
+        ),
+        Ok((
+            "",
+            TodoBuilder::default()
+                .title("Meta data parsing interferes with code in todos".to_string())
+                .id(Some(3))
+                .priority(Some('C'))
+                .projects(vec!["bug".to_string()])
+                .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 9, 6))
+                .description(Some(
+                    r##"Span::styled(
+    format!("#{} ", todo_item.todo.id.unwrap_or(0)),
+    Style::new().fg(Color::Red),
+),"##
+                        .to_string()
                 ))
                 .build()
                 .unwrap()

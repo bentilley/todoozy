@@ -8,7 +8,60 @@ use std::io::{self, prelude::*, BufReader, BufWriter};
 use derive_builder::Builder;
 use tempfile::NamedTempFile;
 
-#[derive(Builder, Debug, PartialEq, Default)]
+use std::collections::HashMap;
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Metadata(HashMap<String, String>);
+
+// TODO #20 (E) 2024-09-17 Vec metadata keys +improvement
+//
+// Currently, repeated metadata keys are not allowed. This means that if a todo is parsed with the
+// same metadata key multiple times, we error the parsing.
+//
+// There might be valid cases when a specific key lends itself to having multiple values associated
+// with the same key (i.e. a list/vector metadata type). This needs better understanding and
+// defining before implementation.
+impl Metadata {
+    pub fn new() -> Self {
+        Metadata(HashMap::new())
+    }
+
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.0.get(key).map(|s| s.as_str())
+    }
+
+    pub fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
+        match self.get(key) {
+            Some(_) => {
+                return Err(format!("Key {} already exists", key));
+            }
+            None => {
+                self.0.insert(key.to_string(), value.to_string());
+            }
+        };
+        Ok(())
+    }
+
+    pub fn iter(&self) -> std::collections::hash_map::Iter<String, String> {
+        self.0.iter()
+    }
+}
+
+impl FromIterator<(std::string::String, std::string::String)> for Metadata {
+    fn from_iter<I: IntoIterator<Item = (std::string::String, std::string::String)>>(
+        iter: I,
+    ) -> Self {
+        let mut metadata = Metadata::new();
+        for (key, value) in iter {
+            match metadata.set(&key, &value) {
+                Err(e) => panic!("{}", e),
+                Ok(_) => {}
+            };
+        }
+        metadata
+    }
+}
+
+#[derive(Builder, Debug, Default, PartialEq)]
 pub struct Todo {
     #[builder(default)]
     pub id: Option<u32>,
@@ -38,7 +91,7 @@ pub struct Todo {
     pub contexts: Vec<String>,
 
     #[builder(default)]
-    pub metadata: std::collections::HashMap<String, String>,
+    pub metadata: Metadata,
 }
 
 impl Todo {
