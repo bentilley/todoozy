@@ -63,7 +63,10 @@ impl TodoList {
 
     fn selected(&self) -> Option<&TodoItem> {
         match self.state.selected() {
-            Some(i) => Some(&self.items[i]),
+            Some(i) => {
+                let idx = std::cmp::min(i, self.items.len() - 1);
+                Some(&self.items[idx])
+            }
             None => None,
         }
     }
@@ -244,10 +247,6 @@ impl App {
         self.todo_list.state.select(None);
     }
 
-    // TODO #18 (A) 2024-09-20 Handle the end of the list +bug
-    //
-    // We currently panic if you press down at the end of the list as you get an index out of
-    // bounds error.
     fn select_next(&mut self) {
         self.todo_list.state.select_next();
     }
