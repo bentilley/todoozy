@@ -242,25 +242,6 @@ fn test_raw_string() {
     );
 }
 
-// TODO #3 (C) 2024-09-06 Meta data parsing interferes with code in todos +bug
-//
-// This code needs to be in some kind of escaped string so that it can be parsed correctly because
-// it contains `:` characters which immediately flip the parser into metadata munching.
-//
-// ```
-// Span::styled(
-//     format!("#{} ", todo_item.todo.id.unwrap_or(0)),
-//     Style::new().fg(Color::Red),
-// ),
-// ```
-//
-// Not sure what the solution is yet, as lots of languages use `:` in their syntax so taking it on
-// a case by case basis feels impossible. I think we'd need to specify markdown ` or ``` always
-// required for code.
-//
-// This will also apply to + and @ symbols. If those appeared in code in a todo, they would also be
-// parsed as projects and contexts. Maybe we need a way to escape their usage to use literal
-// characters in the todo without them being parsed specifically.
 fn metadata(i: &str) -> IResult<&str, Word, Error<&str>> {
     let (i, _) = space0(i)?;
     let (i, key) = is_not(": \t\r\n")(i)?;
@@ -451,8 +432,15 @@ fn raw_string_multiline(i: &str) -> IResult<&str, Vec<Word>, Error<&str>> {
     let (i, _) = line_ending(i)?;
     let (i, text) = is_not("```")(i)?;
     let (i, _) = tag("```")(i)?;
-    let (i, _) = opt(line_ending)(i)?;
-    Ok((i, vec![Word::Raw(text.to_string())]))
+    let (i, ws) = many0(line_ending)(i)?;
+    let mut v = vec![Word::Raw(text.to_string())];
+    if ws.len() > 1 {
+        ws[0..ws.len() - 1].iter().for_each(|l| {
+            v.push(Word::Plain(l.to_string()));
+        });
+        //v.push(Word::Plain(ws.join("").to_string()));
+    }
+    Ok((i, v))
 }
 
 #[test]
@@ -464,7 +452,7 @@ fn test_raw_string_multiline() {
     // With trailing newline
     assert_eq!(
         raw_string_multiline("```\nHello, World!\n```\n"),
-        Ok(("", vec![Word::Raw("Hello, World!\n".to_string())]))
+        Ok(("", vec![Word::Raw("Hello, World!\n".to_string()),]))
     );
     // With indentation
     assert_eq!(
@@ -565,6 +553,59 @@ Span::styled(
 "##
                     .to_string()
                 ),],
+            ]
+        ))
+    );
+    assert_eq!(
+        text_multiline(
+            r##"Here is some text with `:` in a multiline raw string.
+
+```
+Span::styled(
+    format!("#{} ", todo_item.todo.id.unwrap_or(0)),
+),
+```
+
+And here is some text that follows.
+"##
+        ),
+        Ok((
+            "",
+            vec![
+                vec![
+                    Word::Plain("Here".to_string()),
+                    Word::Plain(" is".to_string()),
+                    Word::Plain(" some".to_string()),
+                    Word::Plain(" text".to_string()),
+                    Word::Plain(" with".to_string()),
+                    Word::Raw(" `:`".to_string()),
+                    Word::Plain(" in".to_string()),
+                    Word::Plain(" a".to_string()),
+                    Word::Plain(" multiline".to_string()),
+                    Word::Plain(" raw".to_string()),
+                    Word::Plain(" string.".to_string()),
+                    Word::Plain("\n\n".to_string()),
+                ],
+                vec![
+                    Word::Raw(
+                        r##"Span::styled(
+    format!("#{} ", todo_item.todo.id.unwrap_or(0)),
+),
+"##
+                        .to_string()
+                    ),
+                    Word::Plain("\n".to_string()),
+                ],
+                vec![
+                    Word::Plain("And".to_string()),
+                    Word::Plain(" here".to_string()),
+                    Word::Plain(" is".to_string()),
+                    Word::Plain(" some".to_string()),
+                    Word::Plain(" text".to_string()),
+                    Word::Plain(" that".to_string()),
+                    Word::Plain(" follows.".to_string()),
+                    Word::Plain("\n".to_string()),
+                ],
             ]
         ))
     );
@@ -814,6 +855,43 @@ Span::styled(
     format!("#{} ", todo_item.todo.id.unwrap_or(0)),
     Style::new().fg(Color::Red),
 ),"##
+                        .to_string()
+                ))
+                .build()
+                .unwrap()
+        ))
+    );
+    assert_eq!(
+        todo(
+            r##"#3 (C) 2024-09-06 Meta data parsing interferes with code in todos +bug
+
+```
+Span::styled(
+    format!("#{} ", todo_item.todo.id.unwrap_or(0)),
+    Style::new().fg(Color::Red),
+),
+```
+
+Not sure what the solution is yet, as lots of languages use `:` in their syntax so taking it on
+a case by case basis feels impossible.
+"##
+        ),
+        Ok((
+            "",
+            TodoBuilder::default()
+                .title("Meta data parsing interferes with code in todos".to_string())
+                .id(Some(3))
+                .priority(Some('C'))
+                .projects(vec!["bug".to_string()])
+                .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 9, 6))
+                .description(Some(
+                    r##"Span::styled(
+    format!("#{} ", todo_item.todo.id.unwrap_or(0)),
+    Style::new().fg(Color::Red),
+),
+
+Not sure what the solution is yet, as lots of languages use `:` in their syntax so taking it on
+a case by case basis feels impossible."##
                         .to_string()
                 ))
                 .build()
