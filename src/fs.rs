@@ -16,16 +16,17 @@ pub fn get_files(to_exclude: &[String]) -> Walk {
 
 #[derive(Debug, PartialEq)]
 pub enum FileType {
-    Go,
-    Python,
-    Rust,
-    Todoozy,
-    Terraform,
-    YAML,
     Dockerfile,
+    Go,
     Makefile,
     Markdown,
     Protobuf,
+    Python,
+    Rust,
+    Terraform,
+    Todoozy,
+    Typescript,
+    YAML,
 }
 
 pub fn get_filetype(filename: &str) -> Option<FileType> {
@@ -36,13 +37,14 @@ pub fn get_filetype(filename: &str) -> Option<FileType> {
     let ft = match path.extension().and_then(std::ffi::OsStr::to_str) {
         Some("dockerfile") => Some(Dockerfile),
         Some("go") => Some(Go),
-        Some("mk") => Some(Makefile),
         Some("md") => Some(Markdown),
+        Some("mk") => Some(Makefile),
         Some("proto") => Some(Protobuf),
         Some("py") => Some(Python),
         Some("rs") => Some(Rust),
-        Some("tf") => Some(Terraform),
         Some("tdz") => Some(Todoozy),
+        Some("tf") => Some(Terraform),
+        Some("ts") | Some("tsx") => Some(Typescript),
         Some("yaml") | Some("yml") => Some(YAML),
         _ => None,
     };

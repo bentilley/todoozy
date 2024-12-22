@@ -61,6 +61,7 @@ fn parse_file(file_path: &str) -> Option<Vec<todo::Todo>> {
         Some(FileType::Go) => Some(lang::go::extract_todos(&text)),
         Some(FileType::Python) => Some(lang::python::extract_todos(&text)),
         Some(FileType::Rust) => Some(lang::rust::extract_todos(&text)),
+        Some(FileType::Typescript) => Some(lang::typescript::extract_todos(&text)),
         Some(FileType::Todoozy) => Some(lang::tdz::extract_todos(&text)),
         _ => None,
     };
