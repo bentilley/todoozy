@@ -48,7 +48,13 @@ type RawTodo = (usize, usize, String);
 //   - Markdown? (.md)
 //   - Protobuf? (.proto)
 fn parse_file(file_path: &str) -> Option<Vec<todo::Todo>> {
-    let text = std::fs::read_to_string(file_path).expect("Unable to read file");
+    let text = match std::fs::read_to_string(file_path) {
+        Ok(text) => text,
+        Err(err) => match err.kind() {
+            std::io::ErrorKind::InvalidData => return None,
+            _ => panic!("Unable to read file ({}): {}", file_path, err),
+        },
+    };
 
     use crate::fs::FileType;
     let raw_todos = match crate::fs::get_filetype(file_path) {
