@@ -11,12 +11,16 @@ pub fn extract_todos(text: &str) -> Vec<crate::RawTodo> {
     parser.parse_todos(&text)
 }
 
-#[test]
-fn test_parse_todos() {
-    let parser = super::Parser::new(&GO);
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    // Todo as line comments
-    let text = r#"
+    #[test]
+    fn test_parse_todos() {
+        let parser = crate::lang::Parser::new(&GO);
+
+        // Todo as line comments
+        let text = r#"
     some := "code
 
     // TODO 2020-08-06 Can it handle line comments? +Testing
@@ -24,20 +28,20 @@ fn test_parse_todos() {
     // This is the description.
     more := "code"
 "#;
-    assert_eq!(
-        parser.parse_todos(text)[0],
-        (
-            4 as usize,
-            6 as usize,
-            r#"2020-08-06 Can it handle line comments? +Testing
+        assert_eq!(
+            parser.parse_todos(text)[0],
+            (
+                4 as usize,
+                6 as usize,
+                r#"2020-08-06 Can it handle line comments? +Testing
 
 This is the description."#
-                .to_string()
-        )
-    );
+                    .to_string()
+            )
+        );
 
-    // Todo as block comment (end token on new line)
-    let text = r#"
+        // Todo as block comment (end token on new line)
+        let text = r#"
     if some := "code"; some == "code" {
         /* TODO 2020-08-06 Can it handle block comments? +Testing
          *
@@ -46,20 +50,20 @@ This is the description."#
         more := "code"
     }
 "#;
-    assert_eq!(
-        parser.parse_todos(text)[0],
-        (
-            3 as usize,
-            5 as usize,
-            r#"2020-08-06 Can it handle block comments? +Testing
+        assert_eq!(
+            parser.parse_todos(text)[0],
+            (
+                3 as usize,
+                5 as usize,
+                r#"2020-08-06 Can it handle block comments? +Testing
 
 This is the description."#
-                .to_string()
-        )
-    );
+                    .to_string()
+            )
+        );
 
-    // Todo as block comment (end token on last line of todo)
-    let text = r#"
+        // Todo as block comment (end token on last line of todo)
+        let text = r#"
     for some := range "code" {
         /* TODO 2020-08-06 Can it handle block comments? +Testing
          *
@@ -67,20 +71,20 @@ This is the description."#
         more := "code"
     }
 "#;
-    assert_eq!(
-        parser.parse_todos(text)[0],
-        (
-            3 as usize,
-            5 as usize,
-            r#"2020-08-06 Can it handle block comments? +Testing
+        assert_eq!(
+            parser.parse_todos(text)[0],
+            (
+                3 as usize,
+                5 as usize,
+                r#"2020-08-06 Can it handle block comments? +Testing
 
 This is the description."#
-                .to_string()
-        )
-    );
+                    .to_string()
+            )
+        );
 
-    // Todo with indented lines
-    let text = r#"
+        // Todo with indented lines
+        let text = r#"
     some := "code"
 
     /* TODO 2020-08-06 Can it handle indented todos? +Testing
@@ -91,21 +95,21 @@ This is the description."#
 
     more := "code
 "#;
-    assert_eq!(
-        parser.parse_todos(text)[0],
-        (
-            4 as usize,
-            7 as usize,
-            r#"2020-08-06 Can it handle indented todos? +Testing
+        assert_eq!(
+            parser.parse_todos(text)[0],
+            (
+                4 as usize,
+                7 as usize,
+                r#"2020-08-06 Can it handle indented todos? +Testing
 
 This is a test todo with some indented lines:
   - This is an even more indented line."#
-                .to_string()
-        )
-    );
+                    .to_string()
+            )
+        );
 
-    // File with raw strings
-    let text = r##"
+        // File with raw strings
+        let text = r##"
     some := "code"
     text := `
         // TODO 2020-08-06 Can it handle this fake todo? +Testing
@@ -119,16 +123,17 @@ This is a test todo with some indented lines:
 
     more := "code"
 "##;
-    assert_eq!(parser.parse_todos(text).len(), 1);
-    assert_eq!(
-        parser.parse_todos(text)[0],
-        (
-            9 as usize,
-            11 as usize,
-            r#"2020-08-06 Does it find the real todo? +Testing
+        assert_eq!(parser.parse_todos(text).len(), 1);
+        assert_eq!(
+            parser.parse_todos(text)[0],
+            (
+                9 as usize,
+                11 as usize,
+                r#"2020-08-06 Does it find the real todo? +Testing
 
 This todo isn't in a raw string."#
-                .to_string()
-        )
-    );
+                    .to_string()
+            )
+        );
+    }
 }

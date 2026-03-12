@@ -11,12 +11,16 @@ pub fn extract_todos(text: &str) -> Vec<crate::RawTodo> {
     parser.parse_todos(&text)
 }
 
-#[test]
-fn test_parse_todos() {
-    let parser = super::Parser::new(&TERRAFORM);
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    // Todo as hash line comments
-    let text = r#"
+    #[test]
+    fn test_parse_todos() {
+        let parser = crate::lang::Parser::new(&TERRAFORM);
+
+        // Todo as hash line comments
+        let text = r#"
     variable "example" {
       default = "value"
     }
@@ -28,20 +32,20 @@ fn test_parse_todos() {
       ami = "ami-12345"
     }
 "#;
-    assert_eq!(
-        parser.parse_todos(text)[0],
-        (
-            6 as usize,
-            8 as usize,
-            r#"2020-08-06 Can it handle hash line comments? +Testing
+        assert_eq!(
+            parser.parse_todos(text)[0],
+            (
+                6 as usize,
+                8 as usize,
+                r#"2020-08-06 Can it handle hash line comments? +Testing
 
 This is the description."#
-                .to_string()
-        )
-    );
+                    .to_string()
+            )
+        );
 
-    // Todo as slash line comments
-    let text = r#"
+        // Todo as slash line comments
+        let text = r#"
     variable "example" {
       default = "value"
     }
@@ -53,20 +57,20 @@ This is the description."#
       ami = "ami-12345"
     }
 "#;
-    assert_eq!(
-        parser.parse_todos(text)[0],
-        (
-            6 as usize,
-            8 as usize,
-            r#"2020-08-06 Can it handle slash line comments? +Testing
+        assert_eq!(
+            parser.parse_todos(text)[0],
+            (
+                6 as usize,
+                8 as usize,
+                r#"2020-08-06 Can it handle slash line comments? +Testing
 
 This is the description."#
-                .to_string()
-        )
-    );
+                    .to_string()
+            )
+        );
 
-    // Todo as block comment (end token on new line)
-    let text = r#"
+        // Todo as block comment (end token on new line)
+        let text = r#"
     variable "example" {
       default = "value"
     }
@@ -79,20 +83,20 @@ This is the description."#
       ami = "ami-12345"
     }
 "#;
-    assert_eq!(
-        parser.parse_todos(text)[0],
-        (
-            6 as usize,
-            8 as usize,
-            r#"2020-08-06 Can it handle block comments? +Testing
+        assert_eq!(
+            parser.parse_todos(text)[0],
+            (
+                6 as usize,
+                8 as usize,
+                r#"2020-08-06 Can it handle block comments? +Testing
 
 This is the description."#
-                .to_string()
-        )
-    );
+                    .to_string()
+            )
+        );
 
-    // Todo as block comment (end token on last line of todo)
-    let text = r#"
+        // Todo as block comment (end token on last line of todo)
+        let text = r#"
     variable "example" {
       default = "value"
     }
@@ -104,20 +108,20 @@ This is the description."#
       ami = "ami-12345"
     }
 "#;
-    assert_eq!(
-        parser.parse_todos(text)[0],
-        (
-            6 as usize,
-            8 as usize,
-            r#"2020-08-06 Can it handle block comments? +Testing
+        assert_eq!(
+            parser.parse_todos(text)[0],
+            (
+                6 as usize,
+                8 as usize,
+                r#"2020-08-06 Can it handle block comments? +Testing
 
 This is the description."#
-                .to_string()
-        )
-    );
+                    .to_string()
+            )
+        );
 
-    // Todo with indented lines
-    let text = r#"
+        // Todo with indented lines
+        let text = r#"
     variable "example" {
       default = "value"
     }
@@ -132,16 +136,17 @@ This is the description."#
       ami = "ami-12345"
     }
 "#;
-    assert_eq!(
-        parser.parse_todos(text)[0],
-        (
-            6 as usize,
-            9 as usize,
-            r#"2020-08-06 Can it handle indented todos? +Testing
+        assert_eq!(
+            parser.parse_todos(text)[0],
+            (
+                6 as usize,
+                9 as usize,
+                r#"2020-08-06 Can it handle indented todos? +Testing
 
 This is a test todo with some indented lines:
   - This is an even more indented line."#
-                .to_string()
-        )
-    );
+                    .to_string()
+            )
+        );
+    }
 }
