@@ -1,3 +1,4 @@
+pub mod dockerfile;
 pub mod go;
 pub mod python;
 pub mod rust;
