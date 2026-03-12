@@ -38,15 +38,12 @@ fn parse_files(files: Walk) -> Result<todo::Todos, Box<dyn error::Error>> {
 
 type RawTodo = (usize, usize, String);
 
-// TODO #4 (E) 2024-09-02 Add more language support +improvement
-//
-// Candidates:
-//   - terraform (.tf)
-//   - yaml (.yaml, .yml)
-//   - Dockerfile
-//   - Makefile
-//   - Markdown? (.md)
-//   - Protobuf? (.proto)
+// TODO #26 (E) 2024-09-02 Add Terraform support (.tf) +improvement
+// TODO #27 (E) 2024-09-02 Add YAML support (.yaml, .yml) +improvement
+// TODO #28 (E) 2024-09-02 Add Dockerfile support +improvement
+// TODO #29 (E) 2024-09-02 Add Makefile support +improvement
+// TODO #30 (E) 2024-09-02 Add Markdown support (.md) +improvement
+// TODO #31 (E) 2024-09-02 Add Protobuf support (.proto) +improvement
 fn parse_file(file_path: &str) -> Option<Vec<todo::Todo>> {
     let text = match std::fs::read_to_string(file_path) {
         Ok(text) => text,
