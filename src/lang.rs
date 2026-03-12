@@ -4,6 +4,7 @@ pub mod rust;
 pub mod tdz;
 pub mod terraform;
 pub mod typescript;
+pub mod yaml;
 
 pub const TODO_TOKEN: &str = "TODO";
 

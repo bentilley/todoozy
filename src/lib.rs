@@ -38,7 +38,6 @@ fn parse_files(files: Walk) -> Result<todo::Todos, Box<dyn error::Error>> {
 
 type RawTodo = (usize, usize, String);
 
-// TODO #27 (E) 2024-09-02 Add YAML support (.yaml, .yml) +improvement
 // TODO #28 (E) 2024-09-02 Add Dockerfile support +improvement
 // TODO #29 (E) 2024-09-02 Add Makefile support +improvement
 // TODO #30 (E) 2024-09-02 Add Markdown support (.md) +improvement
@@ -60,6 +59,7 @@ fn parse_file(file_path: &str) -> Option<Vec<todo::Todo>> {
         Some(FileType::Typescript) => Some(lang::typescript::extract_todos(&text)),
         Some(FileType::Todoozy) => Some(lang::tdz::extract_todos(&text)),
         Some(FileType::Terraform) => Some(lang::terraform::extract_todos(&text)),
+        Some(FileType::YAML) => Some(lang::yaml::extract_todos(&text)),
         _ => None,
     };
 
