@@ -41,7 +41,7 @@ impl Metadata {
         Ok(())
     }
 
-    pub fn iter(&self) -> std::collections::hash_map::Iter<String, String> {
+    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, String, String> {
         self.0.iter()
     }
 }
