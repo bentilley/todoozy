@@ -82,16 +82,6 @@ impl Parser {
         'outer: while let Some((i, line)) = lines.next() {
             let trimmed = line.trim_start();
 
-            for raw_string_delimiter in &self.raw_string_delimiters {
-                if trimmed.contains(&raw_string_delimiter.0) {
-                    while let Some((_, line)) = lines.next() {
-                        if line.contains(&raw_string_delimiter.1) {
-                            continue 'outer;
-                        }
-                    }
-                }
-            }
-
             for line_comment_delimiter in &self.line_comment_delimiters {
                 if trimmed.starts_with(&line_comment_delimiter.todo_token) {
                     let mut todo: Vec<String> = Vec::new();
@@ -166,18 +156,29 @@ impl Parser {
                     }
                 }
             }
+
+            for raw_string_delimiter in &self.raw_string_delimiters {
+                if trimmed.contains(&raw_string_delimiter.0) {
+                    // Single-line raw string
+                    if trimmed.contains(&raw_string_delimiter.1)
+                        && trimmed.find(&raw_string_delimiter.0)
+                            < trimmed.rfind(&raw_string_delimiter.1)
+                    {
+                        continue;
+                    }
+                    // Multi-line raw string
+                    while let Some((_, line)) = lines.next() {
+                        if line.contains(&raw_string_delimiter.1) {
+                            continue 'outer;
+                        }
+                    }
+                }
+            }
         }
 
         todos
     }
 }
-
-// TODO #24 (A) 2026-03-12 Add Parser tests for raw strings +test
-//
-// - TODO inside raw string is ignored
-// - Raw string on single line (open and close same line)
-// - TODO after raw string is detected
-// - Raw string delimiter mentioned in comment (false positive case)
 
 // TODO #25 (A) 2026-03-12 Add Parser tests for edge cases +test
 //
@@ -336,5 +337,59 @@ let x = 1;"#;
             todos[0],
             (2, 4, "at end of file\nmore content".to_string())
         );
+    }
+
+    // Raw string tests
+    const TEST_WITH_RAW_STRING: [SyntaxRule; 2] = [
+        SyntaxRule::LineComment("//"),
+        SyntaxRule::RawString("`", "`"),
+    ];
+
+    #[test]
+    fn raw_string_todo_inside_ignored() {
+        let parser = Parser::new(&TEST_WITH_RAW_STRING);
+        let text = r#"let x = `
+// TODO this should be ignored
+`;
+// TODO this should be found
+let y = 1;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (4, 4, "this should be found".to_string()));
+    }
+
+    #[test]
+    fn raw_string_single_line() {
+        let parser = Parser::new(&TEST_WITH_RAW_STRING);
+        let text = r#"let x = `// TODO fake`;
+// TODO real
+let y = 1;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (2, 2, "real".to_string()));
+    }
+
+    #[test]
+    fn raw_string_todo_after_detected() {
+        let parser = Parser::new(&TEST_WITH_RAW_STRING);
+        let text = r#"let x = `raw string content`;
+// TODO after raw string
+let y = 1;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (2, 2, "after raw string".to_string()));
+    }
+
+    #[test]
+    fn raw_string_delimiter_in_comment() {
+        let parser = Parser::new(&TEST_WITH_RAW_STRING);
+        let text = r#"// TODO mentions ` backtick
+let x = 1;
+// TODO second todo
+let y = 1;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 2);
+        assert_eq!(todos[0], (1, 1, "mentions ` backtick".to_string()));
+        assert_eq!(todos[1], (3, 3, "second todo".to_string()));
     }
 }
