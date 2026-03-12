@@ -6,6 +6,19 @@ pub mod typescript;
 
 pub const TODO_TOKEN: &str = "TODO";
 
+// TODO #21 (A) 2026-03-12 Improve Parser edge case handling +fix
+//
+// 1. Regular strings - TODOs inside regular string literals (not raw strings)
+//    are detected as real TODOs
+// 2. Raw string delimiter in comments - a comment mentioning r#" triggers
+//    raw-string-skip mode incorrectly
+// 3. Single-line block comments - /* TODO foo */ on one line doesn't parse
+//    correctly, expects closing delimiter on subsequent line
+// 4. Nested block comments - Rust allows /* /* */ */, parser stops at first */
+// 5. TODO not at start of comment - "// Note: TODO fix" won't be detected
+// 6. Python triple-single-quotes - only """ handled, not '''
+// 7. Unicode boundary panic - line[prefix..] uses byte offsets, could panic
+//    if prefix lands inside a multi-byte UTF-8 character
 pub enum SyntaxRule<'a> {
     LineComment(&'a str),
     BlockComment(&'a str, &'a str),
@@ -135,3 +148,36 @@ impl Parser {
         todos
     }
 }
+
+// TODO #22 (A) 2026-03-12 Add Parser tests for line comments +test
+//
+// - Basic TODO detection
+// - Multi-line TODO with continuation comments
+// - TODO at end of file (no trailing newline) (this is currently broken for sure)
+// - TODO with empty description
+// - Adjacent TODOs (two TODOs back-to-back)
+
+// TODO #23 (A) 2026-03-12 Add Parser tests for block comments +test
+//
+// - Single-line block comment: /* TODO foo */
+// - Multi-line block comment with closing on own line
+// - Multi-line block comment with closing after content
+// - Block comment TODO at end of file
+
+// TODO #24 (A) 2026-03-12 Add Parser tests for raw strings +test
+//
+// - TODO inside raw string is ignored
+// - Raw string on single line (open and close same line)
+// - TODO after raw string is detected
+// - Raw string delimiter mentioned in comment (false positive case)
+
+// TODO #25 (A) 2026-03-12 Add Parser tests for edge cases +test
+//
+// - Unicode characters before TODO token
+// - Mixed comment styles in same file
+// - TODO token appearing multiple times on same line
+// - Deeply indented TODOs
+// - Empty lines within multi-line TODO comments
+
+#[test]
+fn test_parser() {}
