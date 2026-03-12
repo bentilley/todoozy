@@ -3,6 +3,8 @@ name = "todoozy"
 version = "0.1.0"
 edition = "2021"
 license-file = "LICENSE"
+repository = "https://github.com/bentilley/todoozy"
+description = "A CLI Swiss Army knife for managing todos in source code"
 
 [[bin]]
 name = "tdz"
