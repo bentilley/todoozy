@@ -91,16 +91,21 @@ impl Parser {
             for line_comment_delimiter in &self.line_comment_delimiters {
                 if trimmed.starts_with(&line_comment_delimiter.todo_token) {
                     let mut todo: Vec<String> = Vec::new();
+                    let mut end_line = i;
 
                     let v: Vec<&str> = line.split(TODO_TOKEN).collect();
                     todo.push(v[1].trim().to_string());
                     let prefix = v[0].len();
 
-                    while let Some((j, line)) = lines.peek() {
-                        if !line.trim_start().starts_with(&line_comment_delimiter.token) {
-                            todos.push((i + 1, *j, todo.join("\n")));
-                            continue 'outer;
+                    while let Some((j, peeked)) = lines.peek() {
+                        let peeked_trimmed = peeked.trim_start();
+                        // Stop if not a comment or if it's a new TODO
+                        if !peeked_trimmed.starts_with(&line_comment_delimiter.token)
+                            || peeked_trimmed.starts_with(&line_comment_delimiter.todo_token)
+                        {
+                            break;
                         }
+                        end_line = *j;
                         let (_, line) = lines.next().unwrap();
 
                         if line.len() < prefix {
@@ -109,6 +114,9 @@ impl Parser {
                             todo.push(line[prefix..].trim_end().to_owned());
                         }
                     }
+
+                    todos.push((i + 1, end_line + 1, todo.join("\n")));
+                    continue 'outer;
                 }
             }
 
@@ -149,14 +157,6 @@ impl Parser {
     }
 }
 
-// TODO #22 (A) 2026-03-12 Add Parser tests for line comments +test
-//
-// - Basic TODO detection
-// - Multi-line TODO with continuation comments
-// - TODO at end of file (no trailing newline) (this is currently broken for sure)
-// - TODO with empty description
-// - Adjacent TODOs (two TODOs back-to-back)
-
 // TODO #23 (A) 2026-03-12 Add Parser tests for block comments +test
 //
 // - Single-line block comment: /* TODO foo */
@@ -179,5 +179,96 @@ impl Parser {
 // - Deeply indented TODOs
 // - Empty lines within multi-line TODO comments
 
-#[test]
-fn test_parser() {}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Simple line comment syntax for testing
+    const TEST_LINE_COMMENT: [SyntaxRule; 1] = [SyntaxRule::LineComment("//")];
+
+    #[test]
+    fn line_comment_basic_todo() {
+        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let text = "// TODO basic test\nlet x = 1;";
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (1, 1, "basic test".to_string()));
+    }
+
+    #[test]
+    fn line_comment_multiline_todo() {
+        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let text = r#"// TODO multi-line test
+// This is the second line
+// This is the third line
+let x = 1;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (
+                1,
+                3,
+                "multi-line test\nThis is the second line\nThis is the third line".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn line_comment_todo_at_end_of_file() {
+        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let text = "let x = 1;\n// TODO at end of file";
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (2, 2, "at end of file".to_string()));
+    }
+
+    #[test]
+    fn line_comment_todo_at_end_of_file_multiline() {
+        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let text = r#"let x = 1;
+// TODO at end of file
+// with continuation"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (2, 3, "at end of file\nwith continuation".to_string())
+        );
+    }
+
+    #[test]
+    fn line_comment_empty_description() {
+        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let text = r#"// TODO
+let x = 1;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (1, 1, "".to_string()));
+    }
+
+    #[test]
+    fn line_comment_adjacent_todos() {
+        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let text = r#"// TODO first todo
+// TODO second todo
+let x = 1;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 2);
+        assert_eq!(todos[0], (1, 1, "first todo".to_string()));
+        assert_eq!(todos[1], (2, 2, "second todo".to_string()));
+    }
+
+    #[test]
+    fn line_comment_adjacent_todos_with_gap() {
+        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let text = r#"// TODO first todo
+let x = 1;
+// TODO second todo
+let y = 2;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 2);
+        assert_eq!(todos[0], (1, 1, "first todo".to_string()));
+        assert_eq!(todos[1], (3, 3, "second todo".to_string()));
+    }
+}
