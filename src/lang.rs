@@ -112,6 +112,38 @@ impl Parser {
                 }
             }
 
+            // TODO #32 (A) 2026-03-12 Strip *upto* prefix.len() characters
+            //
+            // This allows support for comments like markdown, e.g.:
+            //
+            // <!-- TODO (A) 2026-03-12 some todo title
+            // 
+            // Details starting aligned to the left edge.
+            //   - possibly some indentation
+            // -->
+            //
+            // Otherwise, when writing a comment line this in markdown, you have to remember to
+            // indent all your details to match the `<!-- ` indentation.
+            //
+            // It makes sense to support both:
+            //
+            // /* TODO (A) 2026-03-12 some todo title
+            //  *
+            //  * Details starting aligned to the comment
+            //  */
+            //
+            //  AND
+            //
+            //  /* TODO (A) 2026-03-12 some todo title
+            //
+            //  Details starting aligned to the left edge.
+            //  */
+            //
+            //  Both look reasonable to me. So if we strip *upto* prefix.len() chars (if whitespace
+            //  or '*'), then we can support both styles. Probably want to add some configuration
+            //  for PrefixStripTokens that can be used to configure what get's stripped in the
+            //  prefix, e.g. for C it would be '*', but for other languages it could be something
+            //  else.
             for block_comment_delimiter in &self.block_comment_delimiters {
                 if trimmed.starts_with(&block_comment_delimiter.todo_token) {
                     let mut todo: Vec<String> = Vec::new();
