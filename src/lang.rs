@@ -129,21 +129,32 @@ impl Parser {
                     let mut todo: Vec<String> = Vec::new();
 
                     let v: Vec<&str> = line.split(TODO_TOKEN).collect();
-                    todo.push(v[1].trim().to_string());
+                    let after_todo = v[1];
                     let prefix = v[0].len();
+
+                    // Check if closing delimiter is on same line (single-line block comment)
+                    if after_todo.contains(&block_comment_delimiter.token.1) {
+                        let content = after_todo
+                            .split(&block_comment_delimiter.token.1)
+                            .next()
+                            .unwrap();
+                        todo.push(content.trim().to_string());
+                        todos.push((i + 1, i + 1, todo.join("\n")));
+                        continue 'outer;
+                    }
+
+                    todo.push(after_todo.trim().to_string());
 
                     while let Some((j, line)) = lines.next() {
                         if line.contains(&block_comment_delimiter.token.1) {
-                            let mut end_line = j;
                             let v = line
                                 .split(&block_comment_delimiter.token.1)
                                 .collect::<Vec<&str>>();
                             if v[0].trim_end().len() > prefix {
-                                end_line += 1;
                                 todo.push(v[0][prefix..].trim_end().to_owned());
                             }
 
-                            todos.push((i + 1, end_line, todo.join("\n")));
+                            todos.push((i + 1, j + 1, todo.join("\n")));
                             continue 'outer;
                         }
 
@@ -160,13 +171,6 @@ impl Parser {
         todos
     }
 }
-
-// TODO #23 (A) 2026-03-12 Add Parser tests for block comments +test
-//
-// - Single-line block comment: /* TODO foo */
-// - Multi-line block comment with closing on own line
-// - Multi-line block comment with closing after content
-// - Block comment TODO at end of file
 
 // TODO #24 (A) 2026-03-12 Add Parser tests for raw strings +test
 //
@@ -274,5 +278,63 @@ let y = 2;"#;
         assert_eq!(todos.len(), 2);
         assert_eq!(todos[0], (1, 1, "first todo".to_string()));
         assert_eq!(todos[1], (3, 3, "second todo".to_string()));
+    }
+
+    // Block comment tests
+    const TEST_BLOCK_COMMENT: [SyntaxRule; 1] = [SyntaxRule::BlockComment("/*", "*/")];
+
+    #[test]
+    fn block_comment_single_line() {
+        let parser = Parser::new(&TEST_BLOCK_COMMENT);
+        let text = "/* TODO single line */\nlet x = 1;";
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (1, 1, "single line".to_string()));
+    }
+
+    #[test]
+    fn block_comment_multiline_closing_own_line() {
+        let parser = Parser::new(&TEST_BLOCK_COMMENT);
+        let text = r#"/* TODO multi-line
+ * second line
+ * third line
+ */
+let x = 1;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (1, 4, "multi-line\nsecond line\nthird line".to_string())
+        );
+    }
+
+    #[test]
+    fn block_comment_multiline_closing_after_content() {
+        let parser = Parser::new(&TEST_BLOCK_COMMENT);
+        let text = r#"/* TODO multi-line
+ * second line
+ * third line */
+let x = 1;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (1, 3, "multi-line\nsecond line\nthird line".to_string())
+        );
+    }
+
+    #[test]
+    fn block_comment_todo_at_end_of_file() {
+        let parser = Parser::new(&TEST_BLOCK_COMMENT);
+        let text = r#"let x = 1;
+/* TODO at end of file
+ * more content
+ */"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (2, 4, "at end of file\nmore content".to_string())
+        );
     }
 }

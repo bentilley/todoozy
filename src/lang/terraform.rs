@@ -87,7 +87,7 @@ This is the description."#
             parser.parse_todos(text)[0],
             (
                 6 as usize,
-                8 as usize,
+                9 as usize,
                 r#"2020-08-06 Can it handle block comments? +Testing
 
 This is the description."#
@@ -140,7 +140,7 @@ This is the description."#
             parser.parse_todos(text)[0],
             (
                 6 as usize,
-                9 as usize,
+                10 as usize,
                 r#"2020-08-06 Can it handle indented todos? +Testing
 
 This is a test todo with some indented lines:
