@@ -14,14 +14,10 @@ pub const TODO_TOKEN: &str = "TODO";
 //
 // 1. Regular strings - TODOs inside regular string literals (not raw strings)
 //    are detected as real TODOs
-// 2. Raw string delimiter in comments - a comment mentioning r#" triggers
-//    raw-string-skip mode incorrectly
-// 3. Single-line block comments - /* TODO foo */ on one line doesn't parse
-//    correctly, expects closing delimiter on subsequent line
-// 4. Nested block comments - Rust allows /* /* */ */, parser stops at first */
-// 5. TODO not at start of comment - "// Note: TODO fix" won't be detected
-// 6. Python triple-single-quotes - only """ handled, not '''
-// 7. Unicode boundary panic - line[prefix..] uses byte offsets, could panic
+// 2. Nested block comments - Rust allows /* /* */ */, parser stops at first */
+// 3. TODO not at start of comment - "// Note: TODO fix" won't be detected
+// 4. Python triple-single-quotes - only """ handled, not '''
+// 5. Unicode boundary panic - line[prefix..] uses byte offsets, could panic
 //    if prefix lands inside a multi-byte UTF-8 character
 pub enum SyntaxRule<'a> {
     LineComment(&'a str),
