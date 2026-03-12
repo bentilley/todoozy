@@ -19,6 +19,8 @@ pub const TODO_TOKEN: &str = "TODO";
 // 4. Python triple-single-quotes - only """ handled, not '''
 // 5. Unicode boundary panic - line[prefix..] uses byte offsets, could panic
 //    if prefix lands inside a multi-byte UTF-8 character
+// 6. Inline comments - "let x = 1; // TODO change this" won't be detected
+//    because line doesn't start with comment token
 pub enum SyntaxRule<'a> {
     LineComment(&'a str),
     BlockComment(&'a str, &'a str),
