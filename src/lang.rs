@@ -2,6 +2,7 @@ pub mod go;
 pub mod python;
 pub mod rust;
 pub mod tdz;
+pub mod terraform;
 pub mod typescript;
 
 pub const TODO_TOKEN: &str = "TODO";
