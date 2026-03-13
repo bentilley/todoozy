@@ -2,6 +2,7 @@ pub mod dockerfile;
 pub mod go;
 pub mod makefile;
 pub mod markdown;
+pub mod protobuf;
 pub mod python;
 pub mod rust;
 pub mod tdz;

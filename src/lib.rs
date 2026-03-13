@@ -38,7 +38,6 @@ fn parse_files(files: Walk) -> Result<todo::Todos, Box<dyn error::Error>> {
 
 type RawTodo = (usize, usize, String);
 
-// TODO #31 (E) 2024-09-02 Add Protobuf support (.proto) +improvement
 fn parse_file(file_path: &str) -> Option<Vec<todo::Todo>> {
     let text = match std::fs::read_to_string(file_path) {
         Ok(text) => text,
@@ -60,6 +59,7 @@ fn parse_file(file_path: &str) -> Option<Vec<todo::Todo>> {
         Some(FileType::Dockerfile) => Some(lang::dockerfile::extract_todos(&text)),
         Some(FileType::Makefile) => Some(lang::makefile::extract_todos(&text)),
         Some(FileType::Markdown) => Some(lang::markdown::extract_todos(&text)),
+        Some(FileType::Protobuf) => Some(lang::protobuf::extract_todos(&text)),
         _ => None,
     };
 
