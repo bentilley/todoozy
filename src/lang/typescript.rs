@@ -45,8 +45,8 @@ This is the description."#
     const some = "code";
 
     /* TODO 2020-08-06 Can it handle block comments? +Testing
-     *
-     * This is the description.
+
+       This is the description.
      */
     const more = "code";
 "#;
@@ -67,8 +67,8 @@ This is the description."#
     const some = "code";
 
     /* TODO 2020-08-06 Can it handle block comments? +Testing
-     *
-     * This is the description. */
+
+       This is the description. */
     const more = "code";
 "#;
         assert_eq!(
@@ -88,9 +88,9 @@ This is the description."#
     const some = "code";
 
     /* TODO 2020-08-06 Can it handle indented todos? +Testing
-     *
-     * This is a test todo with some indented lines:
-     *   - This is an even more indented line.
+
+       This is a test todo with some indented lines:
+         - This is an even more indented line.
      */
 
     const more = "code";
@@ -119,8 +119,8 @@ This is a test todo with some indented lines:
     `
 
     /* TODO 2020-08-06 Does it find the real todo? +Testing
-     *
-     * This todo isn't in a raw string.
+
+       This todo isn't in a raw string.
      */
 
     const more = "code";

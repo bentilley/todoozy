@@ -76,8 +76,8 @@ This is the description."#
     }
 
     /* TODO 2020-08-06 Can it handle block comments? +Testing
-     *
-     * This is the description.
+
+       This is the description.
      */
     resource "aws_instance" "example" {
       ami = "ami-12345"
@@ -102,8 +102,8 @@ This is the description."#
     }
 
     /* TODO 2020-08-06 Can it handle block comments? +Testing
-     *
-     * This is the description. */
+
+       This is the description. */
     resource "aws_instance" "example" {
       ami = "ami-12345"
     }
@@ -127,9 +127,9 @@ This is the description."#
     }
 
     /* TODO 2020-08-06 Can it handle indented todos? +Testing
-     *
-     * This is a test todo with some indented lines:
-     *   - This is an even more indented line.
+
+       This is a test todo with some indented lines:
+         - This is an even more indented line.
      */
 
     resource "aws_instance" "example" {

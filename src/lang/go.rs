@@ -44,8 +44,8 @@ This is the description."#
         let text = r#"
     if some := "code"; some == "code" {
         /* TODO 2020-08-06 Can it handle block comments? +Testing
-         *
-         * This is the description.
+
+           This is the description.
          */
         more := "code"
     }
@@ -66,8 +66,8 @@ This is the description."#
         let text = r#"
     for some := range "code" {
         /* TODO 2020-08-06 Can it handle block comments? +Testing
-         *
-         * This is the description. */
+
+           This is the description. */
         more := "code"
     }
 "#;
@@ -88,9 +88,9 @@ This is the description."#
     some := "code"
 
     /* TODO 2020-08-06 Can it handle indented todos? +Testing
-     *
-     * This is a test todo with some indented lines:
-     *   - This is an even more indented line.
+
+       This is a test todo with some indented lines:
+         - This is an even more indented line.
      */
 
     more := "code

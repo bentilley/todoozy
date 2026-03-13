@@ -141,8 +141,8 @@ impl Parser {
                                 .split(&block_comment_delimiter.token.1)
                                 .collect::<Vec<&str>>();
                             let content = v[0];
-                            let content_start = self.trim_start(content);
-                            if content_start < content.len() {
+                            if !content.trim().is_empty() {
+                                let content_start = content.len() - content.trim_start().len();
                                 let p = prefix.unwrap_or(content_start);
                                 if content.len() > p {
                                     todo.push(content[p..].trim_end().to_owned());
@@ -153,12 +153,11 @@ impl Parser {
                             continue 'outer;
                         }
 
-                        let content_start = self.trim_start(line);
-                        if content_start >= line.len() {
-                            // No actual content (empty or just whitespace/*)
+                        if line.trim().is_empty() {
                             todo.push(String::new());
                         } else {
                             // Set prefix on first line with actual content
+                            let content_start = line.len() - line.trim_start().len();
                             let p = *prefix.get_or_insert(content_start);
                             if line.len() > p {
                                 todo.push(line[p..].trim_end().to_owned());
@@ -191,13 +190,6 @@ impl Parser {
 
         todos
     }
-
-    fn trim_start(&self, line: &str) -> usize {
-        line.char_indices()
-            .find(|&(_, c)| !c.is_whitespace() && c != '*')
-            .map(|(i, _)| i)
-            .unwrap_or(line.len())
-    }
 }
 
 // TODO #25 (A) 2026-03-12 Add Parser tests for edge cases +test
@@ -212,7 +204,7 @@ impl Parser {
 mod tests {
     use super::*;
 
-    // Simple line comment syntax for testing
+    // Line comment tests
     const TEST_LINE_COMMENT: [SyntaxRule; 1] = [SyntaxRule::LineComment("//")];
 
     #[test]
@@ -317,8 +309,8 @@ let y = 2;"#;
     fn block_comment_multiline_closing_own_line() {
         let parser = Parser::new(&TEST_BLOCK_COMMENT);
         let text = r#"/* TODO multi-line
- * second line
- * third line
+   second line
+   third line
  */
 let x = 1;"#;
         let todos = parser.parse_todos(text);
@@ -333,8 +325,8 @@ let x = 1;"#;
     fn block_comment_multiline_closing_after_content() {
         let parser = Parser::new(&TEST_BLOCK_COMMENT);
         let text = r#"/* TODO multi-line
- * second line
- * third line */
+   second line
+   third line */
 let x = 1;"#;
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
@@ -349,11 +341,27 @@ let x = 1;"#;
         let parser = Parser::new(&TEST_BLOCK_COMMENT);
         let text = r#"let x = 1;
 /* TODO at end of file
- * more content
+   more content
  */"#;
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0], (2, 4, "at end of file\nmore content".to_string()));
+    }
+
+    #[test]
+    fn block_comment_asterisk_border_not_stripped() {
+        // Documents that * borders in block comments are NOT stripped
+        let parser = Parser::new(&TEST_BLOCK_COMMENT);
+        let text = r#"/* TODO with asterisk border
+ * this line has asterisk
+ * so does this
+ */"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (1, 4, "with asterisk border\n* this line has asterisk\n* so does this".to_string())
+        );
     }
 
     #[test]
