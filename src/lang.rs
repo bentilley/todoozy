@@ -112,45 +112,12 @@ impl Parser {
                 }
             }
 
-            // TODO #32 (A) 2026-03-12 Strip *upto* prefix.len() characters
-            //
-            // This allows support for comments like markdown, e.g.:
-            //
-            // <!-- TODO (A) 2026-03-12 some todo title
-            // 
-            // Details starting aligned to the left edge.
-            //   - possibly some indentation
-            // -->
-            //
-            // Otherwise, when writing a comment line this in markdown, you have to remember to
-            // indent all your details to match the `<!-- ` indentation.
-            //
-            // It makes sense to support both:
-            //
-            // /* TODO (A) 2026-03-12 some todo title
-            //  *
-            //  * Details starting aligned to the comment
-            //  */
-            //
-            //  AND
-            //
-            //  /* TODO (A) 2026-03-12 some todo title
-            //
-            //  Details starting aligned to the left edge.
-            //  */
-            //
-            //  Both look reasonable to me. So if we strip *upto* prefix.len() chars (if whitespace
-            //  or '*'), then we can support both styles. Probably want to add some configuration
-            //  for PrefixStripTokens that can be used to configure what get's stripped in the
-            //  prefix, e.g. for C it would be '*', but for other languages it could be something
-            //  else.
             for block_comment_delimiter in &self.block_comment_delimiters {
                 if trimmed.starts_with(&block_comment_delimiter.todo_token) {
                     let mut todo: Vec<String> = Vec::new();
 
                     let v: Vec<&str> = line.split(TODO_TOKEN).collect();
                     let after_todo = v[1];
-                    let prefix = v[0].len();
 
                     // Check if closing delimiter is on same line (single-line block comment)
                     if after_todo.contains(&block_comment_delimiter.token.1) {
@@ -165,23 +132,39 @@ impl Parser {
 
                     todo.push(after_todo.trim().to_string());
 
+                    // Prefix is None until we see the first non-empty description line
+                    let mut prefix: Option<usize> = None;
+
                     while let Some((j, line)) = lines.next() {
                         if line.contains(&block_comment_delimiter.token.1) {
                             let v = line
                                 .split(&block_comment_delimiter.token.1)
                                 .collect::<Vec<&str>>();
-                            if v[0].trim_end().len() > prefix {
-                                todo.push(v[0][prefix..].trim_end().to_owned());
+                            let content = v[0];
+                            let content_start = self.trim_start(content);
+                            if content_start < content.len() {
+                                let p = prefix.unwrap_or(content_start);
+                                if content.len() > p {
+                                    todo.push(content[p..].trim_end().to_owned());
+                                }
                             }
 
                             todos.push((i + 1, j + 1, todo.join("\n")));
                             continue 'outer;
                         }
 
-                        if line.len() < prefix {
+                        let content_start = self.trim_start(line);
+                        if content_start >= line.len() {
+                            // No actual content (empty or just whitespace/*)
                             todo.push(String::new());
                         } else {
-                            todo.push(line[prefix..].trim_end().to_owned());
+                            // Set prefix on first line with actual content
+                            let p = *prefix.get_or_insert(content_start);
+                            if line.len() > p {
+                                todo.push(line[p..].trim_end().to_owned());
+                            } else {
+                                todo.push(String::new());
+                            }
                         }
                     }
                 }
@@ -207,6 +190,13 @@ impl Parser {
         }
 
         todos
+    }
+
+    fn trim_start(&self, line: &str) -> usize {
+        line.char_indices()
+            .find(|&(_, c)| !c.is_whitespace() && c != '*')
+            .map(|(i, _)| i)
+            .unwrap_or(line.len())
     }
 }
 
@@ -363,9 +353,48 @@ let x = 1;"#;
  */"#;
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (2, 4, "at end of file\nmore content".to_string()));
+    }
+
+    #[test]
+    fn block_comment_left_edge_content() {
+        // Content starts at left edge, not aligned to comment opener
+        let parser = Parser::new(&TEST_BLOCK_COMMENT);
+        let text = r#"/* TODO left edge test
+
+Content starts at the left edge.
+  - indented item
+*/"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
-            (2, 4, "at end of file\nmore content".to_string())
+            (
+                1,
+                5,
+                "left edge test\n\nContent starts at the left edge.\n  - indented item".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn block_comment_mixed_styles() {
+        // Handles both left-edge and asterisk-prefixed content
+        let parser = Parser::new(&TEST_BLOCK_COMMENT);
+        let text = r#"/* TODO mixed style
+
+First line at left edge.
+Second line also at left.
+*/"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (
+                1,
+                5,
+                "mixed style\n\nFirst line at left edge.\nSecond line also at left.".to_string()
+            )
         );
     }
 
