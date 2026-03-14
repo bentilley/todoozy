@@ -96,7 +96,7 @@ impl Parser {
                     let mut todo: Vec<String> = Vec::new();
                     let mut end_line = i;
 
-                    let v: Vec<&str> = line.split(TODO_TOKEN).collect();
+                    let v: Vec<&str> = line.splitn(2, TODO_TOKEN).collect();
                     todo.push(v[1].trim().to_string());
                     let prefix = v[0].len();
 
@@ -127,7 +127,7 @@ impl Parser {
                 if trimmed.starts_with(&block_comment_delimiter.todo_token) {
                     let mut todo: Vec<String> = Vec::new();
 
-                    let v: Vec<&str> = line.split(TODO_TOKEN).collect();
+                    let v: Vec<&str> = line.splitn(2, TODO_TOKEN).collect();
                     let after_todo = v[1];
 
                     // Check if closing delimiter is on same line (single-line block comment)
@@ -304,6 +304,19 @@ let y = 2;"#;
         assert_eq!(todos[1], (3, 3, "second todo".to_string()));
     }
 
+    #[test]
+    fn line_comment_todo_in_title() {
+        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let text = r#"// TODO (B) Handle TODOs inside TODO title
+let x = 1;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (1, 1, "(B) Handle TODOs inside TODO title".to_string())
+        );
+    }
+
     // Block comment tests
     const TEST_BLOCK_COMMENT: [SyntaxRule; 1] = [SyntaxRule::BlockComment("/*", "*/")];
 
@@ -371,7 +384,30 @@ let x = 1;"#;
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
-            (1, 4, "with asterisk border\n* this line has asterisk\n* so does this".to_string())
+            (
+                1,
+                4,
+                "with asterisk border\n* this line has asterisk\n* so does this".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn block_comment_todo_in_description() {
+        let parser = Parser::new(&TEST_BLOCK_COMMENT);
+        let text = r#"/* TODO (B) Handle TODOs inside TODO description
+   This TODO should not start a new todo.
+*/"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (
+                1,
+                3,
+                "(B) Handle TODOs inside TODO description\nThis TODO should not start a new todo."
+                    .to_string()
+            )
         );
     }
 
