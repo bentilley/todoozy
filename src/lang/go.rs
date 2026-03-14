@@ -6,11 +6,6 @@ pub const GO: [SyntaxRule; 3] = [
     SyntaxRule::RawString("`", "`"),
 ];
 
-pub fn extract_todos(text: &str) -> Vec<crate::RawTodo> {
-    let parser = super::Parser::new(&GO);
-    parser.parse_todos(&text)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

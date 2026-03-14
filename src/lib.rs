@@ -1,7 +1,8 @@
-pub mod fs;
+mod fs;
 mod lang;
 pub mod todo;
 
+pub use fs::FileType;
 pub use todo::{Todo, Todos};
 
 use ignore::Walk;
@@ -38,7 +39,7 @@ fn parse_files(files: Walk) -> Result<todo::Todos, Box<dyn error::Error>> {
 
 type RawTodo = (usize, usize, String);
 
-fn parse_file(file_path: &str) -> Option<Vec<todo::Todo>> {
+pub fn parse_file(file_path: &str) -> Option<Vec<todo::Todo>> {
     let text = match std::fs::read_to_string(file_path) {
         Ok(text) => text,
         Err(err) => match err.kind() {
@@ -47,34 +48,46 @@ fn parse_file(file_path: &str) -> Option<Vec<todo::Todo>> {
         },
     };
 
-    use crate::fs::FileType;
-    let raw_todos = match crate::fs::get_filetype(file_path) {
-        Some(FileType::Go) => Some(lang::go::extract_todos(&text)),
-        Some(FileType::Python) => Some(lang::python::extract_todos(&text)),
-        Some(FileType::Rust) => Some(lang::rust::extract_todos(&text)),
-        Some(FileType::Typescript) => Some(lang::typescript::extract_todos(&text)),
-        Some(FileType::Todoozy) => Some(lang::tdz::extract_todos(&text)),
-        Some(FileType::Terraform) => Some(lang::terraform::extract_todos(&text)),
-        Some(FileType::YAML) => Some(lang::yaml::extract_todos(&text)),
-        Some(FileType::Dockerfile) => Some(lang::dockerfile::extract_todos(&text)),
-        Some(FileType::Makefile) => Some(lang::makefile::extract_todos(&text)),
-        Some(FileType::Markdown) => Some(lang::markdown::extract_todos(&text)),
-        Some(FileType::Protobuf) => Some(lang::protobuf::extract_todos(&text)),
-        _ => None,
-    };
-
-    if raw_todos.is_none() {
-        return None;
-    }
-    Some(parse_raw(raw_todos.unwrap(), file_path))
+    parse_text(
+        &text,
+        crate::fs::get_filetype(file_path)?,
+        Some(file_path.to_owned()),
+    )
 }
 
-fn parse_raw(raw_todos: Vec<RawTodo>, file_path: &str) -> Vec<todo::Todo> {
+pub fn parse_text(
+    text: &str,
+    file_type: crate::fs::FileType,
+    file_path: Option<String>,
+) -> Option<Vec<Todo>> {
+    use crate::fs::FileType;
+    let syntax_rules: &[lang::SyntaxRule] = match file_type {
+        FileType::Dockerfile => &lang::dockerfile::DOCKERFILE,
+        FileType::Go => &lang::go::GO,
+        FileType::Makefile => &lang::makefile::MAKEFILE,
+        FileType::Markdown => &lang::markdown::MARKDOWN,
+        FileType::Protobuf => &lang::protobuf::PROTOBUF,
+        FileType::Python => &lang::python::PYTHON,
+        FileType::Rust => &lang::rust::RUST,
+        FileType::Terraform => &lang::terraform::TERRAFORM,
+        FileType::Todoozy => unimplemented!(),
+        FileType::Typescript => &lang::typescript::TYPESCRIPT,
+        FileType::YAML => &lang::yaml::YAML,
+    };
+    let parser = lang::Parser::new(&syntax_rules);
+    let raw_todos = parser.parse_todos(&text);
+    if raw_todos.len() == 0 {
+        return None;
+    }
+    Some(parse_raw(raw_todos, file_path))
+}
+
+fn parse_raw(raw_todos: Vec<RawTodo>, file_path: Option<String>) -> Vec<todo::Todo> {
     let mut todos = Vec::<todo::Todo>::new();
     for (start, end, raw) in raw_todos {
         match todo::parser::todo(&raw) {
             Ok((_, mut t)) => {
-                t.file = Some(file_path.to_owned());
+                t.file = file_path.clone();
                 t.line_number = Some(start as usize);
                 t.end_line_number = Some(end as usize);
                 todos.push(t)

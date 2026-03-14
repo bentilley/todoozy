@@ -5,11 +5,6 @@ pub const PROTOBUF: [SyntaxRule; 2] = [
     SyntaxRule::BlockComment("/*", "*/"),
 ];
 
-pub fn extract_todos(text: &str) -> Vec<crate::RawTodo> {
-    let parser = super::Parser::new(&PROTOBUF);
-    parser.parse_todos(&text)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -73,7 +68,11 @@ message Request {}
 "#;
         assert_eq!(
             parser.parse_todos(text)[0],
-            (3 as usize, 3 as usize, "2024-09-02 Add validation +improvement".to_string())
+            (
+                3 as usize,
+                3 as usize,
+                "2024-09-02 Add validation +improvement".to_string()
+            )
         );
     }
 }

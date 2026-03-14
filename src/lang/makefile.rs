@@ -1,13 +1,6 @@
 use super::SyntaxRule;
 
-pub const MAKEFILE: [SyntaxRule; 1] = [
-    SyntaxRule::LineComment("#"),
-];
-
-pub fn extract_todos(text: &str) -> Vec<crate::RawTodo> {
-    let parser = super::Parser::new(&MAKEFILE);
-    parser.parse_todos(&text)
-}
+pub const MAKEFILE: [SyntaxRule; 1] = [SyntaxRule::LineComment("#")];
 
 #[cfg(test)]
 mod tests {
@@ -76,11 +69,19 @@ build:
         assert_eq!(parser.parse_todos(text).len(), 2);
         assert_eq!(
             parser.parse_todos(text)[0],
-            (2 as usize, 2 as usize, "2020-08-06 First todo +Testing".to_string())
+            (
+                2 as usize,
+                2 as usize,
+                "2020-08-06 First todo +Testing".to_string()
+            )
         );
         assert_eq!(
             parser.parse_todos(text)[1],
-            (5 as usize, 5 as usize, "2020-08-06 Second todo +Testing".to_string())
+            (
+                5 as usize,
+                5 as usize,
+                "2020-08-06 Second todo +Testing".to_string()
+            )
         );
     }
 }

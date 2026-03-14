@@ -9,11 +9,6 @@ pub const RUST: [SyntaxRule; 6] = [
     SyntaxRule::RawString("r##\"", "\"##"),
 ];
 
-pub fn extract_todos(text: &str) -> Vec<crate::RawTodo> {
-    let parser = super::Parser::new(&RUST);
-    parser.parse_todos(&text)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

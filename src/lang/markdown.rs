@@ -2,11 +2,6 @@ use super::SyntaxRule;
 
 pub const MARKDOWN: [SyntaxRule; 1] = [SyntaxRule::BlockComment("<!--", "-->")];
 
-pub fn extract_todos(text: &str) -> Vec<crate::RawTodo> {
-    let parser = super::Parser::new(&MARKDOWN);
-    parser.parse_todos(&text)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

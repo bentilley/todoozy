@@ -6,11 +6,6 @@ pub const TYPESCRIPT: [SyntaxRule; 3] = [
     SyntaxRule::RawString("`", "`"),
 ];
 
-pub fn extract_todos(text: &str) -> Vec<crate::RawTodo> {
-    let parser = super::Parser::new(&TYPESCRIPT);
-    parser.parse_todos(&text)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -6,11 +6,6 @@ pub const TERRAFORM: [SyntaxRule; 3] = [
     SyntaxRule::BlockComment("/*", "*/"),
 ];
 
-pub fn extract_todos(text: &str) -> Vec<crate::RawTodo> {
-    let parser = super::Parser::new(&TERRAFORM);
-    parser.parse_todos(&text)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
