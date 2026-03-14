@@ -1,13 +1,9 @@
 use super::SyntaxRule;
 
-// TODO #38 (B) 2026-03-12 Handle Python triple-single-quotes +fix
-//
-// Only """ is handled as a raw string delimiter, not '''.
-// Python allows both """ and ''' for multi-line strings.
-
-pub const PYTHON: [SyntaxRule; 2] = [
+pub const PYTHON: [SyntaxRule; 3] = [
     SyntaxRule::LineComment("#"),
     SyntaxRule::RawString("\"\"\"", "\"\"\""),
+    SyntaxRule::RawString("'''", "'''"),
 ];
 
 pub fn extract_todos(text: &str) -> Vec<crate::RawTodo> {
@@ -76,6 +72,34 @@ This is a test todo with some indented lines:
         #
         # This todo is in a raw string, so ignore it.
     """
+
+    # TODO 2020-08-06 Does it find the real todo? +Testing
+    #
+    # This todo isn't in a raw string.
+
+    more = "code"
+"##;
+        assert_eq!(parser.parse_todos(text).len(), 1);
+        assert_eq!(
+            parser.parse_todos(text)[0],
+            (
+                9 as usize,
+                11 as usize,
+                r#"2020-08-06 Does it find the real todo? +Testing
+
+This todo isn't in a raw string."#
+                    .to_string()
+            )
+        );
+
+        // File with triple-single-quote strings
+        let text = r##"
+    some = "code"
+    text = '''
+        # TODO 2020-08-06 Can it handle this fake todo? +Testing
+        #
+        # This todo is in a triple-single-quote string, so ignore it.
+    '''
 
     # TODO 2020-08-06 Does it find the real todo? +Testing
     #
