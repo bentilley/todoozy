@@ -12,17 +12,26 @@ pub mod yaml;
 
 pub const TODO_TOKEN: &str = "TODO";
 
-// TODO #21 (A) 2026-03-12 Improve Parser edge case handling +fix
+// TODO #33 (B) 2026-03-12 Handle TODOs inside regular string literals +fix
 //
-// 1. Regular strings - TODOs inside regular string literals (not raw strings)
-//    are detected as real TODOs
-// 2. Nested block comments - Rust allows /* /* */ */, parser stops at first */
-// 3. TODO not at start of comment - "// Note: TODO fix" won't be detected
-// 4. Python triple-single-quotes - only """ handled, not '''
-// 5. Unicode boundary panic - line[prefix..] uses byte offsets, could panic
-//    if prefix lands inside a multi-byte UTF-8 character
-// 6. Inline comments - "let x = 1; // TODO change this" won't be detected
-//    because line doesn't start with comment token
+// TODOs inside regular string literals (not raw strings) are detected as real TODOs.
+// Need to add string literal parsing to skip content inside quotes.
+
+// TODO #35 (B) 2026-03-12 Handle nested block comments +fix
+//
+// Rust allows nested block comments like /* /* */ */, but parser stops at first */.
+// Need to track nesting depth when parsing block comments.
+
+// TODO #36 (B) 2026-03-12 Fix Unicode boundary panic in prefix slicing +fix
+//
+// line[prefix..] uses byte offsets, could panic if prefix lands inside a multi-byte
+// UTF-8 character. Should use char_indices() or ensure byte boundaries.
+
+// TODO #37 (C) 2026-03-12 Detect inline comments +fix
+//
+// "let x = 1; // TODO change this" won't be detected because line doesn't start
+// with comment token. Would need to scan for comment tokens mid-line.
+
 pub enum SyntaxRule<'a> {
     LineComment(&'a str),
     BlockComment(&'a str, &'a str),
