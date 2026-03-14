@@ -36,166 +36,240 @@ pub enum SyntaxRule<'a> {
     // String(&'a [u8]),
 }
 
-struct CommentFormat<T> {
-    token: T,
+enum ParseResult {
+    Todo((usize, usize, String)),
+    Success,
+    NoMatch,
+}
+
+trait ParseRule {
+    fn try_parse(
+        &self,
+        lines: &mut std::iter::Peekable<std::iter::Enumerate<std::str::Lines>>,
+    ) -> ParseResult;
+}
+
+struct LineCommentRule {
+    token: String,
     todo_regex: Regex,
 }
 
+impl LineCommentRule {
+    fn new(token: &str) -> Self {
+        let pattern = format!(r"^\s*{}\s*{}\b", regex::escape(token), TODO_TOKEN);
+        Self {
+            token: token.to_string(),
+            todo_regex: Regex::new(&pattern).unwrap(),
+        }
+    }
+}
+
+impl ParseRule for LineCommentRule {
+    fn try_parse(
+        &self,
+        lines: &mut std::iter::Peekable<std::iter::Enumerate<std::str::Lines>>,
+    ) -> ParseResult {
+        match lines.peek() {
+            Some((_, peeked)) if self.todo_regex.is_match(peeked.trim_start()) => {
+                let (i, line) = lines.next().unwrap();
+                let mut todo: Vec<String> = Vec::new();
+                let mut end_line = i;
+
+                let v: Vec<&str> = line.splitn(2, TODO_TOKEN).collect();
+                todo.push(v[1].trim().to_string());
+                let prefix = v[0].len();
+
+                while let Some((j, peeked)) = lines.peek() {
+                    let peeked_trimmed = peeked.trim_start();
+                    // Stop if not a comment or if it's a new TODO
+                    if !peeked_trimmed.starts_with(&self.token)
+                        || self.todo_regex.is_match(peeked_trimmed)
+                    {
+                        break;
+                    }
+                    end_line = *j;
+                    let (_, line) = lines.next().unwrap();
+
+                    if line.len() < prefix {
+                        todo.push(String::new());
+                    } else {
+                        todo.push(line[prefix..].trim_end().to_owned());
+                    }
+                }
+
+                return ParseResult::Todo((i + 1, end_line + 1, todo.join("\n")));
+            }
+            _ => return ParseResult::NoMatch,
+        }
+    }
+}
+
+struct BlockCommentRule {
+    // start_token: String,
+    end_token: String,
+    todo_regex: Regex,
+}
+
+impl BlockCommentRule {
+    fn new(start: &str, end: &str) -> Self {
+        let pattern = format!(r"^\s*{}\s*{}\b", regex::escape(start), TODO_TOKEN);
+        Self {
+            // start_token: start.to_string(),
+            end_token: end.to_string(),
+            todo_regex: Regex::new(&pattern).unwrap(),
+        }
+    }
+}
+
+impl ParseRule for BlockCommentRule {
+    fn try_parse(
+        &self,
+        lines: &mut std::iter::Peekable<std::iter::Enumerate<std::str::Lines>>,
+    ) -> ParseResult {
+        match lines.peek() {
+            Some((_, peeked)) if self.todo_regex.is_match(peeked.trim_start()) => {
+                let (i, line) = lines.next().unwrap();
+                let mut todo: Vec<String> = Vec::new();
+
+                let v: Vec<&str> = line.splitn(2, TODO_TOKEN).collect();
+                let after_todo = v[1];
+
+                // Check if closing delimiter is on same line (single-line block comment)
+                if after_todo.contains(&self.end_token) {
+                    let content = after_todo.split(&self.end_token).next().unwrap();
+                    todo.push(content.trim().to_string());
+                    return ParseResult::Todo((i + 1, i + 1, todo.join("\n")));
+                }
+
+                todo.push(after_todo.trim().to_string());
+
+                // Prefix is None until we see the first non-empty description line
+                let mut prefix: Option<usize> = None;
+
+                while let Some((j, line)) = lines.next() {
+                    if line.contains(&self.end_token) {
+                        let v = line.split(&self.end_token).collect::<Vec<&str>>();
+                        let content = v[0];
+                        if !content.trim().is_empty() {
+                            let content_start = content.len() - content.trim_start().len();
+                            let p = prefix.unwrap_or(content_start);
+                            if content.len() > p {
+                                todo.push(content[p..].trim_end().to_owned());
+                            }
+                        }
+
+                        return ParseResult::Todo((i + 1, j + 1, todo.join("\n")));
+                    }
+
+                    if line.trim().is_empty() {
+                        todo.push(String::new());
+                    } else {
+                        // Set prefix on first line with actual content
+                        let content_start = line.len() - line.trim_start().len();
+                        let p = *prefix.get_or_insert(content_start);
+                        if line.len() > p {
+                            todo.push(line[p..].trim_end().to_owned());
+                        } else {
+                            todo.push(String::new());
+                        }
+                    }
+                }
+
+                return ParseResult::Todo((i + 1, i + todo.len(), todo.join("\n")));
+            }
+            _ => return ParseResult::NoMatch,
+        }
+    }
+}
+
+struct RawStringRule {
+    start_token: String,
+    end_token: String,
+}
+
+impl RawStringRule {
+    fn new(start: &str, end: &str) -> Self {
+        Self {
+            start_token: start.to_string(),
+            end_token: end.to_string(),
+        }
+    }
+}
+
+impl ParseRule for RawStringRule {
+    fn try_parse(
+        &self,
+        lines: &mut std::iter::Peekable<std::iter::Enumerate<std::str::Lines>>,
+    ) -> ParseResult {
+        match lines.peek() {
+            Some((_, peeked)) if peeked.contains(&self.start_token) => {
+                let (_, line) = lines.next().unwrap();
+                let trimmed = line.trim_start();
+
+                // Single-line raw string
+                if trimmed.contains(&self.end_token)
+                    && trimmed.find(&self.start_token) < trimmed.rfind(&self.end_token)
+                {
+                    return ParseResult::Success;
+                }
+
+                // Multi-line raw string
+                while let Some((_, line)) = lines.next() {
+                    if line.contains(&self.end_token) {
+                        return ParseResult::Success;
+                    }
+                }
+
+                return ParseResult::Success;
+            }
+            _ => return ParseResult::NoMatch,
+        }
+    }
+}
+
 pub struct Parser {
-    line_comment_delimiters: Vec<CommentFormat<String>>,
-    block_comment_delimiters: Vec<CommentFormat<(String, String)>>,
-    raw_string_delimiters: Vec<(String, String)>,
+    parse_rules: Vec<Box<dyn ParseRule>>,
 }
 
 impl Parser {
     pub fn new(syntax_rules: &[SyntaxRule]) -> Self {
-        let mut line_comment_delimiters = Vec::new();
-        let mut block_comment_delimiters = Vec::new();
-        let mut raw_string_delimiters = Vec::new();
+        let mut parse_rules = Vec::<Box<dyn ParseRule>>::new();
 
         for rule in syntax_rules {
             use SyntaxRule::*;
             match rule {
                 LineComment(token) => {
-                    let pattern = format!(r"^\s*{}\s*{}\b", regex::escape(token), TODO_TOKEN);
-                    line_comment_delimiters.push(CommentFormat {
-                        token: token.to_string(),
-                        todo_regex: Regex::new(&pattern).unwrap(),
-                    });
+                    parse_rules.push(Box::new(LineCommentRule::new(token)));
                 }
                 BlockComment(start, end) => {
-                    let pattern = format!(r"^\s*{}\s*{}\b", regex::escape(start), TODO_TOKEN);
-                    block_comment_delimiters.push(CommentFormat {
-                        token: (start.to_string(), end.to_string()),
-                        todo_regex: Regex::new(&pattern).unwrap(),
-                    });
+                    parse_rules.push(Box::new(BlockCommentRule::new(start, end)));
                 }
                 RawString(start, end) => {
-                    raw_string_delimiters.push((start.to_string(), end.to_string()));
+                    parse_rules.push(Box::new(RawStringRule::new(start, end)));
                 }
             }
         }
 
-        Self {
-            line_comment_delimiters,
-            block_comment_delimiters,
-            raw_string_delimiters,
-        }
+        Self { parse_rules }
     }
 
     pub fn parse_todos(&self, text: &str) -> Vec<(usize, usize, String)> {
         let mut todos = Vec::<(usize, usize, String)>::new();
 
         let mut lines = text.lines().enumerate().peekable();
-        'outer: while let Some((i, line)) = lines.next() {
-            let trimmed = line.trim_start();
-
-            for line_comment_delimiter in &self.line_comment_delimiters {
-                if line_comment_delimiter.todo_regex.is_match(trimmed) {
-                    let mut todo: Vec<String> = Vec::new();
-                    let mut end_line = i;
-
-                    let v: Vec<&str> = line.splitn(2, TODO_TOKEN).collect();
-                    todo.push(v[1].trim().to_string());
-                    let prefix = v[0].len();
-
-                    while let Some((j, peeked)) = lines.peek() {
-                        let peeked_trimmed = peeked.trim_start();
-                        // Stop if not a comment or if it's a new TODO
-                        if !peeked_trimmed.starts_with(&line_comment_delimiter.token)
-                            || line_comment_delimiter.todo_regex.is_match(peeked_trimmed)
-                        {
-                            break;
-                        }
-                        end_line = *j;
-                        let (_, line) = lines.next().unwrap();
-
-                        if line.len() < prefix {
-                            todo.push(String::new());
-                        } else {
-                            todo.push(line[prefix..].trim_end().to_owned());
-                        }
-                    }
-
-                    todos.push((i + 1, end_line + 1, todo.join("\n")));
-                    continue 'outer;
-                }
-            }
-
-            for block_comment_delimiter in &self.block_comment_delimiters {
-                if block_comment_delimiter.todo_regex.is_match(trimmed) {
-                    let mut todo: Vec<String> = Vec::new();
-
-                    let v: Vec<&str> = line.splitn(2, TODO_TOKEN).collect();
-                    let after_todo = v[1];
-
-                    // Check if closing delimiter is on same line (single-line block comment)
-                    if after_todo.contains(&block_comment_delimiter.token.1) {
-                        let content = after_todo
-                            .split(&block_comment_delimiter.token.1)
-                            .next()
-                            .unwrap();
-                        todo.push(content.trim().to_string());
-                        todos.push((i + 1, i + 1, todo.join("\n")));
+        'outer: while let Some(_) = lines.peek() {
+            for rule in &self.parse_rules {
+                use ParseResult::*;
+                match rule.try_parse(&mut lines) {
+                    Todo(todo) => {
+                        todos.push(todo);
                         continue 'outer;
                     }
-
-                    todo.push(after_todo.trim().to_string());
-
-                    // Prefix is None until we see the first non-empty description line
-                    let mut prefix: Option<usize> = None;
-
-                    while let Some((j, line)) = lines.next() {
-                        if line.contains(&block_comment_delimiter.token.1) {
-                            let v = line
-                                .split(&block_comment_delimiter.token.1)
-                                .collect::<Vec<&str>>();
-                            let content = v[0];
-                            if !content.trim().is_empty() {
-                                let content_start = content.len() - content.trim_start().len();
-                                let p = prefix.unwrap_or(content_start);
-                                if content.len() > p {
-                                    todo.push(content[p..].trim_end().to_owned());
-                                }
-                            }
-
-                            todos.push((i + 1, j + 1, todo.join("\n")));
-                            continue 'outer;
-                        }
-
-                        if line.trim().is_empty() {
-                            todo.push(String::new());
-                        } else {
-                            // Set prefix on first line with actual content
-                            let content_start = line.len() - line.trim_start().len();
-                            let p = *prefix.get_or_insert(content_start);
-                            if line.len() > p {
-                                todo.push(line[p..].trim_end().to_owned());
-                            } else {
-                                todo.push(String::new());
-                            }
-                        }
-                    }
+                    Success => continue 'outer,
+                    NoMatch => continue,
                 }
             }
-
-            for raw_string_delimiter in &self.raw_string_delimiters {
-                if trimmed.contains(&raw_string_delimiter.0) {
-                    // Single-line raw string
-                    if trimmed.contains(&raw_string_delimiter.1)
-                        && trimmed.find(&raw_string_delimiter.0)
-                            < trimmed.rfind(&raw_string_delimiter.1)
-                    {
-                        continue;
-                    }
-                    // Multi-line raw string
-                    while let Some((_, line)) = lines.next() {
-                        if line.contains(&raw_string_delimiter.1) {
-                            continue 'outer;
-                        }
-                    }
-                }
-            }
+            lines.next(); // No rule matched this line, skip it
         }
 
         todos
