@@ -207,13 +207,21 @@ impl Parser {
     }
 }
 
-// TODO #25 (A) 2026-03-12 Add Parser tests for edge cases +test
+// TODO #40 (B) 2026-03-12 Test Unicode characters before TODO token +test
 //
-// - Unicode characters before TODO token
-// - Mixed comment styles in same file
-// - TODO token appearing multiple times on same line
-// - Deeply indented TODOs
-// - Empty lines within multi-line TODO comments
+// Ensure parser handles lines with Unicode characters before the TODO token.
+
+// TODO #41 (C) 2026-03-12 Test mixed comment styles in same file +test
+//
+// Verify parser correctly handles files with multiple comment styles (e.g., // and /* */).
+
+// TODO #42 (C) 2026-03-12 Test deeply indented TODOs +test
+//
+// Ensure deeply indented TODO comments are parsed correctly.
+
+// TODO #43 (C) 2026-03-12 Test empty lines within multi-line TODO comments +test
+//
+// Verify empty lines in the middle of multi-line TODO comments are preserved.
 
 #[cfg(test)]
 mod tests {
