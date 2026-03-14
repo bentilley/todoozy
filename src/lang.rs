@@ -24,11 +24,6 @@ pub const TODO_TOKEN: &str = "TODO";
 // Rust allows nested block comments like /* /* */ */, but parser stops at first */.
 // Need to track nesting depth when parsing block comments.
 
-// TODO #36 (B) 2026-03-12 Fix Unicode boundary panic in prefix slicing +fix
-//
-// line[prefix..] uses byte offsets, could panic if prefix lands inside a multi-byte
-// UTF-8 character. Should use char_indices() or ensure byte boundaries.
-
 // TODO #37 (C) 2026-03-12 Detect inline comments +fix
 //
 // "let x = 1; // TODO change this" won't be detected because line doesn't start
@@ -206,10 +201,6 @@ impl Parser {
         todos
     }
 }
-
-// TODO #40 (B) 2026-03-12 Test Unicode characters before TODO token +test
-//
-// Ensure parser handles lines with Unicode characters before the TODO token.
 
 // TODO #41 (C) 2026-03-12 Test mixed comment styles in same file +test
 //
