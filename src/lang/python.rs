@@ -1,5 +1,10 @@
 use super::SyntaxRule;
 
+// TODO #38 (B) 2026-03-12 Handle Python triple-single-quotes +fix
+//
+// Only """ is handled as a raw string delimiter, not '''.
+// Python allows both """ and ''' for multi-line strings.
+
 pub const PYTHON: [SyntaxRule; 2] = [
     SyntaxRule::LineComment("#"),
     SyntaxRule::RawString("\"\"\"", "\"\"\""),
