@@ -1,3 +1,5 @@
+use regex::Regex;
+
 pub mod dockerfile;
 pub mod go;
 pub mod makefile;
@@ -41,7 +43,7 @@ pub enum SyntaxRule<'a> {
 
 struct CommentFormat<T> {
     token: T,
-    todo_token: String,
+    todo_regex: Regex,
 }
 
 pub struct Parser {
@@ -60,15 +62,17 @@ impl Parser {
             use SyntaxRule::*;
             match rule {
                 LineComment(token) => {
+                    let pattern = format!(r"^\s*{}\s*{}\b", regex::escape(token), TODO_TOKEN);
                     line_comment_delimiters.push(CommentFormat {
                         token: token.to_string(),
-                        todo_token: format!("{} {}", token, TODO_TOKEN),
+                        todo_regex: Regex::new(&pattern).unwrap(),
                     });
                 }
                 BlockComment(start, end) => {
+                    let pattern = format!(r"^\s*{}\s*{}\b", regex::escape(start), TODO_TOKEN);
                     block_comment_delimiters.push(CommentFormat {
                         token: (start.to_string(), end.to_string()),
-                        todo_token: format!("{} {}", start, TODO_TOKEN),
+                        todo_regex: Regex::new(&pattern).unwrap(),
                     });
                 }
                 RawString(start, end) => {
@@ -92,7 +96,7 @@ impl Parser {
             let trimmed = line.trim_start();
 
             for line_comment_delimiter in &self.line_comment_delimiters {
-                if trimmed.starts_with(&line_comment_delimiter.todo_token) {
+                if line_comment_delimiter.todo_regex.is_match(trimmed) {
                     let mut todo: Vec<String> = Vec::new();
                     let mut end_line = i;
 
@@ -104,7 +108,7 @@ impl Parser {
                         let peeked_trimmed = peeked.trim_start();
                         // Stop if not a comment or if it's a new TODO
                         if !peeked_trimmed.starts_with(&line_comment_delimiter.token)
-                            || peeked_trimmed.starts_with(&line_comment_delimiter.todo_token)
+                            || line_comment_delimiter.todo_regex.is_match(peeked_trimmed)
                         {
                             break;
                         }
@@ -124,7 +128,7 @@ impl Parser {
             }
 
             for block_comment_delimiter in &self.block_comment_delimiters {
-                if trimmed.starts_with(&block_comment_delimiter.todo_token) {
+                if block_comment_delimiter.todo_regex.is_match(trimmed) {
                     let mut todo: Vec<String> = Vec::new();
 
                     let v: Vec<&str> = line.splitn(2, TODO_TOKEN).collect();
@@ -315,6 +319,57 @@ let x = 1;"#;
             todos[0],
             (1, 1, "(B) Handle TODOs inside TODO title".to_string())
         );
+    }
+
+    #[test]
+    fn line_comments_description_starts_with_todos() {
+        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let text = r#"// TODO (B) Handle TODOs inside TODO title
+//
+// TODOs should not start new TODO unless "TODO" followed by whitespace
+let x = 1;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (1, 3, "(B) Handle TODOs inside TODO title\n\nTODOs should not start new TODO unless \"TODO\" followed by whitespace".to_string())
+        );
+    }
+
+    #[test]
+    fn line_comment_multiple_spaces_before_todo() {
+        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let text = "//    TODO with extra spaces\nlet x = 1;";
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (1, 1, "with extra spaces".to_string()));
+    }
+
+    #[test]
+    fn line_comment_tab_before_todo() {
+        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let text = "//\tTODO with tab\nlet x = 1;";
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (1, 1, "with tab".to_string()));
+    }
+
+    #[test]
+    fn line_comment_no_space_before_todo() {
+        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let text = "//TODO no space\nlet x = 1;";
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (1, 1, "no space".to_string()));
+    }
+
+    #[test]
+    fn line_comment_todolist_not_detected() {
+        // Word boundary prevents matching "TODOLIST"
+        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let text = "// TODOLIST is not a todo\nlet x = 1;";
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 0);
     }
 
     // Block comment tests
