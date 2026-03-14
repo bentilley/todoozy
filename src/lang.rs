@@ -202,10 +202,6 @@ impl Parser {
     }
 }
 
-// TODO #41 (C) 2026-03-12 Test mixed comment styles in same file +test
-//
-// Verify parser correctly handles files with multiple comment styles (e.g., // and /* */).
-
 // TODO #42 (C) 2026-03-12 Test deeply indented TODOs +test
 //
 // Ensure deeply indented TODO comments are parsed correctly.
@@ -559,5 +555,50 @@ let y = 1;"#;
         assert_eq!(todos.len(), 2);
         assert_eq!(todos[0], (1, 1, "mentions ` backtick".to_string()));
         assert_eq!(todos[1], (3, 3, "second todo".to_string()));
+    }
+
+    // Mixed comment style tests
+    const TEST_MIXED_COMMENTS: [SyntaxRule; 2] = [
+        SyntaxRule::LineComment("//"),
+        SyntaxRule::BlockComment("/*", "*/"),
+    ];
+
+    #[test]
+    fn mixed_comment_styles_both_detected() {
+        let parser = Parser::new(&TEST_MIXED_COMMENTS);
+        let text = r#"// TODO first in line comment
+let x = 1;
+/* TODO second in block comment */
+let y = 2;
+// TODO third back to line comment
+let z = 3;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 3);
+        assert_eq!(todos[0], (1, 1, "first in line comment".to_string()));
+        assert_eq!(todos[1], (3, 3, "second in block comment".to_string()));
+        assert_eq!(todos[2], (5, 5, "third back to line comment".to_string()));
+    }
+
+    #[test]
+    fn mixed_comment_styles_multiline() {
+        let parser = Parser::new(&TEST_MIXED_COMMENTS);
+        let text = r#"// TODO line comment todo
+// with continuation
+let x = 1;
+/* TODO block comment todo
+
+with continuation
+*/
+let y = 2;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 2);
+        assert_eq!(
+            todos[0],
+            (1, 2, "line comment todo\nwith continuation".to_string())
+        );
+        assert_eq!(
+            todos[1],
+            (4, 7, "block comment todo\n\nwith continuation".to_string())
+        );
     }
 }
