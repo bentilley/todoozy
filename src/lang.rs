@@ -280,10 +280,6 @@ impl Parser {
 //
 // Ensure deeply indented TODO comments are parsed correctly.
 
-// TODO #43 (C) 2026-03-12 Test empty lines within multi-line TODO comments +test
-//
-// Verify empty lines in the middle of multi-line TODO comments are preserved.
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -439,6 +435,21 @@ let x = 1;"#;
         let text = "// TODOLIST is not a todo\nlet x = 1;";
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 0);
+    }
+
+    #[test]
+    fn line_comment_empty_line_preserved() {
+        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let text = r#"// TODO title line
+//
+// continuation after empty line
+let x = 1;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (1, 3, "title line\n\ncontinuation after empty line".to_string())
+        );
     }
 
     // Block comment tests
