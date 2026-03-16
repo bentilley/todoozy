@@ -133,4 +133,21 @@ This todo isn't in a raw string."#
             )
         );
     }
+
+    // TODO #45 (A) 2026-03-16 Fix escaped backtick parsing in template literals
+    #[test]
+    #[ignore = "documents parsing limitation: escaped backticks"]
+    fn escaped_backtick_in_template_literal_not_handled() {
+        let parser = crate::lang::Parser::new(&TYPESCRIPT);
+        let text = r##"
+const msg = `hello \`
+// TODO false positive
+world`;
+
+// TODO real todo
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "real todo".to_string());
+    }
 }

@@ -568,27 +568,6 @@ Content starts at the left edge.
         );
     }
 
-    #[test]
-    fn block_comment_mixed_styles() {
-        // Handles both left-edge and asterisk-prefixed content
-        let parser = Parser::new(&TEST_BLOCK_COMMENT);
-        let text = r#"/* TODO mixed style
-
-First line at left edge.
-Second line also at left.
-*/"#;
-        let todos = parser.parse_todos(text);
-        assert_eq!(todos.len(), 1);
-        assert_eq!(
-            todos[0],
-            (
-                1,
-                5,
-                "mixed style\n\nFirst line at left edge.\nSecond line also at left.".to_string()
-            )
-        );
-    }
-
     // Multi-line string tests
     const TEST_WITH_MULTI_LINE_STRING: [SyntaxRule; 2] = [
         SyntaxRule::LineComment("//"),

@@ -64,7 +64,7 @@ more='code'
         assert_eq!(todos[0], (7, 7, "this is a real todo".to_string()));
     }
 
-    // TODO (A) 2026-03-16 Fix " string parsing in shell lang
+    // TODO #46 (A) 2026-03-16 Fix " string parsing in shell lang
     #[test]
     #[ignore = "documents parsing limitation: escaped quotes"]
     fn escaped_quote_in_double_quoted_string_not_handled() {
@@ -81,7 +81,7 @@ world"
         assert_eq!(todos[0].2, "real todo".to_string());
     }
 
-    // TODO (A) 2026-03-16 Fix ' string parsing in shell lang
+    // TODO #47 (A) 2026-03-16 Fix ' string parsing in shell lang
     #[test]
     #[ignore = "documents parsing limitation: escaped quotes"]
     fn escaped_quote_in_single_quoted_string_not_handled() {
@@ -98,7 +98,7 @@ world'
         assert_eq!(todos[0].2, "real todo".to_string());
     }
 
-    // TODO (A) 2026-03-16 Fix here-doc parsing in shell lang
+    // TODO #48 (A) 2026-03-16 Fix here-doc parsing in shell lang
     #[test]
     #[ignore = "documents parsing limitation: here-docs not supported"]
     fn heredoc_not_handled() {

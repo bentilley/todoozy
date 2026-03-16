@@ -74,7 +74,8 @@ pub fn parse_text(
         FileType::Python => &lang::python::PYTHON,
         FileType::Rust => &lang::rust::RUST,
         FileType::Terraform => &lang::terraform::TERRAFORM,
-        FileType::Todoozy => unimplemented!(),
+        // TODO #49 (E) 2026-03-16 Do we need a special todoozy file format for ad hoc todos?
+        FileType::Todoozy => return None, // unimplemented
         FileType::Typescript => &lang::typescript::TYPESCRIPT,
         FileType::YAML => &lang::yaml::YAML,
     };
