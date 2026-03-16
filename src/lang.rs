@@ -32,7 +32,7 @@ pub const TODO_TOKEN: &str = "TODO";
 pub enum SyntaxRule<'a> {
     LineComment(&'a str),
     BlockComment(&'a str, &'a str),
-    RawString(&'a str, &'a str),
+    MultiLineString(&'a str, &'a str),
     // String(&'a [u8]),
 }
 
@@ -182,12 +182,12 @@ impl ParseRule for BlockCommentRule {
     }
 }
 
-struct RawStringRule {
+struct MultiLineStringRule {
     start_token: String,
     end_token: String,
 }
 
-impl RawStringRule {
+impl MultiLineStringRule {
     fn new(start: &str, end: &str) -> Self {
         Self {
             start_token: start.to_string(),
@@ -196,7 +196,7 @@ impl RawStringRule {
     }
 }
 
-impl ParseRule for RawStringRule {
+impl ParseRule for MultiLineStringRule {
     fn try_parse(
         &self,
         lines: &mut std::iter::Peekable<std::iter::Enumerate<std::str::Lines>>,
@@ -244,8 +244,8 @@ impl Parser {
                 BlockComment(start, end) => {
                     parse_rules.push(Box::new(BlockCommentRule::new(start, end)));
                 }
-                RawString(start, end) => {
-                    parse_rules.push(Box::new(RawStringRule::new(start, end)));
+                MultiLineString(start, end) => {
+                    parse_rules.push(Box::new(MultiLineStringRule::new(start, end)));
                 }
             }
         }
@@ -588,15 +588,15 @@ Second line also at left.
         );
     }
 
-    // Raw string tests
-    const TEST_WITH_RAW_STRING: [SyntaxRule; 2] = [
+    // Multi-line string tests
+    const TEST_WITH_MULTI_LINE_STRING: [SyntaxRule; 2] = [
         SyntaxRule::LineComment("//"),
-        SyntaxRule::RawString("`", "`"),
+        SyntaxRule::MultiLineString("`", "`"),
     ];
 
     #[test]
-    fn raw_string_todo_inside_ignored() {
-        let parser = Parser::new(&TEST_WITH_RAW_STRING);
+    fn multi_line_string_todo_inside_ignored() {
+        let parser = Parser::new(&TEST_WITH_MULTI_LINE_STRING);
         let text = r#"let x = `
 // TODO this should be ignored
 `;
@@ -608,8 +608,8 @@ let y = 1;"#;
     }
 
     #[test]
-    fn raw_string_single_line() {
-        let parser = Parser::new(&TEST_WITH_RAW_STRING);
+    fn multi_line_string_single_line() {
+        let parser = Parser::new(&TEST_WITH_MULTI_LINE_STRING);
         let text = r#"let x = `// TODO fake`;
 // TODO real
 let y = 1;"#;
@@ -619,8 +619,8 @@ let y = 1;"#;
     }
 
     #[test]
-    fn raw_string_todo_after_detected() {
-        let parser = Parser::new(&TEST_WITH_RAW_STRING);
+    fn multi_line_string_todo_after_detected() {
+        let parser = Parser::new(&TEST_WITH_MULTI_LINE_STRING);
         let text = r#"let x = `raw string content`;
 // TODO after raw string
 let y = 1;"#;
@@ -630,8 +630,8 @@ let y = 1;"#;
     }
 
     #[test]
-    fn raw_string_delimiter_in_comment() {
-        let parser = Parser::new(&TEST_WITH_RAW_STRING);
+    fn multi_line_string_delimiter_in_comment() {
+        let parser = Parser::new(&TEST_WITH_MULTI_LINE_STRING);
         let text = r#"// TODO mentions ` backtick
 let x = 1;
 // TODO second todo

@@ -5,8 +5,8 @@ pub const RUST: [SyntaxRule; 6] = [
     SyntaxRule::LineComment("///"),
     SyntaxRule::LineComment("//"),
     SyntaxRule::BlockComment("/*", "*/"),
-    SyntaxRule::RawString("r#\"", "\"#"),
-    SyntaxRule::RawString("r##\"", "\"##"),
+    SyntaxRule::MultiLineString("r#\"", "\"#"),
+    SyntaxRule::MultiLineString("r##\"", "\"##"),
 ];
 
 #[cfg(test)]

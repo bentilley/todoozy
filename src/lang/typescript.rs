@@ -3,7 +3,7 @@ use super::SyntaxRule;
 pub const TYPESCRIPT: [SyntaxRule; 3] = [
     SyntaxRule::LineComment("//"),
     SyntaxRule::BlockComment("/*", "*/"),
-    SyntaxRule::RawString("`", "`"),
+    SyntaxRule::MultiLineString("`", "`"),
 ];
 
 #[cfg(test)]

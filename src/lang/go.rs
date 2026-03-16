@@ -3,7 +3,7 @@ use super::SyntaxRule;
 pub const GO: [SyntaxRule; 3] = [
     SyntaxRule::LineComment("//"),
     SyntaxRule::BlockComment("/*", "*/"),
-    SyntaxRule::RawString("`", "`"),
+    SyntaxRule::MultiLineString("`", "`"),
 ];
 
 #[cfg(test)]

@@ -2,8 +2,8 @@ use super::SyntaxRule;
 
 pub const PYTHON: [SyntaxRule; 3] = [
     SyntaxRule::LineComment("#"),
-    SyntaxRule::RawString("\"\"\"", "\"\"\""),
-    SyntaxRule::RawString("'''", "'''"),
+    SyntaxRule::MultiLineString("\"\"\"", "\"\"\""),
+    SyntaxRule::MultiLineString("'''", "'''"),
 ];
 
 #[cfg(test)]
