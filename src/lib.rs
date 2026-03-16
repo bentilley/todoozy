@@ -65,6 +65,7 @@ pub fn parse_text(
 ) -> Option<Vec<Todo>> {
     use crate::fs::FileType;
     let syntax_rules: &[lang::SyntaxRule] = match file_type {
+        FileType::Bash | FileType::Ksh | FileType::Sh | FileType::Zsh => &lang::sh::SH,
         FileType::Dockerfile => &lang::dockerfile::DOCKERFILE,
         FileType::Go => &lang::go::GO,
         FileType::Makefile => &lang::makefile::MAKEFILE,
