@@ -5,6 +5,10 @@ help:  ## show this help
 	@printf "Usage:\n\tmake [target]\n\nTargets:\n"
 	@grep -h "##" $(MAKEFILE_LIST) | sed -E -n 's/^([^:[:space:]]+):[^#]+## (.*)/\t\1:- \2/p' | column -t -s ':'
 
+.PHONY: test
+test: ## run tests
+	cargo test
+
 .PHONY: bench
 bench: ## run parser benchmarks
 	cargo bench
