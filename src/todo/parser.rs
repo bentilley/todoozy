@@ -1,7 +1,7 @@
 use crate::todo::{Metadata, Todo, TodoBuilder};
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag, take},
+    bytes::complete::{is_not, tag, take, take_until},
     character::complete::{
         alphanumeric1, digit1, line_ending, multispace1, one_of, space0, space1,
     },
@@ -385,7 +385,7 @@ fn test_text_line() {
 fn raw_string_multiline(i: &str) -> IResult<&str, Vec<Word<'_>>, Error<&str>> {
     let (i, _) = tag("```")(i)?;
     let (i, _) = line_ending(i)?;
-    let (i, text) = is_not("```")(i)?;
+    let (i, text) = take_until("```")(i)?;
     let (i, _) = tag("```")(i)?;
     let (i, ws) = many0(line_ending)(i)?;
     let mut v = vec![Word::Raw(text)];
@@ -412,6 +412,14 @@ fn test_raw_string_multiline() {
     assert_eq!(
         raw_string_multiline("```\nList:\n  - item 1\n  - item2\n```"),
         Ok(("", vec![Word::Raw("List:\n  - item 1\n  - item2\n")]))
+    );
+}
+
+#[test]
+fn test_raw_string_multiline_with_backtick_in_content() {
+    assert_eq!(
+        raw_string_multiline("```\nUse `code` in raw string\n```"),
+        Ok(("", vec![Word::Raw("Use `code` in raw string\n")]))
     );
 }
 
