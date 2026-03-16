@@ -1,35 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use todoozy::{parse_text, FileType};
-
-fn generate_large_file(num_chunks: usize, code: &str, func_def: &str, mode_code: &str) -> String {
-    let mut content = String::new();
-    for _ in 0..num_chunks {
-        content.push_str(&format!(
-            r#"
-// TODO (A) 2024-01-01 Todo with priority and date +project @context
-//
-// This is a multi-line description that spans several lines to test the parser's handling of
-// continuation lines.
-{}
-
-/* TODO (B) Block comment todo
-
-   With multiple lines of description
-   and some indentation to parse.
- */
-{}
-
-// TODO another line comment
-// with continuation
-{}
-
-/* TODO final block comment */
-"#,
-            code, func_def, mode_code
-        ));
-    }
-    content
-}
+use todoozy::{parse_text, testutils::generate_large_file, FileType};
 
 fn bench_typescript_parser(c: &mut Criterion) {
     let mut group = c.benchmark_group("typescript");

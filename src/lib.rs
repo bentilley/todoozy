@@ -2,6 +2,9 @@ mod fs;
 mod lang;
 pub mod todo;
 
+#[cfg(feature = "testutils")]
+pub mod testutils;
+
 pub use fs::FileType;
 pub use todo::{Todo, Todos};
 
