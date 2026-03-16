@@ -11,7 +11,7 @@ test: ## run tests
 
 .PHONY: bench
 bench: ## run parser benchmarks
-	cargo bench
+	cargo bench --features testutils
 
 .PHONY: flamegraph
 flamegraph: ## profile todo parsing and generate flamegraph

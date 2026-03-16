@@ -29,7 +29,7 @@ export default config;"#,
         );
         group.throughput(Throughput::Bytes(large.len() as u64));
         group.bench_with_input(
-            BenchmarkId::new("large", format!("{}_todos", num_chunks)),
+            BenchmarkId::from_parameter(format!("{}_chunks", num_chunks)),
             &large,
             |b, content| b.iter(|| parse_text(black_box(content), FileType::Typescript, None)),
         );
@@ -64,7 +64,7 @@ impl Config {
         );
         group.throughput(Throughput::Bytes(large.len() as u64));
         group.bench_with_input(
-            BenchmarkId::new("large", format!("{}_todos", num_chunks)),
+            BenchmarkId::from_parameter(format!("{}_chunks", num_chunks)),
             &large,
             |b, content| b.iter(|| parse_text(black_box(content), FileType::Rust, None)),
         );
