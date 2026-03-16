@@ -135,36 +135,27 @@ fn test_date() {
     );
 }
 
-// TODO #19 (C) 2024-09-20 Word should wrap &str not String. +improvement
-//
-// This is just an artifact of my not understanding Rust very well when I started writing this. For
-// the parser the words can just be slices of the underlying string (probably :)), no need to
-// duplicate all the data at this point. We can allocate strings for the todo when we build the
-// Todo struct.
 #[derive(Debug, PartialEq)]
-enum Word {
-    Context(String),
-    Project(String),
-    Metadata((String, String)),
-    Plain(String),
-    Raw(String),
+enum Word<'a> {
+    Context(&'a str),
+    Project(&'a str),
+    Metadata((&'a str, &'a str)),
+    Plain(&'a str),
+    Raw(&'a str),
 }
 
-fn project(i: &str) -> IResult<&str, Word, Error<&str>> {
+fn project(i: &str) -> IResult<&str, Word<'_>, Error<&str>> {
     let (i, _) = space0(i)?;
     let (i, p) = preceded(tag("+"), alphanumeric1)(i)?;
-    Ok((i, Word::Project(p.to_string())))
+    Ok((i, Word::Project(p)))
 }
 
 #[test]
 fn test_project() {
-    assert_eq!(
-        project("+test"),
-        Ok(("", Word::Project("test".to_string())))
-    );
+    assert_eq!(project("+test"), Ok(("", Word::Project("test"))));
     assert_eq!(
         project("+test something"),
-        Ok((" something", Word::Project("test".to_string())))
+        Ok((" something", Word::Project("test")))
     );
     assert_eq!(
         project("test"),
@@ -172,21 +163,18 @@ fn test_project() {
     );
 }
 
-fn context(i: &str) -> IResult<&str, Word, Error<&str>> {
+fn context(i: &str) -> IResult<&str, Word<'_>, Error<&str>> {
     let (i, _) = space0(i)?;
     let (i, c) = preceded(tag("@"), alphanumeric1)(i)?;
-    Ok((i, Word::Context(c.to_string())))
+    Ok((i, Word::Context(c)))
 }
 
 #[test]
 fn test_context() {
-    assert_eq!(
-        context("@test"),
-        Ok(("", Word::Context("test".to_string())))
-    );
+    assert_eq!(context("@test"), Ok(("", Word::Context("test"))));
     assert_eq!(
         context("@test something"),
-        Ok((" something", Word::Context("test".to_string())))
+        Ok((" something", Word::Context("test")))
     );
     assert_eq!(
         context("test"),
@@ -217,18 +205,18 @@ fn test_non_whitespace() {
     );
 }
 
-fn raw_string(i: &str) -> IResult<&str, Word, Error<&str>> {
+fn raw_string(i: &str) -> IResult<&str, Word<'_>, Error<&str>> {
     let (i, r) = recognize(tuple((space0, delimited(tag("`"), is_not("`"), tag("`")))))(i)?;
-    Ok((i, Word::Raw(r.to_string())))
+    Ok((i, Word::Raw(r)))
 }
 
 #[test]
 fn test_raw_string() {
     assert_eq!(
         raw_string("`Hello, World!`"),
-        Ok(("", Word::Raw("`Hello, World!`".to_string())))
+        Ok(("", Word::Raw("`Hello, World!`")))
     );
-    assert_eq!(raw_string("`:`"), Ok(("", Word::Raw("`:`".to_string()))));
+    assert_eq!(raw_string("`:`"), Ok(("", Word::Raw("`:`"))));
     assert_eq!(
         raw_string("`Hello, World!"),
         Err(nom::Err::Error(Error::Nom("", ErrorKind::Tag)))
@@ -242,26 +230,23 @@ fn test_raw_string() {
     );
 }
 
-fn metadata(i: &str) -> IResult<&str, Word, Error<&str>> {
+fn metadata(i: &str) -> IResult<&str, Word<'_>, Error<&str>> {
     let (i, _) = space0(i)?;
     let (i, key) = is_not(": \t\r\n")(i)?;
     let (i, _) = tag(":")(i)?;
     let (i, value) = non_whitespace(i)?;
-    Ok((i, Word::Metadata((key.to_string(), value.to_string()))))
+    Ok((i, Word::Metadata((key, value))))
 }
 
 #[test]
 fn test_metadata() {
     assert_eq!(
         metadata("key:value"),
-        Ok(("", Word::Metadata(("key".to_string(), "value".to_string()))))
+        Ok(("", Word::Metadata(("key", "value"))))
     );
     assert_eq!(
         metadata("9@$,,afs&*:()()23,;."),
-        Ok((
-            "",
-            Word::Metadata(("9@$,,afs&*".to_string(), "()()23,;.".to_string()))
-        ))
+        Ok(("", Word::Metadata(("9@$,,afs&*", "()()23,;."))))
     );
     assert_eq!(
         metadata("key: value"),
@@ -273,87 +258,60 @@ fn test_metadata() {
     );
 }
 
-fn plain(i: &str) -> IResult<&str, Word, Error<&str>> {
-    let (i, (ws, p)) = tuple((space0, is_not(" \t\r\n")))(i)?;
-    Ok((i, Word::Plain(ws.to_string() + p)))
+fn plain(i: &str) -> IResult<&str, Word<'_>, Error<&str>> {
+    let (i, p) = recognize(tuple((space0, is_not(" \t\r\n"))))(i)?;
+    Ok((i, Word::Plain(p)))
 }
 
 #[test]
 fn test_plain() {
-    assert_eq!(
-        plain("Hello, World!"),
-        Ok((" World!", Word::Plain("Hello,".to_string())))
-    );
+    assert_eq!(plain("Hello, World!"), Ok((" World!", Word::Plain("Hello,"))));
     assert_eq!(
         plain(" Hello, World!"),
-        Ok((" World!", Word::Plain(" Hello,".to_string())))
+        Ok((" World!", Word::Plain(" Hello,")))
     );
     assert_eq!(
         plain("Sometimes\tnothing"),
-        Ok(("\tnothing", Word::Plain("Sometimes".to_string())))
+        Ok(("\tnothing", Word::Plain("Sometimes")))
     );
-    assert_eq!(
-        plain("Nospace"),
-        Ok(("", Word::Plain("Nospace".to_string())))
-    );
+    assert_eq!(plain("Nospace"), Ok(("", Word::Plain("Nospace"))));
     assert_eq!(
         plain(""),
         Err(nom::Err::Error(Error::Nom("", ErrorKind::IsNot)))
     );
 }
 
-fn word(i: &str) -> IResult<&str, Word, Error<&str>> {
+fn word(i: &str) -> IResult<&str, Word<'_>, Error<&str>> {
     alt((raw_string, context, project, metadata, plain))(i)
 }
 
 #[test]
 fn test_word() {
-    assert_eq!(
-        word("word +project"),
-        Ok((" +project", Word::Plain("word".to_string())))
-    );
+    assert_eq!(word("word +project"), Ok((" +project", Word::Plain("word"))));
     assert_eq!(
         word(" word @context"),
-        Ok((" @context", Word::Plain(" word".to_string())))
+        Ok((" @context", Word::Plain(" word")))
     );
-    assert_eq!(
-        word("Nospace"),
-        Ok(("", Word::Plain("Nospace".to_string())))
-    );
-    assert_eq!(
-        word("+project"),
-        Ok(("", Word::Project("project".to_string())))
-    );
-    assert_eq!(
-        word(" +project"),
-        Ok(("", Word::Project("project".to_string())))
-    );
-    assert_eq!(
-        word("@context"),
-        Ok(("", Word::Context("context".to_string())))
-    );
-    assert_eq!(
-        word(" @context"),
-        Ok(("", Word::Context("context".to_string())))
-    );
+    assert_eq!(word("Nospace"), Ok(("", Word::Plain("Nospace"))));
+    assert_eq!(word("+project"), Ok(("", Word::Project("project"))));
+    assert_eq!(word(" +project"), Ok(("", Word::Project("project"))));
+    assert_eq!(word("@context"), Ok(("", Word::Context("context"))));
+    assert_eq!(word(" @context"), Ok(("", Word::Context("context"))));
     assert_eq!(
         word("+project word"),
-        Ok((" word", Word::Project("project".to_string())))
+        Ok((" word", Word::Project("project")))
     );
     assert_eq!(
         word("@context word"),
-        Ok((" word", Word::Context("context".to_string())))
+        Ok((" word", Word::Context("context")))
     );
     assert_eq!(
         word("key:value word"),
-        Ok((
-            " word",
-            Word::Metadata(("key".to_string(), "value".to_string()))
-        ))
+        Ok((" word", Word::Metadata(("key", "value"))))
     );
 }
 
-fn text(i: &str) -> IResult<&str, Vec<Word>, Error<&str>> {
+fn text(i: &str) -> IResult<&str, Vec<Word<'_>>, Error<&str>> {
     fold_many1(word, Vec::new, |mut acc: Vec<_>, item| {
         acc.push(item);
         acc
@@ -366,10 +324,7 @@ fn test_text() {
         text("Hello, World!"),
         Ok((
             "",
-            vec![
-                Word::Plain("Hello,".to_string()),
-                Word::Plain(" World!".to_string()),
-            ]
+            vec![Word::Plain("Hello,"), Word::Plain(" World!"),]
         ))
     );
     assert_eq!(
@@ -377,10 +332,10 @@ fn test_text() {
         Ok((
             "",
             vec![
-                Word::Plain("Hello,".to_string()),
-                Word::Plain(" World!".to_string()),
-                Word::Project("project".to_string()),
-                Word::Context("context".to_string()),
+                Word::Plain("Hello,"),
+                Word::Plain(" World!"),
+                Word::Project("project"),
+                Word::Context("context"),
             ]
         ))
     );
@@ -389,9 +344,9 @@ fn test_text() {
         Ok((
             "",
             vec![
-                Word::Plain("Hello,".to_string()),
-                Word::Plain(" World!".to_string()),
-                Word::Metadata(("test".to_string(), "data".to_string())),
+                Word::Plain("Hello,"),
+                Word::Plain(" World!"),
+                Word::Metadata(("test", "data")),
             ]
         ))
     );
@@ -401,11 +356,11 @@ fn test_text() {
     );
 }
 
-fn text_line(i: &str) -> IResult<&str, Vec<Word>, Error<&str>> {
+fn text_line(i: &str) -> IResult<&str, Vec<Word<'_>>, Error<&str>> {
     let (i, mut words) = text(i)?;
-    let (i, ws) = many0(line_ending)(i)?;
-    if ws.len() > 0 {
-        words.push(Word::Plain(ws.join("").to_string()));
+    let (i, ws) = recognize(many0(line_ending))(i)?;
+    if !ws.is_empty() {
+        words.push(Word::Plain(ws));
     }
     Ok((i, words))
 }
@@ -417,28 +372,27 @@ fn test_text_line() {
         Ok((
             "",
             vec![
-                Word::Plain("Hello,".to_string()),
-                Word::Plain(" World!".to_string()),
-                Word::Project("project".to_string()),
-                Word::Context("context".to_string()),
-                Word::Plain("\n\n".to_string()),
+                Word::Plain("Hello,"),
+                Word::Plain(" World!"),
+                Word::Project("project"),
+                Word::Context("context"),
+                Word::Plain("\n\n"),
             ]
         ))
     );
 }
 
-fn raw_string_multiline(i: &str) -> IResult<&str, Vec<Word>, Error<&str>> {
+fn raw_string_multiline(i: &str) -> IResult<&str, Vec<Word<'_>>, Error<&str>> {
     let (i, _) = tag("```")(i)?;
     let (i, _) = line_ending(i)?;
     let (i, text) = is_not("```")(i)?;
     let (i, _) = tag("```")(i)?;
     let (i, ws) = many0(line_ending)(i)?;
-    let mut v = vec![Word::Raw(text.to_string())];
+    let mut v = vec![Word::Raw(text)];
     if ws.len() > 1 {
         ws[0..ws.len() - 1].iter().for_each(|l| {
-            v.push(Word::Plain(l.to_string()));
+            v.push(Word::Plain(*l));
         });
-        //v.push(Word::Plain(ws.join("").to_string()));
     }
     Ok((i, v))
 }
@@ -447,24 +401,21 @@ fn raw_string_multiline(i: &str) -> IResult<&str, Vec<Word>, Error<&str>> {
 fn test_raw_string_multiline() {
     assert_eq!(
         raw_string_multiline("```\nHello, World!\n```"),
-        Ok(("", vec![Word::Raw("Hello, World!\n".to_string())]))
+        Ok(("", vec![Word::Raw("Hello, World!\n")]))
     );
     // With trailing newline
     assert_eq!(
         raw_string_multiline("```\nHello, World!\n```\n"),
-        Ok(("", vec![Word::Raw("Hello, World!\n".to_string()),]))
+        Ok(("", vec![Word::Raw("Hello, World!\n")]))
     );
     // With indentation
     assert_eq!(
         raw_string_multiline("```\nList:\n  - item 1\n  - item2\n```"),
-        Ok((
-            "",
-            vec![Word::Raw("List:\n  - item 1\n  - item2\n".to_string())]
-        ))
+        Ok(("", vec![Word::Raw("List:\n  - item 1\n  - item2\n")]))
     );
 }
 
-fn text_multiline(i: &str) -> IResult<&str, Vec<Vec<Word>>, Error<&str>> {
+fn text_multiline(i: &str) -> IResult<&str, Vec<Vec<Word<'_>>>, Error<&str>> {
     fold_many1(
         alt((raw_string_multiline, text_line)),
         Vec::new,
@@ -483,16 +434,16 @@ fn test_text_multiline() {
             "",
             vec![
                 vec![
-                    Word::Plain("Hello,".to_string()),
-                    Word::Plain(" World!".to_string()),
-                    Word::Project("project".to_string()),
-                    Word::Context("context".to_string()),
-                    Word::Plain("\n\n".to_string()),
+                    Word::Plain("Hello,"),
+                    Word::Plain(" World!"),
+                    Word::Project("project"),
+                    Word::Context("context"),
+                    Word::Plain("\n\n"),
                 ],
                 vec![
-                    Word::Plain("Another".to_string()),
-                    Word::Plain(" line.".to_string()),
-                    Word::Metadata(("meta".to_string(), "data".to_string())),
+                    Word::Plain("Another"),
+                    Word::Plain(" line."),
+                    Word::Metadata(("meta", "data")),
                 ],
             ]
         ))
@@ -503,17 +454,17 @@ fn test_text_multiline() {
             "",
             vec![
                 vec![
-                    Word::Plain("Test".to_string()),
-                    Word::Plain(" raw".to_string()),
-                    Word::Plain(" colon.".to_string()),
-                    Word::Plain("\n".to_string()),
+                    Word::Plain("Test"),
+                    Word::Plain(" raw"),
+                    Word::Plain(" colon."),
+                    Word::Plain("\n"),
                 ],
                 vec![
-                    Word::Plain("This".to_string()),
-                    Word::Plain(" contains".to_string()),
-                    Word::Plain(" raw".to_string()),
-                    Word::Raw(" `:`".to_string()),
-                    Word::Plain(".".to_string()),
+                    Word::Plain("This"),
+                    Word::Plain(" contains"),
+                    Word::Plain(" raw"),
+                    Word::Raw(" `:`"),
+                    Word::Plain("."),
                 ],
             ]
         ))
@@ -533,25 +484,24 @@ Span::styled(
             "",
             vec![
                 vec![
-                    Word::Plain("Here".to_string()),
-                    Word::Plain(" is".to_string()),
-                    Word::Plain(" some".to_string()),
-                    Word::Plain(" text".to_string()),
-                    Word::Plain(" with".to_string()),
-                    Word::Raw(" `:`".to_string()),
-                    Word::Plain(" in".to_string()),
-                    Word::Plain(" a".to_string()),
-                    Word::Plain(" multiline".to_string()),
-                    Word::Plain(" raw".to_string()),
-                    Word::Plain(" string.".to_string()),
-                    Word::Plain("\n\n".to_string()),
+                    Word::Plain("Here"),
+                    Word::Plain(" is"),
+                    Word::Plain(" some"),
+                    Word::Plain(" text"),
+                    Word::Plain(" with"),
+                    Word::Raw(" `:`"),
+                    Word::Plain(" in"),
+                    Word::Plain(" a"),
+                    Word::Plain(" multiline"),
+                    Word::Plain(" raw"),
+                    Word::Plain(" string."),
+                    Word::Plain("\n\n"),
                 ],
                 vec![Word::Raw(
                     r##"Span::styled(
     format!("#{} ", todo_item.todo.id.unwrap_or(0)),
 ),
 "##
-                    .to_string()
                 ),],
             ]
         ))
@@ -573,18 +523,18 @@ And here is some text that follows.
             "",
             vec![
                 vec![
-                    Word::Plain("Here".to_string()),
-                    Word::Plain(" is".to_string()),
-                    Word::Plain(" some".to_string()),
-                    Word::Plain(" text".to_string()),
-                    Word::Plain(" with".to_string()),
-                    Word::Raw(" `:`".to_string()),
-                    Word::Plain(" in".to_string()),
-                    Word::Plain(" a".to_string()),
-                    Word::Plain(" multiline".to_string()),
-                    Word::Plain(" raw".to_string()),
-                    Word::Plain(" string.".to_string()),
-                    Word::Plain("\n\n".to_string()),
+                    Word::Plain("Here"),
+                    Word::Plain(" is"),
+                    Word::Plain(" some"),
+                    Word::Plain(" text"),
+                    Word::Plain(" with"),
+                    Word::Raw(" `:`"),
+                    Word::Plain(" in"),
+                    Word::Plain(" a"),
+                    Word::Plain(" multiline"),
+                    Word::Plain(" raw"),
+                    Word::Plain(" string."),
+                    Word::Plain("\n\n"),
                 ],
                 vec![
                     Word::Raw(
@@ -592,19 +542,18 @@ And here is some text that follows.
     format!("#{} ", todo_item.todo.id.unwrap_or(0)),
 ),
 "##
-                        .to_string()
                     ),
-                    Word::Plain("\n".to_string()),
+                    Word::Plain("\n"),
                 ],
                 vec![
-                    Word::Plain("And".to_string()),
-                    Word::Plain(" here".to_string()),
-                    Word::Plain(" is".to_string()),
-                    Word::Plain(" some".to_string()),
-                    Word::Plain(" text".to_string()),
-                    Word::Plain(" that".to_string()),
-                    Word::Plain(" follows.".to_string()),
-                    Word::Plain("\n".to_string()),
+                    Word::Plain("And"),
+                    Word::Plain(" here"),
+                    Word::Plain(" is"),
+                    Word::Plain(" some"),
+                    Word::Plain(" text"),
+                    Word::Plain(" that"),
+                    Word::Plain(" follows."),
+                    Word::Plain("\n"),
                 ],
             ]
         ))
@@ -632,18 +581,18 @@ pub fn todo(s: &str) -> IResult<&str, Todo, Error<&str>> {
 
     for word in text {
         match word {
-            Word::Plain(p) => title.push_str(&p),
-            Word::Raw(r) => title.push_str(&r),
-            Word::Project(p) => projects.push(p),
-            Word::Context(c) => contexts.push(c),
+            Word::Plain(p) => title.push_str(p),
+            Word::Raw(r) => title.push_str(r),
+            Word::Project(p) => projects.push(p.to_owned()),
+            Word::Context(c) => contexts.push(c.to_owned()),
             Word::Metadata((k, v)) => {
                 // Metadata keys starting with an underscore are reserved for internal use.
                 if k.starts_with("_") {
-                    match k.as_str() {
+                    match k {
                         _ => {}
                     }
                 } else {
-                    match metadata.set(&k, &v) {
+                    match metadata.set(k, v) {
                         Ok(_) => {}
                         Err(e) => return Err(nom::Err::Error(Error::BadMetadata(e))),
                     };
@@ -661,18 +610,18 @@ pub fn todo(s: &str) -> IResult<&str, Todo, Error<&str>> {
             for line in lines {
                 for word in line {
                     match word {
-                        Word::Plain(p) => description.push_str(&p),
-                        Word::Raw(r) => description.push_str(&r),
+                        Word::Plain(p) => description.push_str(p),
+                        Word::Raw(r) => description.push_str(r),
                         Word::Project(p) => projects.push(p.to_owned()),
                         Word::Context(c) => contexts.push(c.to_owned()),
                         Word::Metadata((k, v)) => {
                             // Metadata keys starting with an underscore are reserved for internal use.
                             if k.starts_with("_") {
-                                match k.as_str() {
+                                match k {
                                     _ => {}
                                 }
                             } else {
-                                match metadata.set(&k, &v) {
+                                match metadata.set(k, v) {
                                     Ok(_) => {}
                                     Err(e) => return Err(nom::Err::Error(Error::BadMetadata(e))),
                                 };
