@@ -1,6 +1,6 @@
 use super::SyntaxRule;
 
-pub const DOCKERFILE: [SyntaxRule; 1] = [SyntaxRule::LineComment("#")];
+pub const DOCKERFILE: [SyntaxRule; 1] = [SyntaxRule::LineComment(b"#")];
 
 #[cfg(test)]
 mod tests {

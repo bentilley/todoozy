@@ -1,9 +1,9 @@
 use super::SyntaxRule;
 
 pub const TYPESCRIPT: [SyntaxRule; 3] = [
-    SyntaxRule::LineComment("//"),
-    SyntaxRule::BlockComment("/*", "*/"),
-    SyntaxRule::SkipDelimited("`", "`"),
+    SyntaxRule::LineComment(b"//"),
+    SyntaxRule::BlockComment(b"/*", b"*/"),
+    SyntaxRule::SkipDelimited(b"`", b"`"),
 ];
 
 #[cfg(test)]

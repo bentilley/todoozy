@@ -1,9 +1,9 @@
 use super::SyntaxRule;
 
 pub const TERRAFORM: [SyntaxRule; 3] = [
-    SyntaxRule::LineComment("#"),
-    SyntaxRule::LineComment("//"),
-    SyntaxRule::BlockComment("/*", "*/"),
+    SyntaxRule::LineComment(b"#"),
+    SyntaxRule::LineComment(b"//"),
+    SyntaxRule::BlockComment(b"/*", b"*/"),
 ];
 
 #[cfg(test)]

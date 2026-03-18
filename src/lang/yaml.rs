@@ -1,6 +1,6 @@
 use super::SyntaxRule;
 
-pub const YAML: [SyntaxRule; 1] = [SyntaxRule::LineComment("#")];
+pub const YAML: [SyntaxRule; 1] = [SyntaxRule::LineComment(b"#")];
 
 #[cfg(test)]
 mod tests {

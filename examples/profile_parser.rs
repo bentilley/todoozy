@@ -24,9 +24,9 @@ impl Config {
     );
 
     println!("Generated file: {} bytes", content.len());
-    println!("Running 100 iterations...");
+    println!("Running 1000 iterations...");
 
-    for _ in 0..100 {
+    for _ in 0..1000 {
         let result = parse_text(black_box(&content), FileType::Rust, None);
         black_box(result);
     }

@@ -12,9 +12,9 @@ pub mod typescript;
 pub mod yaml;
 
 pub enum SyntaxRule {
-    LineComment(&'static str),
-    BlockComment(&'static str, &'static str),
-    SkipDelimited(&'static str, &'static str),
+    LineComment(&'static [u8]),
+    BlockComment(&'static [u8], &'static [u8]),
+    SkipDelimited(&'static [u8], &'static [u8]),
 }
 
 enum Comment<'a> {
@@ -50,12 +50,14 @@ impl<'a> Iterator for CommentParser<'a> {
         }
 
         'outer: while self.position < self.len {
+            let current_byte = self.text[self.position];
             for rule in self.syntax_rules {
                 match rule {
                     SyntaxRule::LineComment(token) => {
-                        if self.text[self.position..].starts_with(token.as_bytes()) {
+                        if current_byte == token[0] && self.text[self.position..].starts_with(token)
+                        {
                             let comment_line = self.line_number;
-                            self.position += token.as_bytes().len();
+                            self.position += token.len();
                             let start = self.position;
                             while self.position < self.len && self.text[self.position] != b'\n' {
                                 self.position += 1;
@@ -73,19 +75,19 @@ impl<'a> Iterator for CommentParser<'a> {
                     }
 
                     SyntaxRule::BlockComment(start_token, end_token) => {
-                        if self.text[self.position..].starts_with(start_token.as_bytes()) {
-                            self.position += start_token.as_bytes().len();
+                        if current_byte == start_token[0]
+                            && self.text[self.position..].starts_with(start_token)
+                        {
+                            self.position += start_token.len();
                             let content_start = self.position;
                             let start_line = self.line_number;
 
                             let mut depth = 1;
                             while self.position < self.len && depth > 0 {
-                                if self.text[self.position..].starts_with(start_token.as_bytes()) {
+                                if self.text[self.position..].starts_with(start_token) {
                                     depth += 1;
                                     self.position += start_token.len();
-                                } else if self.text[self.position..]
-                                    .starts_with(end_token.as_bytes())
-                                {
+                                } else if self.text[self.position..].starts_with(end_token) {
                                     depth -= 1;
                                     self.position += end_token.len();
                                 } else {
@@ -106,11 +108,13 @@ impl<'a> Iterator for CommentParser<'a> {
                     }
 
                     SyntaxRule::SkipDelimited(start_delim, end_delim) => {
-                        if self.text[self.position..].starts_with(start_delim.as_bytes()) {
-                            self.position += start_delim.as_bytes().len();
+                        if current_byte == start_delim[0]
+                            && self.text[self.position..].starts_with(start_delim)
+                        {
+                            self.position += start_delim.len();
 
                             while self.position < self.len
-                                && !self.text[self.position..].starts_with(end_delim.as_bytes())
+                                && !self.text[self.position..].starts_with(end_delim)
                             {
                                 if self.text[self.position] == b'\n' {
                                     self.line_number += 1;
@@ -122,7 +126,7 @@ impl<'a> Iterator for CommentParser<'a> {
                                 self.position += end_delim.len();
                             }
 
-                            continue 'outer; // Nothing to return, just go around again
+                            continue 'outer;
                         }
                     }
                 }
@@ -290,7 +294,7 @@ mod tests {
     use super::*;
 
     // Line comment tests
-    const TEST_LINE_COMMENT: [SyntaxRule; 1] = [SyntaxRule::LineComment("//")];
+    const TEST_LINE_COMMENT: [SyntaxRule; 1] = [SyntaxRule::LineComment(b"//")];
 
     #[test]
     fn line_comment_basic_todo() {
@@ -462,7 +466,7 @@ let x = 1;"#;
     }
 
     // Block comment tests
-    const TEST_BLOCK_COMMENT: [SyntaxRule; 1] = [SyntaxRule::BlockComment("/*", "*/")];
+    const TEST_BLOCK_COMMENT: [SyntaxRule; 1] = [SyntaxRule::BlockComment(b"/*", b"*/")];
 
     #[test]
     fn block_comment_single_line() {
@@ -578,8 +582,8 @@ Content starts at the left edge.
 
     // Multi-line string tests
     const TEST_WITH_MULTI_LINE_STRING: [SyntaxRule; 2] = [
-        SyntaxRule::LineComment("//"),
-        SyntaxRule::SkipDelimited("`", "`"),
+        SyntaxRule::LineComment(b"//"),
+        SyntaxRule::SkipDelimited(b"`", b"`"),
     ];
 
     #[test]
@@ -632,8 +636,8 @@ let y = 1;"#;
 
     // Mixed comment style tests
     const TEST_MIXED_COMMENTS: [SyntaxRule; 2] = [
-        SyntaxRule::LineComment("//"),
-        SyntaxRule::BlockComment("/*", "*/"),
+        SyntaxRule::LineComment(b"//"),
+        SyntaxRule::BlockComment(b"/*", b"*/"),
     ];
 
     #[test]

@@ -1,12 +1,12 @@
 use super::SyntaxRule;
 
 pub const RUST: [SyntaxRule; 6] = [
-    SyntaxRule::LineComment("//!"),
-    SyntaxRule::LineComment("///"),
-    SyntaxRule::LineComment("//"),
-    SyntaxRule::BlockComment("/*", "*/"),
-    SyntaxRule::SkipDelimited("r#\"", "\"#"),
-    SyntaxRule::SkipDelimited("r##\"", "\"##"),
+    SyntaxRule::LineComment(b"//!"),
+    SyntaxRule::LineComment(b"///"),
+    SyntaxRule::LineComment(b"//"),
+    SyntaxRule::BlockComment(b"/*", b"*/"),
+    SyntaxRule::SkipDelimited(b"r#\"", b"\"#"),
+    SyntaxRule::SkipDelimited(b"r##\"", b"\"##"),
 ];
 
 #[cfg(test)]

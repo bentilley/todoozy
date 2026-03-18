@@ -1,6 +1,6 @@
 use super::SyntaxRule;
 
-pub const MAKEFILE: [SyntaxRule; 1] = [SyntaxRule::LineComment("#")];
+pub const MAKEFILE: [SyntaxRule; 1] = [SyntaxRule::LineComment(b"#")];
 
 #[cfg(test)]
 mod tests {

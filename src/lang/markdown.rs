@@ -1,6 +1,6 @@
 use super::SyntaxRule;
 
-pub const MARKDOWN: [SyntaxRule; 1] = [SyntaxRule::BlockComment("<!--", "-->")];
+pub const MARKDOWN: [SyntaxRule; 1] = [SyntaxRule::BlockComment(b"<!--", b"-->")];
 
 #[cfg(test)]
 mod tests {

@@ -1,8 +1,8 @@
 use super::SyntaxRule;
 
 pub const PROTOBUF: [SyntaxRule; 2] = [
-    SyntaxRule::LineComment("//"),
-    SyntaxRule::BlockComment("/*", "*/"),
+    SyntaxRule::LineComment(b"//"),
+    SyntaxRule::BlockComment(b"/*", b"*/"),
 ];
 
 #[cfg(test)]

@@ -1,9 +1,9 @@
 use super::SyntaxRule;
 
 pub const SH: [SyntaxRule; 3] = [
-    SyntaxRule::LineComment("#"),
-    SyntaxRule::SkipDelimited("\"", "\""),
-    SyntaxRule::SkipDelimited("'", "'"),
+    SyntaxRule::LineComment(b"#"),
+    SyntaxRule::SkipDelimited(b"\"", b"\""),
+    SyntaxRule::SkipDelimited(b"'", b"'"),
 ];
 
 #[cfg(test)]
