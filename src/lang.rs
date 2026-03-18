@@ -182,7 +182,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_todos(&self, text: &str) -> Vec<(usize, usize, String)> {
-        let mut todos = Vec::<(usize, usize, String)>::new();
+        let mut todos = Vec::new();
 
         let mut comments = CommentParser::new(self.syntax_rules, text).peekable();
         while let Some(comment) = comments.next() {
