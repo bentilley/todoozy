@@ -8,7 +8,7 @@ mod tests {
 
     #[test]
     fn test_parse_todos() {
-        let parser = crate::lang::Parser::new(&YAML);
+        let parser = crate::lang::Parser::new("TODO", &YAML);
 
         // Todo as line comments
         let text = r#"

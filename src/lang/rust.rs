@@ -5,8 +5,8 @@ pub const RUST: [SyntaxRule; 6] = [
     SyntaxRule::LineComment("///"),
     SyntaxRule::LineComment("//"),
     SyntaxRule::BlockComment("/*", "*/"),
-    SyntaxRule::MultiLineString("r#\"", "\"#"),
-    SyntaxRule::MultiLineString("r##\"", "\"##"),
+    SyntaxRule::SkipDelimited("r#\"", "\"#"),
+    SyntaxRule::SkipDelimited("r##\"", "\"##"),
 ];
 
 #[cfg(test)]
@@ -15,7 +15,7 @@ mod tests {
 
     #[test]
     fn test_parser() {
-        let parser = crate::lang::Parser::new(&RUST);
+        let parser = crate::lang::Parser::new("TODO", &RUST);
 
         // Todo as line comments
         let text = r#"

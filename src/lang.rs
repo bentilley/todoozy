@@ -1,5 +1,3 @@
-use regex::Regex;
-
 pub mod dockerfile;
 pub mod go;
 pub mod makefile;
@@ -13,7 +11,133 @@ pub mod terraform;
 pub mod typescript;
 pub mod yaml;
 
-pub const TODO_TOKEN: &str = "TODO";
+pub enum SyntaxRule {
+    LineComment(&'static str),
+    BlockComment(&'static str, &'static str),
+    SkipDelimited(&'static str, &'static str),
+}
+
+enum Comment<'a> {
+    Line(&'a str, usize),
+    Block(&'a str, usize, usize),
+}
+
+struct CommentParser<'a> {
+    syntax_rules: &'static [SyntaxRule],
+    text: &'a [u8],
+    len: usize,
+    position: usize,
+    line_number: usize,
+}
+
+impl<'a> CommentParser<'a> {
+    fn new(syntax_rules: &'static [SyntaxRule], text: &'a str) -> Self {
+        Self {
+            syntax_rules,
+            text: text.as_bytes(),
+            len: text.as_bytes().len(),
+            position: 0,
+            line_number: 1,
+        }
+    }
+}
+
+impl<'a> Iterator for CommentParser<'a> {
+    type Item = Comment<'a>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.position >= self.len {
+            return None;
+        }
+
+        'outer: while self.position < self.len {
+            for rule in self.syntax_rules {
+                match rule {
+                    SyntaxRule::LineComment(token) => {
+                        if self.text[self.position..].starts_with(token.as_bytes()) {
+                            let comment_line = self.line_number;
+                            self.position += token.as_bytes().len();
+                            let start = self.position;
+                            while self.position < self.len && self.text[self.position] != b'\n' {
+                                self.position += 1;
+                            }
+                            let line =
+                                std::str::from_utf8(&self.text[start..self.position]).unwrap_or("");
+
+                            if self.position < self.len {
+                                self.position += 1; // skip newline
+                                self.line_number += 1;
+                            }
+
+                            return Some(Comment::Line(line, comment_line));
+                        }
+                    }
+
+                    SyntaxRule::BlockComment(start_token, end_token) => {
+                        if self.text[self.position..].starts_with(start_token.as_bytes()) {
+                            self.position += start_token.as_bytes().len();
+                            let content_start = self.position;
+                            let start_line = self.line_number;
+
+                            let mut depth = 1;
+                            while self.position < self.len && depth > 0 {
+                                if self.text[self.position..].starts_with(start_token.as_bytes()) {
+                                    depth += 1;
+                                    self.position += start_token.len();
+                                } else if self.text[self.position..]
+                                    .starts_with(end_token.as_bytes())
+                                {
+                                    depth -= 1;
+                                    self.position += end_token.len();
+                                } else {
+                                    if self.text[self.position] == b'\n' {
+                                        self.line_number += 1;
+                                    }
+                                    self.position += 1;
+                                }
+                            }
+
+                            let end_line = self.line_number;
+                            let content_end = self.position - end_token.len();
+                            let content =
+                                std::str::from_utf8(&self.text[content_start..content_end])
+                                    .unwrap_or("");
+                            return Some(Comment::Block(content, start_line, end_line));
+                        }
+                    }
+
+                    SyntaxRule::SkipDelimited(start_delim, end_delim) => {
+                        if self.text[self.position..].starts_with(start_delim.as_bytes()) {
+                            self.position += start_delim.as_bytes().len();
+
+                            while self.position < self.len
+                                && !self.text[self.position..].starts_with(end_delim.as_bytes())
+                            {
+                                if self.text[self.position] == b'\n' {
+                                    self.line_number += 1;
+                                }
+                                self.position += 1;
+                            }
+
+                            if self.position < self.len {
+                                self.position += end_delim.len();
+                            }
+
+                            continue 'outer; // Nothing to return, just go around again
+                        }
+                    }
+                }
+            }
+
+            // No rule matched - advance by one byte
+            if self.text[self.position] == b'\n' {
+                self.line_number += 1;
+            }
+            self.position += 1;
+        }
+
+        None
+    }
+}
 
 // TODO #33 (B) 2026-03-12 Handle TODOs inside regular string literals +fix
 //
@@ -30,247 +154,137 @@ pub const TODO_TOKEN: &str = "TODO";
 // "let x = 1; // TODO change this" won't be detected because line doesn't start
 // with comment token. Would need to scan for comment tokens mid-line.
 
-pub enum SyntaxRule<'a> {
-    LineComment(&'a str),
-    BlockComment(&'a str, &'a str),
-    MultiLineString(&'a str, &'a str),
-    // String(&'a [u8]),
+pub struct Parser<'a> {
+    todo_token: &'a str,
+    syntax_rules: &'static [SyntaxRule],
 }
 
-enum ParseResult {
-    Todo((usize, usize, String)),
-    Success,
-    NoMatch,
-}
-
-trait ParseRule {
-    fn try_parse(
-        &self,
-        lines: &mut std::iter::Peekable<std::iter::Enumerate<std::str::Lines>>,
-    ) -> ParseResult;
-}
-
-struct LineCommentRule {
-    token: String,
-    todo_regex: Regex,
-}
-
-impl LineCommentRule {
-    fn new(token: &str) -> Self {
-        let pattern = format!(r"^\s*{}\s*{}\b", regex::escape(token), TODO_TOKEN);
+impl<'a> Parser<'a> {
+    pub fn new(todo_token: &'a str, syntax_rules: &'static [SyntaxRule]) -> Self {
         Self {
-            token: token.to_string(),
-            todo_regex: Regex::new(&pattern).unwrap(),
+            todo_token,
+            syntax_rules,
         }
     }
-}
 
-impl ParseRule for LineCommentRule {
-    fn try_parse(
-        &self,
-        lines: &mut std::iter::Peekable<std::iter::Enumerate<std::str::Lines>>,
-    ) -> ParseResult {
-        match lines.peek() {
-            Some((_, peeked)) if self.todo_regex.is_match(peeked.trim_start()) => {
-                let (i, line) = lines.next().unwrap();
-                let mut todo: Vec<String> = Vec::new();
-                let mut end_line = i;
+    fn is_todo_start(&self, text: &str) -> bool {
+        let trimmed = text.trim_start();
 
-                let v: Vec<&str> = line.splitn(2, TODO_TOKEN).collect();
-                todo.push(v[1].trim().to_string());
-                let prefix = v[0].len();
-
-                while let Some((j, peeked)) = lines.peek() {
-                    let peeked_trimmed = peeked.trim_start();
-                    // Stop if not a comment or if it's a new TODO
-                    if !peeked_trimmed.starts_with(&self.token)
-                        || self.todo_regex.is_match(peeked_trimmed)
-                    {
-                        break;
-                    }
-                    end_line = *j;
-                    let (_, line) = lines.next().unwrap();
-
-                    if line.len() < prefix {
-                        todo.push(String::new());
-                    } else {
-                        todo.push(line[prefix..].trim_end().to_owned());
-                    }
-                }
-
-                return ParseResult::Todo((i + 1, end_line + 1, todo.join("\n")));
-            }
-            _ => return ParseResult::NoMatch,
-        }
-    }
-}
-
-struct BlockCommentRule {
-    // start_token: String,
-    end_token: String,
-    todo_regex: Regex,
-}
-
-impl BlockCommentRule {
-    fn new(start: &str, end: &str) -> Self {
-        let pattern = format!(r"^\s*{}\s*{}\b", regex::escape(start), TODO_TOKEN);
-        Self {
-            // start_token: start.to_string(),
-            end_token: end.to_string(),
-            todo_regex: Regex::new(&pattern).unwrap(),
-        }
-    }
-}
-
-impl ParseRule for BlockCommentRule {
-    fn try_parse(
-        &self,
-        lines: &mut std::iter::Peekable<std::iter::Enumerate<std::str::Lines>>,
-    ) -> ParseResult {
-        match lines.peek() {
-            Some((_, peeked)) if self.todo_regex.is_match(peeked.trim_start()) => {
-                let (i, line) = lines.next().unwrap();
-                let mut todo: Vec<String> = Vec::new();
-
-                let v: Vec<&str> = line.splitn(2, TODO_TOKEN).collect();
-                let after_todo = v[1];
-
-                // Check if closing delimiter is on same line (single-line block comment)
-                if after_todo.contains(&self.end_token) {
-                    let content = after_todo.split(&self.end_token).next().unwrap();
-                    todo.push(content.trim().to_string());
-                    return ParseResult::Todo((i + 1, i + 1, todo.join("\n")));
-                }
-
-                todo.push(after_todo.trim().to_string());
-
-                // Prefix is None until we see the first non-empty description line
-                let mut prefix: Option<usize> = None;
-
-                while let Some((j, line)) = lines.next() {
-                    if line.contains(&self.end_token) {
-                        let v = line.split(&self.end_token).collect::<Vec<&str>>();
-                        let content = v[0];
-                        if !content.trim().is_empty() {
-                            let content_start = content.len() - content.trim_start().len();
-                            let p = prefix.unwrap_or(content_start);
-                            if content.len() > p {
-                                todo.push(content[p..].trim_end().to_owned());
-                            }
-                        }
-
-                        return ParseResult::Todo((i + 1, j + 1, todo.join("\n")));
-                    }
-
-                    if line.trim().is_empty() {
-                        todo.push(String::new());
-                    } else {
-                        // Set prefix on first line with actual content
-                        let content_start = line.len() - line.trim_start().len();
-                        let p = *prefix.get_or_insert(content_start);
-                        if line.len() > p {
-                            todo.push(line[p..].trim_end().to_owned());
-                        } else {
-                            todo.push(String::new());
-                        }
-                    }
-                }
-
-                return ParseResult::Todo((i + 1, i + todo.len(), todo.join("\n")));
-            }
-            _ => return ParseResult::NoMatch,
-        }
-    }
-}
-
-struct MultiLineStringRule {
-    start_token: String,
-    end_token: String,
-}
-
-impl MultiLineStringRule {
-    fn new(start: &str, end: &str) -> Self {
-        Self {
-            start_token: start.to_string(),
-            end_token: end.to_string(),
-        }
-    }
-}
-
-impl ParseRule for MultiLineStringRule {
-    fn try_parse(
-        &self,
-        lines: &mut std::iter::Peekable<std::iter::Enumerate<std::str::Lines>>,
-    ) -> ParseResult {
-        match lines.peek() {
-            Some((_, peeked)) if peeked.contains(&self.start_token) => {
-                let (_, line) = lines.next().unwrap();
-                let trimmed = line.trim_start();
-
-                // Single-line raw string
-                if trimmed.contains(&self.end_token)
-                    && trimmed.find(&self.start_token) < trimmed.rfind(&self.end_token)
-                {
-                    return ParseResult::Success;
-                }
-
-                // Multi-line raw string
-                while let Some((_, line)) = lines.next() {
-                    if line.contains(&self.end_token) {
-                        return ParseResult::Success;
-                    }
-                }
-
-                return ParseResult::Success;
-            }
-            _ => return ParseResult::NoMatch,
-        }
-    }
-}
-
-pub struct Parser {
-    parse_rules: Vec<Box<dyn ParseRule>>,
-}
-
-impl Parser {
-    pub fn new(syntax_rules: &[SyntaxRule]) -> Self {
-        let mut parse_rules = Vec::<Box<dyn ParseRule>>::new();
-
-        for rule in syntax_rules {
-            use SyntaxRule::*;
-            match rule {
-                LineComment(token) => {
-                    parse_rules.push(Box::new(LineCommentRule::new(token)));
-                }
-                BlockComment(start, end) => {
-                    parse_rules.push(Box::new(BlockCommentRule::new(start, end)));
-                }
-                MultiLineString(start, end) => {
-                    parse_rules.push(Box::new(MultiLineStringRule::new(start, end)));
-                }
-            }
+        if !trimmed.starts_with(self.todo_token) {
+            return false;
         }
 
-        Self { parse_rules }
+        // Check for word boundary after token
+        let after_token = &trimmed[self.todo_token.len()..];
+        after_token.is_empty()
+            || after_token.starts_with(char::is_whitespace)
+            || !after_token.chars().next().unwrap().is_alphanumeric()
     }
 
     pub fn parse_todos(&self, text: &str) -> Vec<(usize, usize, String)> {
         let mut todos = Vec::<(usize, usize, String)>::new();
 
-        let mut lines = text.lines().enumerate().peekable();
-        'outer: while let Some(_) = lines.peek() {
-            for rule in &self.parse_rules {
-                use ParseResult::*;
-                match rule.try_parse(&mut lines) {
-                    Todo(todo) => {
-                        todos.push(todo);
-                        continue 'outer;
+        let mut comments = CommentParser::new(self.syntax_rules, text).peekable();
+        while let Some(comment) = comments.next() {
+            use Comment::*;
+            match comment {
+                Line(text, line_number) => {
+                    if !self.is_todo_start(text) {
+                        continue;
                     }
-                    Success => continue 'outer,
-                    NoMatch => continue,
+
+                    let mut todo_text = text
+                        .splitn(2, &self.todo_token)
+                        .nth(1)
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    let mut end_line_number = line_number;
+
+                    let mut indent_prefix_len = None;
+                    while let Some(next_comment) = comments.peek() {
+                        let is_continuation_line = match next_comment {
+                            Line(next_text, next_line_number) => {
+                                !self.is_todo_start(next_text)
+                                    && *next_line_number == end_line_number + 1
+                            }
+                            Block(_, _, _) => false,
+                        };
+                        if !is_continuation_line {
+                            break;
+                        }
+
+                        if let Some(Line(next_text, next_line_number)) = comments.next() {
+                            end_line_number = next_line_number;
+                            todo_text.push_str("\n");
+
+                            // Skip empty lines without updating indent prefix
+                            if next_text.trim().is_empty() {
+                                continue;
+                            }
+
+                            let content_start = next_text.len() - next_text.trim_start().len();
+                            if let Some(prefix_len) = indent_prefix_len {
+                                if content_start >= prefix_len {
+                                    todo_text.push_str(&next_text[prefix_len..].trim_end());
+                                } else {
+                                    todo_text.push_str(next_text.trim());
+                                }
+                            } else {
+                                indent_prefix_len = Some(content_start);
+                                todo_text.push_str(next_text.trim());
+                            }
+                        }
+                    }
+
+                    todos.push((line_number, end_line_number, todo_text));
+                }
+                Block(text, start_line, end_line) => {
+                    if !self.is_todo_start(text) {
+                        continue;
+                    }
+
+                    let mut lines = text
+                        .splitn(2, &self.todo_token)
+                        .nth(1)
+                        .unwrap_or("")
+                        .lines();
+
+                    let mut todo_text = String::new();
+                    if let Some(first_line) = lines.next() {
+                        todo_text.push_str(first_line.trim());
+                    }
+
+                    let mut indent_prefix_len = None;
+                    for line in lines {
+                        if line.trim().is_empty() {
+                            todo_text.push_str("\n");
+                            continue;
+                        }
+                        let content_start = line.len() - line.trim_start().len();
+                        if let Some(prefix_len) = indent_prefix_len {
+                            if content_start >= prefix_len {
+                                todo_text.push_str("\n");
+                                todo_text.push_str(&line[prefix_len..].trim_end());
+                            } else {
+                                todo_text.push_str("\n");
+                                todo_text.push_str(line.trim());
+                            }
+                        } else {
+                            indent_prefix_len = Some(content_start);
+                            todo_text.push_str("\n");
+                            todo_text.push_str(line.trim());
+                        }
+                    }
+
+                    // Remove trailing newlines
+                    while todo_text.ends_with('\n') {
+                        todo_text.pop();
+                    }
+
+                    todos.push((start_line, end_line, todo_text));
                 }
             }
-            lines.next(); // No rule matched this line, skip it
         }
 
         todos
@@ -290,7 +304,7 @@ mod tests {
 
     #[test]
     fn line_comment_basic_todo() {
-        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = "// TODO basic test\nlet x = 1;";
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
@@ -299,7 +313,7 @@ mod tests {
 
     #[test]
     fn line_comment_multiline_todo() {
-        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = r#"// TODO multi-line test
 // This is the second line
 // This is the third line
@@ -318,7 +332,7 @@ let x = 1;"#;
 
     #[test]
     fn line_comment_todo_at_end_of_file() {
-        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = "let x = 1;\n// TODO at end of file";
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
@@ -327,7 +341,7 @@ let x = 1;"#;
 
     #[test]
     fn line_comment_todo_at_end_of_file_multiline() {
-        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = r#"let x = 1;
 // TODO at end of file
 // with continuation"#;
@@ -341,7 +355,7 @@ let x = 1;"#;
 
     #[test]
     fn line_comment_empty_description() {
-        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = r#"// TODO
 let x = 1;"#;
         let todos = parser.parse_todos(text);
@@ -351,7 +365,7 @@ let x = 1;"#;
 
     #[test]
     fn line_comment_adjacent_todos() {
-        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = r#"// TODO first todo
 // TODO second todo
 let x = 1;"#;
@@ -363,7 +377,7 @@ let x = 1;"#;
 
     #[test]
     fn line_comment_adjacent_todos_with_gap() {
-        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = r#"// TODO first todo
 let x = 1;
 // TODO second todo
@@ -376,7 +390,7 @@ let y = 2;"#;
 
     #[test]
     fn line_comment_todo_in_title() {
-        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = r#"// TODO (B) Handle TODOs inside TODO title
 let x = 1;"#;
         let todos = parser.parse_todos(text);
@@ -389,7 +403,7 @@ let x = 1;"#;
 
     #[test]
     fn line_comments_description_starts_with_todos() {
-        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = r#"// TODO (B) Handle TODOs inside TODO title
 //
 // TODOs should not start new TODO unless "TODO" followed by whitespace
@@ -404,7 +418,7 @@ let x = 1;"#;
 
     #[test]
     fn line_comment_multiple_spaces_before_todo() {
-        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = "//    TODO with extra spaces\nlet x = 1;";
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
@@ -413,7 +427,7 @@ let x = 1;"#;
 
     #[test]
     fn line_comment_tab_before_todo() {
-        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = "//\tTODO with tab\nlet x = 1;";
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
@@ -422,7 +436,7 @@ let x = 1;"#;
 
     #[test]
     fn line_comment_no_space_before_todo() {
-        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = "//TODO no space\nlet x = 1;";
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
@@ -432,7 +446,7 @@ let x = 1;"#;
     #[test]
     fn line_comment_todolist_not_detected() {
         // Word boundary prevents matching "TODOLIST"
-        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = "// TODOLIST is not a todo\nlet x = 1;";
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 0);
@@ -440,7 +454,7 @@ let x = 1;"#;
 
     #[test]
     fn line_comment_empty_line_preserved() {
-        let parser = Parser::new(&TEST_LINE_COMMENT);
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = r#"// TODO title line
 //
 // continuation after empty line
@@ -449,7 +463,11 @@ let x = 1;"#;
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
-            (1, 3, "title line\n\ncontinuation after empty line".to_string())
+            (
+                1,
+                3,
+                "title line\n\ncontinuation after empty line".to_string()
+            )
         );
     }
 
@@ -458,7 +476,7 @@ let x = 1;"#;
 
     #[test]
     fn block_comment_single_line() {
-        let parser = Parser::new(&TEST_BLOCK_COMMENT);
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
         let text = "/* TODO single line */\nlet x = 1;";
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
@@ -467,7 +485,7 @@ let x = 1;"#;
 
     #[test]
     fn block_comment_multiline_closing_own_line() {
-        let parser = Parser::new(&TEST_BLOCK_COMMENT);
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
         let text = r#"/* TODO multi-line
    second line
    third line
@@ -483,7 +501,7 @@ let x = 1;"#;
 
     #[test]
     fn block_comment_multiline_closing_after_content() {
-        let parser = Parser::new(&TEST_BLOCK_COMMENT);
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
         let text = r#"/* TODO multi-line
    second line
    third line */
@@ -498,7 +516,7 @@ let x = 1;"#;
 
     #[test]
     fn block_comment_todo_at_end_of_file() {
-        let parser = Parser::new(&TEST_BLOCK_COMMENT);
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
         let text = r#"let x = 1;
 /* TODO at end of file
    more content
@@ -511,7 +529,7 @@ let x = 1;"#;
     #[test]
     fn block_comment_asterisk_border_not_stripped() {
         // Documents that * borders in block comments are NOT stripped
-        let parser = Parser::new(&TEST_BLOCK_COMMENT);
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
         let text = r#"/* TODO with asterisk border
  * this line has asterisk
  * so does this
@@ -530,7 +548,7 @@ let x = 1;"#;
 
     #[test]
     fn block_comment_todo_in_description() {
-        let parser = Parser::new(&TEST_BLOCK_COMMENT);
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
         let text = r#"/* TODO (B) Handle TODOs inside TODO description
    This TODO should not start a new todo.
 */"#;
@@ -550,7 +568,7 @@ let x = 1;"#;
     #[test]
     fn block_comment_left_edge_content() {
         // Content starts at left edge, not aligned to comment opener
-        let parser = Parser::new(&TEST_BLOCK_COMMENT);
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
         let text = r#"/* TODO left edge test
 
 Content starts at the left edge.
@@ -571,12 +589,12 @@ Content starts at the left edge.
     // Multi-line string tests
     const TEST_WITH_MULTI_LINE_STRING: [SyntaxRule; 2] = [
         SyntaxRule::LineComment("//"),
-        SyntaxRule::MultiLineString("`", "`"),
+        SyntaxRule::SkipDelimited("`", "`"),
     ];
 
     #[test]
     fn multi_line_string_todo_inside_ignored() {
-        let parser = Parser::new(&TEST_WITH_MULTI_LINE_STRING);
+        let parser = Parser::new("TODO", &TEST_WITH_MULTI_LINE_STRING);
         let text = r#"let x = `
 // TODO this should be ignored
 `;
@@ -589,7 +607,7 @@ let y = 1;"#;
 
     #[test]
     fn multi_line_string_single_line() {
-        let parser = Parser::new(&TEST_WITH_MULTI_LINE_STRING);
+        let parser = Parser::new("TODO", &TEST_WITH_MULTI_LINE_STRING);
         let text = r#"let x = `// TODO fake`;
 // TODO real
 let y = 1;"#;
@@ -600,7 +618,7 @@ let y = 1;"#;
 
     #[test]
     fn multi_line_string_todo_after_detected() {
-        let parser = Parser::new(&TEST_WITH_MULTI_LINE_STRING);
+        let parser = Parser::new("TODO", &TEST_WITH_MULTI_LINE_STRING);
         let text = r#"let x = `raw string content`;
 // TODO after raw string
 let y = 1;"#;
@@ -611,7 +629,7 @@ let y = 1;"#;
 
     #[test]
     fn multi_line_string_delimiter_in_comment() {
-        let parser = Parser::new(&TEST_WITH_MULTI_LINE_STRING);
+        let parser = Parser::new("TODO", &TEST_WITH_MULTI_LINE_STRING);
         let text = r#"// TODO mentions ` backtick
 let x = 1;
 // TODO second todo
@@ -630,7 +648,7 @@ let y = 1;"#;
 
     #[test]
     fn mixed_comment_styles_both_detected() {
-        let parser = Parser::new(&TEST_MIXED_COMMENTS);
+        let parser = Parser::new("TODO", &TEST_MIXED_COMMENTS);
         let text = r#"// TODO first in line comment
 let x = 1;
 /* TODO second in block comment */
@@ -646,7 +664,7 @@ let z = 3;"#;
 
     #[test]
     fn mixed_comment_styles_multiline() {
-        let parser = Parser::new(&TEST_MIXED_COMMENTS);
+        let parser = Parser::new("TODO", &TEST_MIXED_COMMENTS);
         let text = r#"// TODO line comment todo
 // with continuation
 let x = 1;

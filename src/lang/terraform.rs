@@ -12,7 +12,7 @@ mod tests {
 
     #[test]
     fn test_parse_todos() {
-        let parser = crate::lang::Parser::new(&TERRAFORM);
+        let parser = crate::lang::Parser::new("TODO", &TERRAFORM);
 
         // Todo as hash line comments
         let text = r#"

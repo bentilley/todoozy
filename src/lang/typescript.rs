@@ -3,7 +3,7 @@ use super::SyntaxRule;
 pub const TYPESCRIPT: [SyntaxRule; 3] = [
     SyntaxRule::LineComment("//"),
     SyntaxRule::BlockComment("/*", "*/"),
-    SyntaxRule::MultiLineString("`", "`"),
+    SyntaxRule::SkipDelimited("`", "`"),
 ];
 
 #[cfg(test)]
@@ -12,7 +12,7 @@ mod tests {
 
     #[test]
     fn test_parser() {
-        let parser = crate::lang::Parser::new(&TYPESCRIPT);
+        let parser = crate::lang::Parser::new("TODO", &TYPESCRIPT);
 
         // Todo as line comments
         let text = r#"
@@ -138,7 +138,7 @@ This todo isn't in a raw string."#
     #[test]
     #[ignore = "documents parsing limitation: escaped backticks"]
     fn escaped_backtick_in_template_literal_not_handled() {
-        let parser = crate::lang::Parser::new(&TYPESCRIPT);
+        let parser = crate::lang::Parser::new("TODO", &TYPESCRIPT);
         let text = r##"
 const msg = `hello \`
 // TODO false positive

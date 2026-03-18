@@ -8,7 +8,7 @@ mod tests {
 
     #[test]
     fn test_parse_todos() {
-        let parser = crate::lang::Parser::new(&MARKDOWN);
+        let parser = crate::lang::Parser::new("TODO", &MARKDOWN);
 
         // Todo as block comment (end token on new line)
         let text = r#"

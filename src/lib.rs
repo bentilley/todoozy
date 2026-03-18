@@ -58,6 +58,8 @@ pub fn parse_file(file_path: &str) -> Option<Vec<todo::Todo>> {
     )
 }
 
+pub const TODO_TOKEN: &'static str = "TODO";
+
 pub fn parse_text(
     text: &str,
     file_type: crate::fs::FileType,
@@ -79,7 +81,7 @@ pub fn parse_text(
         FileType::Typescript => &lang::typescript::TYPESCRIPT,
         FileType::YAML => &lang::yaml::YAML,
     };
-    let parser = lang::Parser::new(&syntax_rules);
+    let parser = lang::Parser::new(TODO_TOKEN, &syntax_rules);
     let raw_todos = parser.parse_todos(&text);
     if raw_todos.len() == 0 {
         return None;

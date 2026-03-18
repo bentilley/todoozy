@@ -2,8 +2,8 @@ use super::SyntaxRule;
 
 pub const PYTHON: [SyntaxRule; 3] = [
     SyntaxRule::LineComment("#"),
-    SyntaxRule::MultiLineString("\"\"\"", "\"\"\""),
-    SyntaxRule::MultiLineString("'''", "'''"),
+    SyntaxRule::SkipDelimited("\"\"\"", "\"\"\""),
+    SyntaxRule::SkipDelimited("'''", "'''"),
 ];
 
 #[cfg(test)]
@@ -12,7 +12,7 @@ mod tests {
 
     #[test]
     fn test_parse_todos() {
-        let parser = crate::lang::Parser::new(&PYTHON);
+        let parser = crate::lang::Parser::new("TODO", &PYTHON);
 
         // Todo as line comments
         let text = r#"

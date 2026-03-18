@@ -2,8 +2,8 @@ use super::SyntaxRule;
 
 pub const SH: [SyntaxRule; 3] = [
     SyntaxRule::LineComment("#"),
-    SyntaxRule::MultiLineString("\"", "\""),
-    SyntaxRule::MultiLineString("'", "'"),
+    SyntaxRule::SkipDelimited("\"", "\""),
+    SyntaxRule::SkipDelimited("'", "'"),
 ];
 
 #[cfg(test)]
@@ -12,7 +12,7 @@ mod tests {
 
     #[test]
     fn test_parse_todos() {
-        let parser = crate::lang::Parser::new(&SH);
+        let parser = crate::lang::Parser::new("TODO", &SH);
 
         // Todo as line comment
         let text = r#"
@@ -68,7 +68,7 @@ more='code'
     #[test]
     #[ignore = "documents parsing limitation: escaped quotes"]
     fn escaped_quote_in_double_quoted_string_not_handled() {
-        let parser = crate::lang::Parser::new(&SH);
+        let parser = crate::lang::Parser::new("TODO", &SH);
         let text = r##"
 msg="hello \"
 # TODO false positive
@@ -85,7 +85,7 @@ world"
     #[test]
     #[ignore = "documents parsing limitation: escaped quotes"]
     fn escaped_quote_in_single_quoted_string_not_handled() {
-        let parser = crate::lang::Parser::new(&SH);
+        let parser = crate::lang::Parser::new("TODO", &SH);
         let text = r##"
 msg='hello '\''
 # TODO false positive
@@ -102,7 +102,7 @@ world'
     #[test]
     #[ignore = "documents parsing limitation: here-docs not supported"]
     fn heredoc_not_handled() {
-        let parser = crate::lang::Parser::new(&SH);
+        let parser = crate::lang::Parser::new("TODO", &SH);
         let text = r##"
 cat <<EOF
 # TODO this is inside a here-doc

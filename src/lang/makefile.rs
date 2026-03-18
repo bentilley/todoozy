@@ -8,7 +8,7 @@ mod tests {
 
     #[test]
     fn test_parse_todos() {
-        let parser = crate::lang::Parser::new(&MAKEFILE);
+        let parser = crate::lang::Parser::new("TODO", &MAKEFILE);
 
         // Todo as line comments
         let text = r#"

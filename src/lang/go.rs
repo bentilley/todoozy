@@ -3,7 +3,7 @@ use super::SyntaxRule;
 pub const GO: [SyntaxRule; 3] = [
     SyntaxRule::LineComment("//"),
     SyntaxRule::BlockComment("/*", "*/"),
-    SyntaxRule::MultiLineString("`", "`"),
+    SyntaxRule::SkipDelimited("`", "`"),
 ];
 
 #[cfg(test)]
@@ -12,7 +12,7 @@ mod tests {
 
     #[test]
     fn test_parse_todos() {
-        let parser = crate::lang::Parser::new(&GO);
+        let parser = crate::lang::Parser::new("TODO", &GO);
 
         // Todo as line comments
         let text = r#"

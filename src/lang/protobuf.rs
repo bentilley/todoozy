@@ -11,7 +11,7 @@ mod tests {
 
     #[test]
     fn test_parse_todos() {
-        let parser = crate::lang::Parser::new(&PROTOBUF);
+        let parser = crate::lang::Parser::new("TODO", &PROTOBUF);
 
         // Todo as line comment
         let text = r#"
