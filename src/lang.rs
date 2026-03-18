@@ -224,14 +224,10 @@ impl<'a> Parser<'a> {
                             }
 
                             let content_start = next_text.len() - next_text.trim_start().len();
-                            if let Some(prefix_len) = indent_prefix_len {
-                                if content_start >= prefix_len {
-                                    todo_text.push_str(&next_text[prefix_len..].trim_end());
-                                } else {
-                                    todo_text.push_str(next_text.trim());
-                                }
+                            let prefix_len = *indent_prefix_len.get_or_insert(content_start);
+                            if content_start >= prefix_len {
+                                todo_text.push_str(&next_text[prefix_len..].trim_end());
                             } else {
-                                indent_prefix_len = Some(content_start);
                                 todo_text.push_str(next_text.trim());
                             }
                         }
@@ -262,17 +258,11 @@ impl<'a> Parser<'a> {
                             continue;
                         }
                         let content_start = line.len() - line.trim_start().len();
-                        if let Some(prefix_len) = indent_prefix_len {
-                            if content_start >= prefix_len {
-                                todo_text.push_str("\n");
-                                todo_text.push_str(&line[prefix_len..].trim_end());
-                            } else {
-                                todo_text.push_str("\n");
-                                todo_text.push_str(line.trim());
-                            }
+                        let prefix_len = *indent_prefix_len.get_or_insert(content_start);
+                        todo_text.push_str("\n");
+                        if content_start >= prefix_len {
+                            todo_text.push_str(&line[prefix_len..].trim_end());
                         } else {
-                            indent_prefix_len = Some(content_start);
-                            todo_text.push_str("\n");
                             todo_text.push_str(line.trim());
                         }
                     }
