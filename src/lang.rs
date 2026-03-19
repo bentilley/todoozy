@@ -153,11 +153,6 @@ impl<'a> Iterator for CommentParser<'a> {
 // TODOs inside regular string literals (not raw strings) are detected as real TODOs.
 // Need to add string literal parsing to skip content inside quotes.
 
-// TODO #35 (B) 2026-03-12 Handle nested block comments +fix
-//
-// Rust allows nested block comments like /* /* */ */, but parser stops at first */.
-// Need to track nesting depth when parsing block comments.
-
 // TODO #37 (C) 2026-03-12 Detect inline comments +fix
 //
 // "let x = 1; // TODO change this" won't be detected because line doesn't start
@@ -583,6 +578,70 @@ Content starts at the left edge.
                 "left edge test\n\nContent starts at the left edge.\n  - indented item".to_string()
             )
         );
+    }
+
+    #[test]
+    fn block_comment_nested_simple() {
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
+        let text = "/* TODO outer /* inner */ still outer */\nlet x = 1;";
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (1, 1, "outer /* inner */ still outer".to_string()));
+    }
+
+    #[test]
+    fn block_comment_nested_multiline() {
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
+        let text = r#"/* TODO nested multiline
+   /* this is nested
+      and spans lines
+   */
+   back to outer
+*/
+let x = 1;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (
+                1,
+                6,
+                "nested multiline\n/* this is nested\n   and spans lines\n*/\nback to outer".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn block_comment_nested_two_levels() {
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
+        let text = "/* TODO /* level 1 /* level 2 */ back to 1 */ outer */\nlet x = 1;";
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (1, 1, "/* level 1 /* level 2 */ back to 1 */ outer".to_string())
+        );
+    }
+
+    #[test]
+    fn block_comment_nested_does_not_affect_next_comment() {
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
+        let text = r#"/* TODO first with /* nested */ content */
+/* TODO second todo */
+let x = 1;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 2);
+        assert_eq!(todos[0], (1, 1, "first with /* nested */ content".to_string()));
+        assert_eq!(todos[1], (2, 2, "second todo".to_string()));
+    }
+
+    #[test]
+    fn block_comment_nested_empty_inner() {
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
+        let text = "/* TODO with /**/ empty nested */\nlet x = 1;";
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (1, 1, "with /**/ empty nested".to_string()));
     }
 
     // Multi-line string tests
