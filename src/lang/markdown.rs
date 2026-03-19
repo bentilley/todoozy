@@ -1,6 +1,10 @@
 use super::SyntaxRule;
 
-pub const MARKDOWN: [SyntaxRule; 1] = [SyntaxRule::BlockComment(b"<!--", b"-->")];
+pub const MARKDOWN: [SyntaxRule; 3] = [
+    SyntaxRule::BlockComment(b"<!--", b"-->"),
+    SyntaxRule::SkipDelimited(b"```", b"```"),
+    SyntaxRule::SkipDelimited(b"`", b"`"),
+];
 
 #[cfg(test)]
 mod tests {
@@ -108,5 +112,61 @@ Some content.
                 "2020-08-06 Second todo +Testing".to_string()
             )
         );
+    }
+
+    #[test]
+    fn todo_inside_inline_code_ignored() {
+        let parser = crate::lang::Parser::new("TODO", &MARKDOWN);
+        let text = r#"
+# My Document
+
+Here is some `<!-- TODO this is inside inline code -->` text.
+
+<!-- TODO this is a real todo -->
+
+More content.
+"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "this is a real todo".to_string());
+    }
+
+    #[test]
+    fn todo_inside_fenced_code_block_ignored() {
+        let parser = crate::lang::Parser::new("TODO", &MARKDOWN);
+        let text = r#"
+# My Document
+
+```
+<!-- TODO this is inside a code block -->
+```
+
+<!-- TODO this is a real todo -->
+
+More content.
+"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "this is a real todo".to_string());
+    }
+
+    #[test]
+    fn todo_inside_fenced_code_block_with_language_ignored() {
+        let parser = crate::lang::Parser::new("TODO", &MARKDOWN);
+        let text = r#"
+# My Document
+
+```rust
+// TODO this is inside a code block
+let x = 1;
+```
+
+<!-- TODO this is a real todo -->
+
+More content.
+"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "this is a real todo".to_string());
     }
 }
