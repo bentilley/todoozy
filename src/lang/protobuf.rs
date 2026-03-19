@@ -1,8 +1,9 @@
 use super::SyntaxRule;
 
-pub const PROTOBUF: [SyntaxRule; 2] = [
+pub const PROTOBUF: [SyntaxRule; 3] = [
     SyntaxRule::LineComment(b"//"),
     SyntaxRule::BlockComment(b"/*", b"*/"),
+    SyntaxRule::SkipDelimitedWithEscape(b"\"", b"\"", b'\\'),
 ];
 
 #[cfg(test)]
@@ -74,5 +75,35 @@ message Request {}
                 "2024-09-02 Add validation +improvement".to_string()
             )
         );
+    }
+
+    #[test]
+    fn todo_inside_string_ignored() {
+        let parser = crate::lang::Parser::new("TODO", &PROTOBUF);
+        let text = r#"
+syntax = "proto3";
+string msg = "// TODO this is inside a string";
+
+// TODO this is a real todo
+message Request {}
+"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "this is a real todo".to_string());
+    }
+
+    #[test]
+    fn escaped_quote_in_string() {
+        let parser = crate::lang::Parser::new("TODO", &PROTOBUF);
+        let text = r#"
+string msg = "hello \"
+// TODO false positive
+world";
+
+// TODO real todo
+"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "real todo".to_string());
     }
 }
