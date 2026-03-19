@@ -1,9 +1,10 @@
 use super::SyntaxRule;
 
-pub const TERRAFORM: [SyntaxRule; 3] = [
+pub const TERRAFORM: [SyntaxRule; 4] = [
     SyntaxRule::LineComment(b"#"),
     SyntaxRule::LineComment(b"//"),
     SyntaxRule::BlockComment(b"/*", b"*/"),
+    SyntaxRule::SkipDelimitedWithEscape(b"\"", b"\"", b'\\'),
 ];
 
 #[cfg(test)]
@@ -143,5 +144,38 @@ This is a test todo with some indented lines:
                     .to_string()
             )
         );
+    }
+
+    #[test]
+    fn todo_inside_string_ignored() {
+        let parser = crate::lang::Parser::new("TODO", &TERRAFORM);
+        let text = r##"
+variable "example" {
+  default = "# TODO this is inside a string"
+}
+
+# TODO this is a real todo
+resource "aws_instance" "example" {}
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "this is a real todo".to_string());
+    }
+
+    #[test]
+    fn escaped_quote_in_string() {
+        let parser = crate::lang::Parser::new("TODO", &TERRAFORM);
+        let text = r##"
+variable "msg" {
+  default = "hello \"
+# TODO false positive
+world"
+}
+
+# TODO real todo
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "real todo".to_string());
     }
 }
