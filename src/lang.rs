@@ -16,9 +16,10 @@ pub enum SyntaxRule {
     BlockComment(&'static [u8], &'static [u8]),
     SkipDelimited(&'static [u8], &'static [u8]),
     SkipDelimitedWithEscape(&'static [u8], &'static [u8], u8),
+    Custom(for<'a> fn(u8, &'a [u8], usize) -> Option<(usize, usize, Option<Comment<'a>>)>),
 }
 
-enum Comment<'a> {
+pub enum Comment<'a> {
     Line(&'a str, usize),
     Block(&'a str, usize, usize),
 }
@@ -167,6 +168,21 @@ impl<'a> Iterator for CommentParser<'a> {
 
                             if self.position < self.len {
                                 self.position += end_delim.len();
+                            }
+
+                            continue 'outer;
+                        }
+                    }
+
+                    SyntaxRule::Custom(parse_fn) => {
+                        if let Some((bytes_consumed, lines_seen, comment)) =
+                            parse_fn(current_byte, self.text, self.position)
+                        {
+                            self.position += bytes_consumed;
+                            self.line_number += lines_seen;
+
+                            if let Some(c) = comment {
+                                return Some(c);
                             }
 
                             continue 'outer;
@@ -624,7 +640,10 @@ Content starts at the left edge.
         let text = "/* TODO outer /* inner */ still outer */\nlet x = 1;";
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
-        assert_eq!(todos[0], (1, 1, "outer /* inner */ still outer".to_string()));
+        assert_eq!(
+            todos[0],
+            (1, 1, "outer /* inner */ still outer".to_string())
+        );
     }
 
     #[test]
@@ -644,7 +663,8 @@ let x = 1;"#;
             (
                 1,
                 6,
-                "nested multiline\n/* this is nested\n   and spans lines\n*/\nback to outer".to_string()
+                "nested multiline\n/* this is nested\n   and spans lines\n*/\nback to outer"
+                    .to_string()
             )
         );
     }
@@ -657,7 +677,11 @@ let x = 1;"#;
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
-            (1, 1, "/* level 1 /* level 2 */ back to 1 */ outer".to_string())
+            (
+                1,
+                1,
+                "/* level 1 /* level 2 */ back to 1 */ outer".to_string()
+            )
         );
     }
 
@@ -669,7 +693,10 @@ let x = 1;"#;
 let x = 1;"#;
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 2);
-        assert_eq!(todos[0], (1, 1, "first with /* nested */ content".to_string()));
+        assert_eq!(
+            todos[0],
+            (1, 1, "first with /* nested */ content".to_string())
+        );
         assert_eq!(todos[1], (2, 2, "second todo".to_string()));
     }
 
