@@ -49,6 +49,11 @@ impl<'a> Iterator for CommentParser<'a> {
             return None;
         }
 
+        // TODO #50 (C) 2026-03-19 Optimise comment parsing with trie? +perf
+        //
+        // Current implementation checks all rules at every byte. Could try building a trie of
+        // comment start tokens, to exit early from the rule checking. E.g. If '//' doesn't match
+        // a location, you can skip checking '/*' and other rules that start with '/'.
         'outer: while self.position < self.len {
             let current_byte = self.text[self.position];
             for rule in self.syntax_rules {
