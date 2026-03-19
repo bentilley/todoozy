@@ -15,6 +15,7 @@ pub enum SyntaxRule {
     LineComment(&'static [u8]),
     BlockComment(&'static [u8], &'static [u8]),
     SkipDelimited(&'static [u8], &'static [u8]),
+    SkipDelimitedWithEscape(&'static [u8], &'static [u8], u8),
 }
 
 enum Comment<'a> {
@@ -121,6 +122,43 @@ impl<'a> Iterator for CommentParser<'a> {
                             while self.position < self.len
                                 && !self.text[self.position..].starts_with(end_delim)
                             {
+                                if self.text[self.position] == b'\n' {
+                                    self.line_number += 1;
+                                }
+                                self.position += 1;
+                            }
+
+                            if self.position < self.len {
+                                self.position += end_delim.len();
+                            }
+
+                            continue 'outer;
+                        }
+                    }
+
+                    SyntaxRule::SkipDelimitedWithEscape(start_delim, end_delim, escape_char) => {
+                        if current_byte == start_delim[0]
+                            && self.text[self.position..].starts_with(start_delim)
+                        {
+                            self.position += start_delim.len();
+
+                            while self.position < self.len {
+                                // Check for escape character - skip it and the next byte
+                                if self.text[self.position] == *escape_char {
+                                    self.position += 1;
+                                    if self.position < self.len {
+                                        if self.text[self.position] == b'\n' {
+                                            self.line_number += 1;
+                                        }
+                                        self.position += 1;
+                                    }
+                                    continue;
+                                }
+
+                                if self.text[self.position..].starts_with(end_delim) {
+                                    break;
+                                }
+
                                 if self.text[self.position] == b'\n' {
                                     self.line_number += 1;
                                 }
