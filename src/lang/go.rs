@@ -1,9 +1,10 @@
 use super::SyntaxRule;
 
-pub const GO: [SyntaxRule; 3] = [
+pub const GO: [SyntaxRule; 4] = [
     SyntaxRule::LineComment(b"//"),
     SyntaxRule::BlockComment(b"/*", b"*/"),
     SyntaxRule::SkipDelimited(b"`", b"`"),
+    SyntaxRule::SkipDelimitedWithEscape(b"\"", b"\"", b'\\'),
 ];
 
 #[cfg(test)]
@@ -16,7 +17,7 @@ mod tests {
 
         // Todo as line comments
         let text = r#"
-    some := "code
+    some := "code"
 
     // TODO 2020-08-06 Can it handle line comments? +Testing
     //
@@ -88,7 +89,7 @@ This is the description."#
          - This is an even more indented line.
      */
 
-    more := "code
+    more := "code"
 "#;
         assert_eq!(
             parser.parse_todos(text)[0],
@@ -130,5 +131,52 @@ This todo isn't in a raw string."#
                     .to_string()
             )
         );
+    }
+
+    #[test]
+    fn todo_inside_regular_string_ignored() {
+        let parser = crate::lang::Parser::new("TODO", &GO);
+        let text = r#"
+some := "code"
+msg := "// TODO this is inside a string"
+
+// TODO this is a real todo
+more := "code"
+"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "this is a real todo".to_string());
+    }
+
+    #[test]
+    fn todo_inside_multiline_regular_string_ignored() {
+        let parser = crate::lang::Parser::new("TODO", &GO);
+        let text = r#"
+some := "code"
+msg := "hello
+// TODO this is inside a multiline string
+world"
+
+// TODO this is a real todo
+more := "code"
+"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "this is a real todo".to_string());
+    }
+
+    #[test]
+    fn escaped_quote_in_regular_string() {
+        let parser = crate::lang::Parser::new("TODO", &GO);
+        let text = r#"
+msg := "hello \"
+// TODO false positive
+world"
+
+// TODO real todo
+"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "real todo".to_string());
     }
 }
