@@ -3,7 +3,7 @@ use super::SyntaxRule;
 pub const TYPESCRIPT: [SyntaxRule; 3] = [
     SyntaxRule::LineComment(b"//"),
     SyntaxRule::BlockComment(b"/*", b"*/"),
-    SyntaxRule::SkipDelimited(b"`", b"`"),
+    SyntaxRule::SkipDelimitedWithEscape(b"`", b"`", b'\\'),
 ];
 
 #[cfg(test)]
@@ -134,15 +134,97 @@ This todo isn't in a raw string."#
         );
     }
 
-    // TODO #45 (A) 2026-03-16 Fix escaped backtick parsing in template literals
     #[test]
-    #[ignore = "documents parsing limitation: escaped backticks"]
-    fn escaped_backtick_in_template_literal_not_handled() {
+    fn escaped_backtick_in_template_literal() {
         let parser = crate::lang::Parser::new("TODO", &TYPESCRIPT);
         let text = r##"
 const msg = `hello \`
 // TODO false positive
 world`;
+
+// TODO real todo
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "real todo".to_string());
+    }
+
+    #[test]
+    fn escaped_backslash_before_closing_backtick() {
+        // `\\` escapes the backslash, so the backtick ends the string
+        let parser = crate::lang::Parser::new("TODO", &TYPESCRIPT);
+        let text = r##"
+const msg = `hello \\`;
+
+// TODO real todo
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "real todo".to_string());
+    }
+
+    #[test]
+    fn triple_backslash_before_backtick() {
+        // `\\\`` = escaped backslash + escaped backtick, string continues
+        let parser = crate::lang::Parser::new("TODO", &TYPESCRIPT);
+        let text = r##"
+const msg = `hello \\\`
+// TODO false positive
+world`;
+
+// TODO real todo
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "real todo".to_string());
+    }
+
+    #[test]
+    fn multiple_escaped_backticks() {
+        let parser = crate::lang::Parser::new("TODO", &TYPESCRIPT);
+        let text = r##"
+const msg = `\`hello\` \`world\``;
+
+// TODO real todo
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "real todo".to_string());
+    }
+
+    #[test]
+    fn escaped_backtick_at_end_of_template() {
+        let parser = crate::lang::Parser::new("TODO", &TYPESCRIPT);
+        let text = r##"
+const msg = `hello \``;
+
+// TODO real todo
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "real todo".to_string());
+    }
+
+    #[test]
+    fn other_escape_sequences_in_template() {
+        // Various escapes shouldn't break parsing or be confused with delimiters
+        let parser = crate::lang::Parser::new("TODO", &TYPESCRIPT);
+        let text = r##"
+const msg = `\n \t \r \' \" \$ \0 \x41 \u0041`;
+
+// TODO real todo
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "real todo".to_string());
+    }
+
+    #[test]
+    fn escape_sequences_mixed_with_escaped_backticks() {
+        // Mix of regular escapes and escaped backticks
+        let parser = crate::lang::Parser::new("TODO", &TYPESCRIPT);
+        let text = r##"
+const msg = `line1\nline2\t\`quoted\`\\done`;
 
 // TODO real todo
 "##;
