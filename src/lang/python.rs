@@ -1,9 +1,11 @@
 use super::SyntaxRule;
 
-pub const PYTHON: [SyntaxRule; 3] = [
+pub const PYTHON: [SyntaxRule; 5] = [
     SyntaxRule::LineComment(b"#"),
     SyntaxRule::SkipDelimited(b"\"\"\"", b"\"\"\""),
     SyntaxRule::SkipDelimited(b"'''", b"'''"),
+    SyntaxRule::SkipDelimitedWithEscape(b"\"", b"\"", b'\\'),
+    SyntaxRule::SkipDelimitedWithEscape(b"'", b"'", b'\\'),
 ];
 
 #[cfg(test)]
@@ -44,7 +46,7 @@ This is the description."#
     # This is a test todo with some indented lines:
     #   - This is an even more indented line.
 
-    more = "code
+    more = "code"
 "#;
         assert_eq!(
             parser.parse_todos(text)[0],
@@ -114,5 +116,65 @@ This todo isn't in a raw string."#
                     .to_string()
             )
         );
+    }
+
+    #[test]
+    fn todo_inside_double_quoted_string_ignored() {
+        let parser = crate::lang::Parser::new("TODO", &PYTHON);
+        let text = r##"
+some = "code"
+msg = "# TODO this is inside a string"
+
+# TODO this is a real todo
+more = "code"
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "this is a real todo".to_string());
+    }
+
+    #[test]
+    fn todo_inside_single_quoted_string_ignored() {
+        let parser = crate::lang::Parser::new("TODO", &PYTHON);
+        let text = r##"
+some = 'code'
+msg = '# TODO this is inside a string'
+
+# TODO this is a real todo
+more = 'code'
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "this is a real todo".to_string());
+    }
+
+    #[test]
+    fn escaped_quote_in_double_quoted_string() {
+        let parser = crate::lang::Parser::new("TODO", &PYTHON);
+        let text = r##"
+msg = "hello \"
+# TODO false positive
+world"
+
+# TODO real todo
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "real todo".to_string());
+    }
+
+    #[test]
+    fn escaped_quote_in_single_quoted_string() {
+        let parser = crate::lang::Parser::new("TODO", &PYTHON);
+        let text = r##"
+msg = 'hello \'
+# TODO false positive
+world'
+
+# TODO real todo
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "real todo".to_string());
     }
 }
