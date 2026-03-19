@@ -1,9 +1,11 @@
 use super::SyntaxRule;
 
-pub const TYPESCRIPT: [SyntaxRule; 3] = [
+pub const TYPESCRIPT: [SyntaxRule; 5] = [
     SyntaxRule::LineComment(b"//"),
     SyntaxRule::BlockComment(b"/*", b"*/"),
     SyntaxRule::SkipDelimitedWithEscape(b"`", b"`", b'\\'),
+    SyntaxRule::SkipDelimitedWithEscape(b"\"", b"\"", b'\\'),
+    SyntaxRule::SkipDelimitedWithEscape(b"'", b"'", b'\\'),
 ];
 
 #[cfg(test)]
@@ -228,6 +230,66 @@ const msg = `line1\nline2\t\`quoted\`\\done`;
 
 // TODO real todo
 "##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "real todo".to_string());
+    }
+
+    #[test]
+    fn todo_inside_double_quoted_string_ignored() {
+        let parser = crate::lang::Parser::new("TODO", &TYPESCRIPT);
+        let text = r#"
+const some = "code";
+const msg = "// TODO this is inside a string";
+
+// TODO this is a real todo
+const more = "code";
+"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "this is a real todo".to_string());
+    }
+
+    #[test]
+    fn todo_inside_single_quoted_string_ignored() {
+        let parser = crate::lang::Parser::new("TODO", &TYPESCRIPT);
+        let text = r#"
+const some = 'code';
+const msg = '// TODO this is inside a string';
+
+// TODO this is a real todo
+const more = 'code';
+"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "this is a real todo".to_string());
+    }
+
+    #[test]
+    fn escaped_quote_in_double_quoted_string() {
+        let parser = crate::lang::Parser::new("TODO", &TYPESCRIPT);
+        let text = r#"
+const msg = "hello \"
+// TODO false positive
+world";
+
+// TODO real todo
+"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "real todo".to_string());
+    }
+
+    #[test]
+    fn escaped_quote_in_single_quoted_string() {
+        let parser = crate::lang::Parser::new("TODO", &TYPESCRIPT);
+        let text = r#"
+const msg = 'hello \'
+// TODO false positive
+world';
+
+// TODO real todo
+"#;
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
