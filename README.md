@@ -1,9 +1,16 @@
 # todoozy
 
+> para todos ;)
+
 CLI for managing todo comment based project management.
 
 > [doozy](https://dictionary.cambridge.org/dictionary/english/doozy)
 > - something special or unusual, especially something unusually bad
+
+<!-- TODO #51 (C) 2026-03-19 Fill out the README 
+
+Needs info on features, guide to use it, etc.
+-->
 
 ## Objectives
 
