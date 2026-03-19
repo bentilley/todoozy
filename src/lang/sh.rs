@@ -1,9 +1,26 @@
-use super::SyntaxRule;
+use super::{Comment, SyntaxRule};
 
-pub const SH: [SyntaxRule; 3] = [
+/// Skip `\'` outside of strings - this is a literal single quote, not a string start.
+fn skip_escaped_single_quote<'a>(
+    byte: u8,
+    text: &'a [u8],
+    pos: usize,
+) -> Option<(usize, usize, Option<Comment<'a>>)> {
+    if byte != b'\\' {
+        return None;
+    }
+    if pos + 1 < text.len() && text[pos + 1] == b'\'' {
+        Some((2, 0, None)) // skip 2 bytes, 0 newlines, no comment
+    } else {
+        None
+    }
+}
+
+pub const SH: [SyntaxRule; 4] = [
     SyntaxRule::LineComment(b"#"),
     SyntaxRule::SkipDelimitedWithEscape(b"\"", b"\"", b'\\'),
-    SyntaxRule::SkipDelimited(b"'", b"'"), // shell single quotes don't support escaping
+    SyntaxRule::Custom(skip_escaped_single_quote), // must come before SkipDelimited for '
+    SyntaxRule::SkipDelimited(b"'", b"'"),
 ];
 
 #[cfg(test)]
@@ -163,10 +180,8 @@ msg="line1\nline2\t\"quoted\"\\done"
         assert_eq!(todos[0].2, "real todo".to_string());
     }
 
-    // TODO #47 (A) 2026-03-16 Fix ' string parsing in shell lang
     #[test]
-    #[ignore = "documents parsing limitation: escaped quotes"]
-    fn escaped_quote_in_single_quoted_string_not_handled() {
+    fn escaped_quote_in_single_quoted_string() {
         let parser = crate::lang::Parser::new("TODO", &SH);
         let text = r##"
 msg='hello '\''
