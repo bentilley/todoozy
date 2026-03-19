@@ -1,6 +1,10 @@
 use super::SyntaxRule;
 
-pub const DOCKERFILE: [SyntaxRule; 1] = [SyntaxRule::LineComment(b"#")];
+pub const DOCKERFILE: [SyntaxRule; 3] = [
+    SyntaxRule::LineComment(b"#"),
+    SyntaxRule::SkipDelimitedWithEscape(b"\"", b"\"", b'\\'),
+    SyntaxRule::SkipDelimited(b"'", b"'"), // shell single quotes don't support escaping
+];
 
 #[cfg(test)]
 mod tests {
@@ -80,5 +84,50 @@ RUN apt-get update
                 "2020-08-06 Second todo +Testing".to_string()
             )
         );
+    }
+
+    #[test]
+    fn todo_inside_double_quoted_string_ignored() {
+        let parser = crate::lang::Parser::new("TODO", &DOCKERFILE);
+        let text = r##"
+FROM ubuntu:22.04
+ENV MSG="# TODO this is inside a string"
+
+# TODO this is a real todo
+RUN apt-get update
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "this is a real todo".to_string());
+    }
+
+    #[test]
+    fn todo_inside_single_quoted_string_ignored() {
+        let parser = crate::lang::Parser::new("TODO", &DOCKERFILE);
+        let text = r##"
+FROM ubuntu:22.04
+ENV MSG='# TODO this is inside a string'
+
+# TODO this is a real todo
+RUN apt-get update
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "this is a real todo".to_string());
+    }
+
+    #[test]
+    fn escaped_quote_in_double_quoted_string() {
+        let parser = crate::lang::Parser::new("TODO", &DOCKERFILE);
+        let text = r##"
+ENV MSG="hello \"
+# TODO false positive
+world"
+
+# TODO real todo
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "real todo".to_string());
     }
 }
