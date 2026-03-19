@@ -1,6 +1,10 @@
 use super::SyntaxRule;
 
-pub const YAML: [SyntaxRule; 1] = [SyntaxRule::LineComment(b"#")];
+pub const YAML: [SyntaxRule; 3] = [
+    SyntaxRule::LineComment(b"#"),
+    SyntaxRule::SkipDelimitedWithEscape(b"\"", b"\"", b'\\'),
+    SyntaxRule::SkipDelimited(b"'", b"'"), // YAML single quotes don't support escaping
+];
 
 #[cfg(test)]
 mod tests {
@@ -86,5 +90,50 @@ version: 1.0.0
                 "2020-08-06 Second todo +Testing".to_string()
             )
         );
+    }
+
+    #[test]
+    fn todo_inside_double_quoted_string_ignored() {
+        let parser = crate::lang::Parser::new("TODO", &YAML);
+        let text = r##"
+name: example
+message: "# TODO this is inside a string"
+
+# TODO this is a real todo
+version: 1.0.0
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "this is a real todo".to_string());
+    }
+
+    #[test]
+    fn todo_inside_single_quoted_string_ignored() {
+        let parser = crate::lang::Parser::new("TODO", &YAML);
+        let text = r##"
+name: example
+message: '# TODO this is inside a string'
+
+# TODO this is a real todo
+version: 1.0.0
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "this is a real todo".to_string());
+    }
+
+    #[test]
+    fn escaped_quote_in_double_quoted_string() {
+        let parser = crate::lang::Parser::new("TODO", &YAML);
+        let text = r##"
+message: "hello \"
+# TODO false positive
+world"
+
+# TODO real todo
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "real todo".to_string());
     }
 }
