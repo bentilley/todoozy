@@ -1,9 +1,11 @@
+use super::sh::skip_escaped_single_quote;
 use super::SyntaxRule;
 
-pub const DOCKERFILE: [SyntaxRule; 3] = [
+pub const DOCKERFILE: [SyntaxRule; 4] = [
     SyntaxRule::LineComment(b"#"),
     SyntaxRule::SkipDelimitedWithEscape(b"\"", b"\"", b'\\'),
-    SyntaxRule::SkipDelimited(b"'", b"'"), // shell single quotes don't support escaping
+    SyntaxRule::Custom(skip_escaped_single_quote), // must come before SkipDelimited for '
+    SyntaxRule::SkipDelimited(b"'", b"'"),
 ];
 
 #[cfg(test)]
@@ -123,6 +125,23 @@ RUN apt-get update
 ENV MSG="hello \"
 # TODO false positive
 world"
+
+# TODO real todo
+"##;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].2, "real todo".to_string());
+    }
+
+    #[test]
+    fn escaped_single_quote_shell_idiom() {
+        // Shell idiom in RUN commands: 'hello '\''world'
+        let parser = crate::lang::Parser::new("TODO", &DOCKERFILE);
+        let text = r##"
+FROM ubuntu:22.04
+RUN echo 'hello '\''
+# TODO false positive
+world'
 
 # TODO real todo
 "##;
