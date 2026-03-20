@@ -51,7 +51,7 @@ impl<'a> Iterator for CommentParser<'a> {
             return None;
         }
 
-        // TODO #50 (C) 2026-03-19 Optimise comment parsing with trie? +perf
+        // TODO #50 (E) 2026-03-19 Optimise comment parsing with trie? +perf
         //
         // Current implementation checks all rules at every byte. Could try building a trie of
         // comment start tokens, to exit early from the rule checking. E.g. If '//' doesn't match
