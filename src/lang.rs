@@ -202,11 +202,6 @@ impl<'a> Iterator for CommentParser<'a> {
     }
 }
 
-// TODO #37 (C) 2026-03-12 Detect inline comments +fix
-//
-// "let x = 1; // TODO change this" won't be detected because line doesn't start
-// with comment token. Would need to scan for comment tokens mid-line.
-
 pub struct Parser<'a> {
     todo_token: &'a str,
     syntax_rules: &'static [SyntaxRule],
@@ -528,6 +523,41 @@ let x = 1;"#;
             todos[0],
             (4, 5, "deeply indented task\nwith continuation line".to_string())
         );
+    }
+
+    #[test]
+    fn line_comment_inline_todo() {
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
+        let text = "let x = 1; // TODO change this\nlet y = 2;";
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (1, 1, "change this".to_string()));
+    }
+
+    #[test]
+    fn line_comment_inline_todo_with_continuation() {
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
+        let text = r#"let x = 1; // TODO inline with continuation
+// this continues the todo
+let y = 2;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (1, 2, "inline with continuation\nthis continues the todo".to_string())
+        );
+    }
+
+    #[test]
+    fn line_comment_multiple_inline_todos() {
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
+        let text = r#"let x = 1; // TODO first inline
+let y = 2; // TODO second inline
+let z = 3;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 2);
+        assert_eq!(todos[0], (1, 1, "first inline".to_string()));
+        assert_eq!(todos[1], (2, 2, "second inline".to_string()));
     }
 
     // Block comment tests
