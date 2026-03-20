@@ -1,7 +1,8 @@
 use super::{Comment, SyntaxRule};
 
 /// Skip `\'` outside of strings - this is a literal single quote, not a string start.
-fn skip_escaped_single_quote<'a>(
+/// Used by shell-like languages (sh, makefile, dockerfile).
+pub fn skip_escaped_single_quote<'a>(
     byte: u8,
     text: &'a [u8],
     pos: usize,
