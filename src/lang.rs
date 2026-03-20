@@ -202,11 +202,6 @@ impl<'a> Iterator for CommentParser<'a> {
     }
 }
 
-// TODO #33 (B) 2026-03-12 Handle TODOs inside regular string literals +fix
-//
-// TODOs inside regular string literals (not raw strings) are detected as real TODOs.
-// Need to add string literal parsing to skip content inside quotes.
-
 // TODO #37 (C) 2026-03-12 Detect inline comments +fix
 //
 // "let x = 1; // TODO change this" won't be detected because line doesn't start
