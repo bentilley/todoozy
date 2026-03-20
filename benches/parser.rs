@@ -73,5 +73,56 @@ impl Config {
     group.finish();
 }
 
-criterion_group!(benches, bench_typescript_parser, bench_rust_parser);
+fn bench_sh_parser(c: &mut Criterion) {
+    let mut group = c.benchmark_group("sh");
+
+    let chunk = r##"VALUE="some value"
+OTHER='literal'
+export PATH="$HOME/bin:$PATH"
+
+# TODO load configuration from environment
+#
+# Should read CONFIG_PATH and DATA_DIR from env vars
+# and fall back to sensible defaults if not set.
+process_data() {
+    # TODO inline style todo
+    local result=$(compute)
+    echo "$result"
+}
+
+# Config section
+msg="# TODO this is inside double quotes"
+name='# TODO this is inside single quotes'
+
+cat <<EOF
+# TODO this is inside a here-doc
+Some content here
+EOF
+
+configure() {
+    local config_file="$1"
+    # TODO add validation for config file format
+    #
+    # Check that the file contains valid key=value pairs
+    # and warn on any unrecognized keys.
+    if [ -f "$config_file" ]; then
+        source "$config_file"
+    fi
+}
+"##;
+
+    for num_chunks in [10, 100, 1000] {
+        let large: String = std::iter::repeat(chunk).take(num_chunks).collect();
+        group.throughput(Throughput::Bytes(large.len() as u64));
+        group.bench_with_input(
+            BenchmarkId::from_parameter(format!("{}_chunks", num_chunks)),
+            &large,
+            |b, content| b.iter(|| parse_text(black_box(content), FileType::Sh, None)),
+        );
+    }
+
+    group.finish();
+}
+
+criterion_group!(benches, bench_typescript_parser, bench_rust_parser, bench_sh_parser);
 criterion_main!(benches);
