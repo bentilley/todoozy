@@ -334,10 +334,6 @@ impl<'a> Parser<'a> {
     }
 }
 
-// TODO #42 (C) 2026-03-12 Test deeply indented TODOs +test
-//
-// Ensure deeply indented TODO comments are parsed correctly.
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -511,6 +507,26 @@ let x = 1;"#;
                 3,
                 "title line\n\ncontinuation after empty line".to_string()
             )
+        );
+    }
+
+    #[test]
+    fn line_comment_deeply_indented() {
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
+        let text = r#"fn foo() {
+    if condition {
+        while x {
+            // TODO deeply indented task
+            // with continuation line
+            do_something();
+        }
+    }
+}"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (4, 5, "deeply indented task\nwith continuation line".to_string())
         );
     }
 
