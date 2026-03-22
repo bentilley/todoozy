@@ -46,6 +46,11 @@ pub struct Metadata(HashMap<String, String>);
 // There might be valid cases when a specific key lends itself to having multiple values associated
 // with the same key (i.e. a list/vector metadata type). This needs better understanding and
 // defining before implementation.
+//
+// Note: This would also enable DIY dependency tracking via metadata, e.g.:
+//   # TODO #43 Implement auth `depends:42` `depends:41`
+// Without first-class dependency support (deemed too complex for now), users who
+// want dependencies can use array metadata to roll their own.
 impl Metadata {
     pub fn new() -> Self {
         Metadata(HashMap::new())
