@@ -33,7 +33,7 @@ use todoozy::todo::sort;
 
 // TODO #56 (D) 2026-03-22 Implement `tdz context` subcommands +cli
 //
-// - `tdz context list` - list all @context tags found in todos
+// - `tdz context list` - list all `@context` tags found in todos
 //
 // This replaces --list-contexts flag (breaking change).
 
@@ -45,6 +45,21 @@ use todoozy::todo::sort;
 // - breakdown by project
 // - breakdown by context
 // - maybe: tracked vs untracked count
+
+// TODO #63 (E) 2026-03-22 Implement `tdz file convert` command +cli +tdz
+//
+// Convert a .tdz file into a source file with TODOs as comments.
+//
+// Usage: tdz file convert thing.py.tdz
+//
+// This would:
+// 1. Parse TODOs from thing.py.tdz
+// 2. Determine target language from filename (thing.py → Python)
+// 3. Generate thing.py with each TODO formatted as language-appropriate
+//    comments (using the language's syntax rules)
+// 4. User can then edit the generated file to add implementation
+//
+// Useful for scaffolding new files from TODO specifications.
 
 pub enum Mode {
     Cli(Command),

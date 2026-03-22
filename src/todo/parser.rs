@@ -29,6 +29,19 @@ impl<I> ParseError<I> for Error<I> {
     }
 }
 
+// TODO #59 (D) 2026-03-22 Parse reference syntax `TODO &<id>` +parser +refs
+//
+// Add support for parsing TODO references using `&` prefix instead of `#`:
+// - `TODO &43 Optional title` - reference to todo #43
+// - `TODO #43 Title` - primary todo (existing behavior)
+//
+// References have limited fields compared to primaries:
+// - Allowed: title, description, projects, contexts, metadata
+// - Not allowed: priority, created_date, due_date (these belong to primary only)
+//
+// Parser should reject priority/dates on references with a clear error message.
+// The `&` prefix evokes "address of" - the ID lives in the referenced primary.
+
 fn id(i: &str) -> IResult<&str, u32, Error<&str>> {
     let (i, _) = space0(i)?;
     let (i, p) = delimited(tag("#"), digit1, space1)(i)?;

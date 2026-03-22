@@ -2,6 +2,32 @@ pub mod filter;
 pub mod parser;
 pub mod sort;
 
+// TODO #60 (D) 2026-03-22 Add TodoRef struct for multi-location todos +model +refs
+//
+// Allow multiple TODO comments to reference the same todo ID. A primary todo
+// owns the ID (`#43`), references point to it (`&43`).
+//
+// New struct:
+//   struct TodoRef {
+//       id: u32,                    // ID being referenced
+//       title: Option<String>,
+//       description: Option<String>,
+//       projects: Vec<String>,
+//       contexts: Vec<String>,
+//       metadata: Metadata,
+//       file: String,
+//       line_number: u32,
+//   }
+//
+// Add to Todo struct:
+//   references: Vec<TodoRef>
+//
+// For display, references roll up into the primary:
+// - Reference title becomes a `## Subtitle` in description
+// - Reference description appended after subtitle
+// - Projects/contexts/metadata merged for display (kept separate in model)
+// - Locations list shows all, with `*` marking the primary
+
 use std::fs::File;
 use std::io::{self, prelude::*, BufReader, BufWriter};
 

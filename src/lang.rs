@@ -11,6 +11,28 @@ pub mod terraform;
 pub mod typescript;
 pub mod yaml;
 
+/* TODO #58 (D) 2026-03-22 Inline comments: single-line only with code capture +parser +refs
+
+Change inline comment (end-of-line) parsing behavior:
+
+1. Inline comments never aggregate with following lines - they are always
+   single-line TODOs. This avoids confusing behavior where subsequent
+   comment lines might unexpectedly merge.
+
+2. Automatically capture the code preceding the inline comment into the
+   The TODO's description as a code block. Example:
+
+     x += 1  // TODO fix increment bug +fix
+
+   Becomes:
+     TODO Fix increment bug +fix
+
+     `x += 1`
+
+This makes inline TODOs natural "reference" candidates - quick breadcrumbs
+with automatic context. Users can use `#id` or `&id` for primary/reference.
+*/
+
 pub enum SyntaxRule {
     LineComment(&'static [u8]),
     BlockComment(&'static [u8], &'static [u8]),
@@ -521,7 +543,11 @@ let x = 1;"#;
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
-            (4, 5, "deeply indented task\nwith continuation line".to_string())
+            (
+                4,
+                5,
+                "deeply indented task\nwith continuation line".to_string()
+            )
         );
     }
 
@@ -544,7 +570,11 @@ let y = 2;"#;
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
-            (1, 2, "inline with continuation\nthis continues the todo".to_string())
+            (
+                1,
+                2,
+                "inline with continuation\nthis continues the todo".to_string()
+            )
         );
     }
 

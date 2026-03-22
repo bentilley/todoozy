@@ -18,6 +18,20 @@ pub fn get_todos(exclude: &[String]) -> Result<todo::Todos, Box<dyn error::Error
     parse_files(fs::get_files(exclude))
 }
 
+// TODO #61 (D) 2026-03-22 Link references to primaries and validate IDs +refs
+//
+// After parsing all files, link TodoRef instances to their primary Todo:
+// 1. Build a map of id -> Todo for all primaries
+// 2. For each TodoRef, find its primary and add to `references` vec
+// 3. Validation with warnings (don't block, just warn):
+//    - Orphan reference (no primary found): "Warning: TODO &43 references
+//      non-existent primary #43 at `file:line`"
+//    - Duplicate primary (same ID twice): "Warning: Duplicate TODO #43 found
+//      at `file:line`, ignoring (first occurrence at `file:line`)"
+//
+// These warnings indicate ID assignment issues - see separate TODO for
+// improved branch-aware ID assignment system.
+
 fn parse_files(files: Walk) -> Result<todo::Todos, Box<dyn error::Error>> {
     let mut todos = Vec::<todo::Todo>::new();
 
@@ -76,8 +90,7 @@ pub fn parse_text(
         FileType::Python => &lang::python::PYTHON,
         FileType::Rust => &lang::rust::RUST,
         FileType::Terraform => &lang::terraform::TERRAFORM,
-        // TODO #49 (E) 2026-03-16 Do we need a special todoozy file format for ad hoc todos?
-        FileType::Todoozy => return None, // unimplemented
+        FileType::Todoozy => return None, // see src/lang/tdz.rs for implementation TODO
         FileType::Typescript => &lang::typescript::TYPESCRIPT,
         FileType::YAML => &lang::yaml::YAML,
     };
