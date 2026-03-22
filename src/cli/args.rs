@@ -68,6 +68,11 @@ pub fn parse_args() -> Result<Mode, lexopt::Error> {
                     .append(&mut e.split(',').map(String::from).collect());
             }
 
+            // TODO #52 (A) 2026-03-22 A way to unset the filter via the command line
+            //
+            // Currently, if you set a filter in the json config file, then want to unset it I'm
+            // not sure there's a way. Passing `--filter ""` results in this panic (which should be
+            // changed to a more descriptive error message).
             Short('f') | Long("filter") => {
                 args.filter = match filter::parse_str(parser.value()?.parse()?) {
                     Ok(f) => Some(f),
@@ -75,6 +80,11 @@ pub fn parse_args() -> Result<Mode, lexopt::Error> {
                 };
             }
 
+            // TODO #53 (A) 2026-03-22 A way to unset the sort via the command line
+            //
+            // Currently, if you set a sort in the json config file, then want to unset it I'm
+            // not sure there's a way. Passing `--sort ""` results in this panic (which should be
+            // changed to a more descriptive error message).
             Short('s') | Long("sort") => {
                 args.sorter = match sort::parse_str(parser.value()?.parse()?) {
                     Ok(s) => Some(s),

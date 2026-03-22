@@ -427,7 +427,7 @@ cat <<< "hello"
 
     #[test]
     fn herestring_with_quoted_todo_ignored() {
-        // TODO inside a quoted here-string should be ignored
+        // TODOs inside a quoted here-string should be ignored
         let parser = crate::lang::Parser::new("TODO", &SH);
         let text = r##"
 cat <<< "# TODO inside here-string"
