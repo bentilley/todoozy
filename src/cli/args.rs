@@ -2,6 +2,50 @@ use crate::cli::Command;
 use todoozy::todo::filter;
 use todoozy::todo::sort;
 
+// TODO #54 (D) 2026-03-22 Implement `tdz todo` subcommands +cli
+//
+// Add subcommand support for todo operations:
+//
+// - `tdz todo list` - list todos in compact table format
+//   - supports `--limit <n>` to cap number of results
+//   - supports `-f/--filter` and `-s/--sort` (existing logic)
+//   - supports `--format <table|json>` (default: table)
+//   - table columns: ID, PRI, LOCATION (file:line), TITLE, PROJECTS
+//
+// - `tdz todo get <id>` - show full details for a specific todo
+//   - all metadata: id, priority, dates, projects, contexts, key:values
+//   - full description text
+//   - file location
+//
+// - `tdz todo import <id>` - import a specific untracked todo (assign ID)
+// - `tdz todo import-all` - import all untracked todos
+// - `tdz todo edit <id>` - open $EDITOR at todo's file:line
+// - `tdz todo remove <id>` - delete the TODO comment from source file
+//
+// This replaces --import-all flag (breaking change).
+// Default `tdz` (no subcommand) still launches TUI.
+
+// TODO #55 (D) 2026-03-22 Implement `tdz project` subcommands +cli
+//
+// - `tdz project list` - list all +project tags found in todos
+//
+// This replaces --list-projects flag (breaking change).
+
+// TODO #56 (D) 2026-03-22 Implement `tdz context` subcommands +cli
+//
+// - `tdz context list` - list all @context tags found in todos
+//
+// This replaces --list-contexts flag (breaking change).
+
+// TODO #57 (D) 2026-03-22 Implement `tdz summary` command +cli
+//
+// Show summary statistics for the codebase:
+// - total todo count
+// - breakdown by priority
+// - breakdown by project
+// - breakdown by context
+// - maybe: tracked vs untracked count
+
 pub enum Mode {
     Cli(Command),
     TUI(Args),
@@ -92,11 +136,6 @@ pub fn parse_args() -> Result<Mode, lexopt::Error> {
                 };
             }
 
-            // TODO #16 (Z) 2024-09-17 Make list-projects, etc. positioned arg-like commands
-            //
-            // Maybe check the precedent before hand, but it feels like these might fit more
-            // naturally as positioned arguments, e.g. `tdz list-projects`, which could then also
-            // take their own arguments if required. +improvement
             Long("list-projects") => return Ok(Mode::Cli(Command::ListProjects)),
             Long("list-contexts") => return Ok(Mode::Cli(Command::ListContexts)),
             Long("import-all") => return Ok(Mode::Cli(Command::ImportAll)),
