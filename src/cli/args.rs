@@ -2,6 +2,22 @@ use crate::cli::Command;
 use todoozy::todo::filter;
 use todoozy::todo::sort;
 
+/// Represents a command-line flag that can override a config file value.
+pub enum Override<T> {
+    /// Flag was not passed; leave config value unchanged.
+    NotSet,
+    /// Flag was passed with empty string; explicitly unset the config value.
+    Unset,
+    /// Flag was passed with a value; set the config to this value.
+    Value(T),
+}
+
+impl<T> Default for Override<T> {
+    fn default() -> Self {
+        Override::NotSet
+    }
+}
+
 // TODO #54 (D) 2026-03-22 Implement `tdz todo` subcommands +cli
 //
 // Add subcommand support for todo operations:
@@ -68,26 +84,30 @@ pub enum Mode {
 
 pub struct Args {
     pub exclude: Vec<String>,
-    pub filter: Option<Box<dyn filter::Filter>>,
-    pub sorter: Option<Box<dyn sort::Sorter>>,
+    pub filter: Override<Box<dyn filter::Filter>>,
+    pub sorter: Override<Box<dyn sort::Sorter>>,
 }
 
 impl Args {
     pub fn new() -> Args {
         Args {
             exclude: Vec::new(),
-            filter: None,
-            sorter: None,
+            filter: Override::NotSet,
+            sorter: Override::NotSet,
         }
     }
 
     pub fn apply(&mut self, config: &mut crate::cli::config::Config) {
         config.exclude.append(&mut self.exclude.clone());
-        if let Some(f) = self.filter.take() {
-            config.filter = Some(f);
+        match std::mem::take(&mut self.filter) {
+            Override::NotSet => {}
+            Override::Unset => config.filter = None,
+            Override::Value(f) => config.filter = Some(f),
         }
-        if let Some(s) = self.sorter.take() {
-            config.sorter = Some(s);
+        match std::mem::take(&mut self.sorter) {
+            Override::NotSet => {}
+            Override::Unset => config.sorter = None,
+            Override::Value(s) => config.sorter = Some(s),
         }
     }
 }
@@ -106,11 +126,10 @@ Options:
     --help                       Print help
     "#;
 
-pub fn parse_args() -> Result<Mode, lexopt::Error> {
+pub fn parse_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
     use lexopt::prelude::*;
 
     let mut args = Args::new();
-    let mut parser = lexopt::Parser::from_env();
 
     while let Some(arg) = parser.next()? {
         match arg {
@@ -127,28 +146,34 @@ pub fn parse_args() -> Result<Mode, lexopt::Error> {
                     .append(&mut e.split(',').map(String::from).collect());
             }
 
-            // TODO #52 (A) 2026-03-22 A way to unset the filter via the command line
-            //
-            // Currently, if you set a filter in the json config file, then want to unset it I'm
-            // not sure there's a way. Passing `--filter ""` results in this panic (which should be
-            // changed to a more descriptive error message).
             Short('f') | Long("filter") => {
-                args.filter = match filter::parse_str(parser.value()?.parse()?) {
-                    Ok(f) => Some(f),
-                    Err(e) => panic!("{}", e),
-                };
+                let value: String = parser.value()?.parse()?;
+                if value.is_empty() {
+                    args.filter = Override::Unset;
+                } else {
+                    args.filter = match filter::parse_str(value.clone()) {
+                        Ok(f) => Override::Value(f),
+                        Err(e) => {
+                            eprintln!("error: invalid filter '{}': {}", value, e);
+                            std::process::exit(1);
+                        }
+                    };
+                }
             }
 
-            // TODO #53 (A) 2026-03-22 A way to unset the sort via the command line
-            //
-            // Currently, if you set a sort in the json config file, then want to unset it I'm
-            // not sure there's a way. Passing `--sort ""` results in this panic (which should be
-            // changed to a more descriptive error message).
             Short('s') | Long("sort") => {
-                args.sorter = match sort::parse_str(parser.value()?.parse()?) {
-                    Ok(s) => Some(s),
-                    Err(e) => panic!("{}", e),
-                };
+                let value: String = parser.value()?.parse()?;
+                if value.is_empty() {
+                    args.sorter = Override::Unset;
+                } else {
+                    args.sorter = match sort::parse_str(value.clone()) {
+                        Ok(s) => Override::Value(s),
+                        Err(e) => {
+                            eprintln!("error: invalid sort '{}': {}", value, e);
+                            std::process::exit(1);
+                        }
+                    };
+                }
             }
 
             Long("list-projects") => return Ok(Mode::Cli(Command::ListProjects)),
@@ -164,4 +189,99 @@ pub fn parse_args() -> Result<Mode, lexopt::Error> {
     }
 
     Ok(Mode::TUI(args))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_args_returns_tui_mode() {
+        let mode = parse_args(lexopt::Parser::from_iter(["tdz"])).unwrap();
+        assert!(matches!(mode, Mode::TUI(_)));
+    }
+
+    #[test]
+    fn list_projects_returns_cli_mode() {
+        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "--list-projects"])).unwrap();
+        assert!(matches!(mode, Mode::Cli(Command::ListProjects)));
+    }
+
+    #[test]
+    fn list_contexts_returns_cli_mode() {
+        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "--list-contexts"])).unwrap();
+        assert!(matches!(mode, Mode::Cli(Command::ListContexts)));
+    }
+
+    #[test]
+    fn import_all_returns_cli_mode() {
+        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "--import-all"])).unwrap();
+        assert!(matches!(mode, Mode::Cli(Command::ImportAll)));
+    }
+
+    #[test]
+    fn exclude_single_path() {
+        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "-E", "foo"])).unwrap();
+        if let Mode::TUI(args) = mode {
+            assert_eq!(args.exclude, vec!["foo"]);
+        } else {
+            panic!("expected TUI mode");
+        }
+    }
+
+    #[test]
+    fn exclude_multiple_paths_comma_separated() {
+        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "--exclude", "foo,bar,baz"])).unwrap();
+        if let Mode::TUI(args) = mode {
+            assert_eq!(args.exclude, vec!["foo", "bar", "baz"]);
+        } else {
+            panic!("expected TUI mode");
+        }
+    }
+
+    #[test]
+    fn filter_valid_value() {
+        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "-f", "priority=A"])).unwrap();
+        if let Mode::TUI(args) = mode {
+            assert!(matches!(args.filter, Override::Value(_)));
+        } else {
+            panic!("expected TUI mode");
+        }
+    }
+
+    #[test]
+    fn filter_empty_string_sets_unset() {
+        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "--filter", ""])).unwrap();
+        if let Mode::TUI(args) = mode {
+            assert!(matches!(args.filter, Override::Unset));
+        } else {
+            panic!("expected TUI mode");
+        }
+    }
+
+    #[test]
+    fn sort_valid_value() {
+        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "-s", "priority:asc"])).unwrap();
+        if let Mode::TUI(args) = mode {
+            assert!(matches!(args.sorter, Override::Value(_)));
+        } else {
+            panic!("expected TUI mode");
+        }
+    }
+
+    #[test]
+    fn sort_empty_string_sets_unset() {
+        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "--sort", ""])).unwrap();
+        if let Mode::TUI(args) = mode {
+            assert!(matches!(args.sorter, Override::Unset));
+        } else {
+            panic!("expected TUI mode");
+        }
+    }
+
+    #[test]
+    fn unknown_flag_returns_error() {
+        let result = parse_args(lexopt::Parser::from_iter(["tdz", "--unknown"]));
+        assert!(result.is_err());
+    }
 }
