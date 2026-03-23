@@ -77,6 +77,40 @@ impl Metadata {
     }
 }
 
+// TODO #68 (E) 2026-03-22 Deprecate in-comment created/completed dates +model +vcs
+//
+// With VCS integration providing accurate created/completed dates from git
+// history, the in-comment date fields become redundant:
+//
+//   // TODO #43 (A) 2024-08-05 Fix bug   <- 2024-08-05 is duplicating git info
+//
+// Options:
+// 1. Remove date parsing entirely (breaking change)
+// 2. Keep parsing but ignore in favor of VCS dates (silent deprecation)
+// 3. Keep as optional override (explicit > inferred)
+//
+// Recommendation: Option 2 initially, then Option 1 in a future major version.
+// Display VCS dates in UI/CLI, but don't break existing TODOs that have dates.
+
+// TODO #69 (E) 2026-03-22 Consolidate +project and @context into +tag +model
+//
+// The distinction between +project and @context doesn't add much value in a
+// repo-specific context. @context was inherited from todo.txt where it made
+// sense for life-wide task lists ("@home", "@work"), but in a codebase the
+// context is always "this repo."
+//
+// Proposal: Simplify to two primitives:
+// - `+tag` (boolean tag, replaces both +project and @context)
+// - `key:value` (arbitrary string metadata)
+//
+// This is a breaking change. Migration path:
+// 1. Parse both syntaxes, normalize to tags internally
+// 2. Deprecation warnings for @context usage
+// 3. Future version removes @context parsing
+//
+// Leaves room to repurpose @syntax later if a compelling use case emerges
+// (e.g., @status was considered but deferred - metadata handles it fine).
+
 impl FromIterator<(std::string::String, std::string::String)> for Metadata {
     fn from_iter<I: IntoIterator<Item = (std::string::String, std::string::String)>>(
         iter: I,

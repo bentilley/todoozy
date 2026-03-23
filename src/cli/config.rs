@@ -4,6 +4,22 @@ use todoozy::todo::{filter::Filter, sort::Sorter};
 
 const CONFIG_FILE_NAME: &str = "todoozy.json";
 
+// TODO #65 (D) 2026-03-22 Move _num_todos to local state +ids +config
+//
+// The _num_todos counter shouldn't be in version control because:
+// - It causes merge conflicts when multiple branches import TODOs
+// - It doesn't actually help coordination (branches diverge anyway)
+//
+// Move to local state, e.g., `.tdz/state.json` (gitignored) or `~/.tdz/<repo-hash>/`:
+// - File locking prevents conflicts between local worktrees/agents
+// - Value derived from `tdz cache build` (max ID from git history + 1)
+// - No more merge conflicts on the counter
+//
+// The todoozy.json config file remains in git for: exclude, filter, sorter.
+// Only the counter moves to local state.
+//
+// See also: `tdz cache build` command in args.rs
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     #[serde(skip_serializing, default)]

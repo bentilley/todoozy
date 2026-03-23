@@ -62,6 +62,43 @@ impl<T> Default for Override<T> {
 // - breakdown by context
 // - maybe: tracked vs untracked count
 
+// TODO #66 (D) 2026-03-22 Implement `tdz lint` command +cli +ids
+//
+// Validation command for CI/hooks. Checks for:
+// - Duplicate IDs (same #id used in multiple places)
+// - Orphan references (&id with no matching #id primary)
+// - Other structural issues as needed
+//
+// Usage:
+//   tdz lint              # report issues, exit 1 if any found
+//   tdz lint --fix        # auto-fix duplicates by reindexing
+//
+// The --fix flag reassigns duplicate IDs to next available:
+// - Keeps first occurrence's ID
+// - Reassigns subsequent occurrences
+// - Updates files in place
+// - Reports what changed
+//
+// Designed for CI integration - non-zero exit code on errors.
+
+// TODO #67 (D) 2026-03-22 Implement `tdz cache build` command +cli +ids
+//
+// Build cache of all TODO IDs ever used in git history.
+//
+// Usage:
+//   tdz cache build       # crawl git history, cache used IDs
+//   tdz cache clear       # clear the cache
+//
+// The cache is used by `tdz todo import` to determine next available ID:
+//   next_id = max(all_ids_ever_used) + 1
+//
+// Cache is stored in local state (not git) keyed by commit SHA, so:
+// - Incremental: only scans new commits
+// - Accurate: knows IDs from all branches/history
+// - Fast: cached results reused
+//
+// See also: TODO for moving _num_todos to local state in config.rs
+
 // TODO #63 (E) 2026-03-22 Implement `tdz file convert` command +cli +tdz
 //
 // Convert a .tdz file into a source file with TODOs as comments.

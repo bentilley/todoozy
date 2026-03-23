@@ -11,6 +11,27 @@ pub use todo::{Todo, Todos};
 use ignore::Walk;
 use std::error;
 
+// TODO #64 (D) 2026-03-22 VCS interface for extracting todo history +vcs
+//
+// Abstract the VCS backend (git for now) to extract todo lifecycle data:
+// - Created date: when the commit adding the TODO was merged
+// - Completed date: when the commit removing the TODO was merged
+// - Author: who added the TODO
+//
+// This makes VCS the source of truth for dates rather than in-comment fields
+// which can be spoofed and duplicate what VCS already tracks.
+//
+// Design as an interface/trait so other VCS backends (hg, svn, etc.) can be
+// supported in the future:
+//
+//   trait VcsBackend {
+//       fn get_todo_created(&self, file: &str, line: u32, id: u32) -> Option<DateTime>;
+//       fn get_todo_removed(&self, id: u32) -> Option<DateTime>;
+//       fn get_all_historical_ids(&self) -> Vec<u32>;  // for cache build
+//   }
+//
+// The git implementation would use git log/blame to find relevant commits.
+
 /// Search for all the available todos in the project.
 ///
 /// * `exclude`: A slice of files to exclude from the search.
