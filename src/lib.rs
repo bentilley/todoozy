@@ -72,7 +72,7 @@ fn parse_files(files: Walk) -> Result<todo::Todos, Box<dyn error::Error>> {
         }
     }
 
-    Ok(todo::Todos(todos))
+    Ok(todos.into())
 }
 
 type RawTodo = (usize, usize, String);

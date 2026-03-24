@@ -160,17 +160,46 @@ pub struct Todo {
 }
 
 impl Todo {
-    pub fn location_start(&self) -> String {
-        match self.file {
-            Some(ref file) => {
-                if let Some(line_number) = self.line_number {
-                    format!("{}:{}", file, line_number)
-                } else {
-                    file.clone()
-                }
-            }
-            None => "".to_string(),
+    pub fn display_id(&self) -> String {
+        match self.id {
+            Some(id) => format!("#{}", id),
+            None => "#-".to_string(),
         }
+    }
+
+    pub fn display_priority(&self) -> String {
+        match self.priority {
+            Some(priority) => format!("({})", priority),
+            None => "(Z)".to_string(),
+        }
+    }
+
+    pub fn display_location_start(&self) -> String {
+        match (&self.file, self.line_number) {
+            (Some(file), Some(line)) => {
+                format!("{}:{}", file, line)
+            }
+            (Some(file), None) => file.to_string(),
+            _ => String::new(),
+        }
+    }
+
+    pub fn display_title(&self) -> String {
+        let projects: String = self
+            .projects
+            .iter()
+            .map(|p| format!("+{}", p))
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        let contexts: String = self
+            .contexts
+            .iter()
+            .map(|c| format!("@{}", c))
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        format!("{} {} {}", self.title, projects, contexts)
     }
 
     pub fn has_project(&self, project: &str) -> bool {
@@ -239,29 +268,46 @@ impl Todo {
     }
 }
 
-pub struct Todos(pub Vec<Todo>);
+pub struct Todos(Vec<Todo>);
 
 impl Todos {
     pub fn get_max_id(&self) -> u32 {
         self.0.iter().map(|t| t.id.unwrap_or(0)).max().unwrap_or(0)
     }
-    // pub fn filter(&self, filter: &dyn filter::Filter) -> Vec<Todo> {
-    //     self.iter().filter(|t| filter.matches(t)).cloned().collect()
-    // }
-    // pub fn sort(&self, sorter: &dyn sort::Sorter) -> Vec<Todo> {
-    //     let mut todos = self.to_vec();
-    //     todos.sort_by(|a, b| sorter.compare(a, b));
-    //     todos
-    // }
+
+    pub fn apply_filter<F>(&mut self, filter: F)
+    where
+        F: Fn(&Todo) -> bool,
+    {
+        self.0.retain(filter);
+    }
+
+    pub fn apply_sort<F>(&mut self, sorter: F)
+    where
+        F: Fn(&Todo, &Todo) -> std::cmp::Ordering,
+    {
+        self.0.sort_by(sorter);
+    }
 }
 
-#[test]
-fn test_todos() {
-    let todos = Todos(vec![
-        TodoBuilder::default().id(Some(1)).build().unwrap(),
-        TodoBuilder::default().id(Some(2)).build().unwrap(),
-    ]);
-    assert_eq!(todos.get_max_id(), 2);
+impl std::ops::Deref for Todos {
+    type Target = Vec<Todo>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<Vec<Todo>> for Todos {
+    fn from(todos: Vec<Todo>) -> Self {
+        Todos(todos)
+    }
+}
+
+impl From<Todos> for Vec<Todo> {
+    fn from(todos: Todos) -> Self {
+        todos.0
+    }
 }
 
 impl IntoIterator for Todos {
@@ -271,4 +317,14 @@ impl IntoIterator for Todos {
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
+}
+
+#[test]
+fn test_todos() {
+    let todos: Todos = vec![
+        TodoBuilder::default().id(Some(1)).build().unwrap(),
+        TodoBuilder::default().id(Some(2)).build().unwrap(),
+    ]
+    .into();
+    assert_eq!(todos.get_max_id(), 2);
 }

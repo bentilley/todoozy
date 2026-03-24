@@ -453,7 +453,7 @@ impl App {
             .todo_list
             .items
             .iter()
-            .map(|t| crate::cli::display::truncate_path(&t.todo.borrow().location_start()))
+            .map(|t| crate::cli::display::truncate_path(&t.todo.borrow().display_location_start()))
             .collect();
         let max_path_width = short_paths.iter().map(|s| s.len()).max().unwrap_or(0);
         let max_id = self
@@ -590,7 +590,7 @@ impl App {
         max_path_width: usize,
     ) -> ListItem<'a> {
         let mut location =
-            crate::cli::display::truncate_path(todo_item.todo.borrow().location_start().as_str());
+            crate::cli::display::truncate_path(todo_item.todo.borrow().display_location_start().as_str());
         if location.len() < max_path_width {
             location.push_str(&" ".repeat(max_path_width - location.len()));
         }

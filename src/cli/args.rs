@@ -1,4 +1,4 @@
-use crate::cli::Command;
+use crate::cli::{Command, TodoCommand};
 use todoozy::todo::filter;
 use todoozy::todo::sort;
 
@@ -22,21 +22,21 @@ impl<T> Default for Override<T> {
 //
 // Add subcommand support for todo operations:
 //
-// - `tdz todo list` - list todos in compact table format
-//   - supports `--limit <n>` to cap number of results
-//   - supports `-f/--filter` and `-s/--sort` (existing logic)
-//   - supports `--format <table|json>` (default: table)
-//   - table columns: ID, PRI, LOCATION (file:line), TITLE, PROJECTS
+// - [x] `tdz todo list` - list todos in compact table format
+//   - [ ] supports `--limit <n>` to cap number of results
+//   - [x] supports `-f/--filter` and `-s/--sort` (via config)
+//   - [ ] supports `--format <table|json>` (default: table)
+//   - [x] table columns: ID, PRI, LOCATION (file:line), TITLE, PROJECTS
 //
-// - `tdz todo get <id>` - show full details for a specific todo
+// - [ ] `tdz todo get <id>` - show full details for a specific todo
 //   - all metadata: id, priority, dates, projects, contexts, key:values
 //   - full description text
 //   - file location
 //
-// - `tdz todo import <id>` - import a specific untracked todo (assign ID)
-// - `tdz todo import-all` - import all untracked todos
-// - `tdz todo edit <id>` - open $EDITOR at todo's file:line
-// - `tdz todo remove <id>` - delete the TODO comment from source file
+// - [ ] `tdz todo import <id>` - import a specific untracked todo (assign ID)
+// - [ ] `tdz todo import-all` - import all untracked todos
+// - [ ] `tdz todo edit <id>` - open $EDITOR at todo's file:line
+// - [ ] `tdz todo remove <id>` - delete the TODO comment from source file
 //
 // This replaces --import-all flag (breaking change).
 // Default `tdz` (no subcommand) still launches TUI.
@@ -167,9 +167,15 @@ pub fn parse_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
     use lexopt::prelude::*;
 
     let mut args = Args::new();
+    let mut subcommand: Option<String> = None;
 
     while let Some(arg) = parser.next()? {
         match arg {
+            Value(val) if subcommand.is_none() => {
+                subcommand = Some(val.string()?);
+                break;
+            }
+
             // TODO #7 (Z) 2024-08-05 Implement a .tdzignore file +idea
             //
             // This would allow users to specify a list of directories or files to exclude without
@@ -225,7 +231,41 @@ pub fn parse_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
         }
     }
 
-    Ok(Mode::TUI(args))
+    match subcommand.as_deref() {
+        Some("todo") => parse_todo_subcommand(parser),
+        Some(other) => {
+            eprintln!("error: unknown subcommand '{}'", other);
+            std::process::exit(1);
+        }
+        None => Ok(Mode::TUI(args)),
+    }
+}
+
+fn parse_todo_subcommand(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
+    use lexopt::prelude::*;
+
+    let mut action: Option<String> = None;
+
+    while let Some(arg) = parser.next()? {
+        match arg {
+            Value(val) if action.is_none() => {
+                action = Some(val.string()?);
+            }
+            _ => return Err(arg.unexpected()),
+        }
+    }
+
+    match action.as_deref() {
+        Some("list") => Ok(Mode::Cli(Command::Todo(TodoCommand::List))),
+        Some(other) => {
+            eprintln!("error: unknown todo action '{}'", other);
+            std::process::exit(1);
+        }
+        None => {
+            eprintln!("error: missing todo action (e.g., 'list')");
+            std::process::exit(1);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -320,5 +360,11 @@ mod tests {
     fn unknown_flag_returns_error() {
         let result = parse_args(lexopt::Parser::from_iter(["tdz", "--unknown"]));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn todo_list_returns_cli_mode() {
+        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "list"])).unwrap();
+        assert!(matches!(mode, Mode::Cli(Command::Todo(TodoCommand::List))));
     }
 }
