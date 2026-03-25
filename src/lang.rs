@@ -11,11 +11,6 @@ pub mod terraform;
 pub mod typescript;
 pub mod yaml;
 
-// TODO #70 (B) 2026-03-25 Fix same project twice bug +fix
-//
-// Includeing a project tag twice e.g. +tag +tag actually tags the todo twice, this should be
-// filtered for unique tags only.
-
 /* TODO #58 (D) 2026-03-22 Inline comments: single-line only with code capture +parser +refs
 
 Change inline comment (end-of-line) parsing behavior:

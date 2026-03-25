@@ -656,6 +656,13 @@ pub fn todo(s: &str) -> IResult<&str, Todo, Error<&str>> {
         None => None,
     };
 
+    // Deduplicate projects and contexts while preserving insertion order
+    let mut seen = std::collections::HashSet::new();
+    projects.retain(|p| seen.insert(p.clone()));
+
+    let mut seen = std::collections::HashSet::new();
+    contexts.retain(|c| seen.insert(c.clone()));
+
     Ok((
         i,
         TodoBuilder::default()
@@ -864,6 +871,112 @@ Not sure what the solution is yet, as lots of languages use `:` in their syntax 
 a case by case basis feels impossible."##
                         .to_string()
                 ))
+                .build()
+                .unwrap()
+        ))
+    );
+}
+
+#[test]
+fn test_todo_duplicate_projects_in_title_deduplicated() {
+    // +project appears twice in title
+    let result = todo("Test todo +project +project +other");
+    assert_eq!(
+        result,
+        Ok((
+            "",
+            TodoBuilder::default()
+                .title("Test todo".to_string())
+                .projects(vec!["project".to_string(), "other".to_string()])
+                .build()
+                .unwrap()
+        ))
+    );
+}
+
+#[test]
+fn test_todo_duplicate_projects_in_description_deduplicated() {
+    // +project appears twice in description only
+    let result = todo("Test todo\n\nDescription +project and +project again");
+    assert_eq!(
+        result,
+        Ok((
+            "",
+            TodoBuilder::default()
+                .title("Test todo".to_string())
+                .projects(vec!["project".to_string()])
+                .description(Some("Description and again".to_string()))
+                .build()
+                .unwrap()
+        ))
+    );
+}
+
+#[test]
+fn test_todo_duplicate_projects_across_title_and_description_deduplicated() {
+    // +project appears in title and again in description
+    let result = todo("Test todo +project\n\nDescription with +project again");
+    assert_eq!(
+        result,
+        Ok((
+            "",
+            TodoBuilder::default()
+                .title("Test todo".to_string())
+                .projects(vec!["project".to_string()])
+                .description(Some("Description with again".to_string()))
+                .build()
+                .unwrap()
+        ))
+    );
+}
+
+#[test]
+fn test_todo_duplicate_contexts_in_title_deduplicated() {
+    // @context appears twice in title
+    let result = todo("Test todo @context @context @other");
+    assert_eq!(
+        result,
+        Ok((
+            "",
+            TodoBuilder::default()
+                .title("Test todo".to_string())
+                .contexts(vec!["context".to_string(), "other".to_string()])
+                .build()
+                .unwrap()
+        ))
+    );
+}
+
+#[test]
+fn test_todo_duplicate_contexts_in_description_deduplicated() {
+    // @context appears twice in description only
+    let result = todo("Test todo\n\nDescription @context and @context again");
+    assert_eq!(
+        result,
+        Ok((
+            "",
+            TodoBuilder::default()
+                .title("Test todo".to_string())
+                .contexts(vec!["context".to_string()])
+                .description(Some("Description and again".to_string()))
+                .build()
+                .unwrap()
+        ))
+    );
+}
+
+#[test]
+fn test_todo_duplicate_contexts_across_title_and_description_deduplicated() {
+    // @context appears in title and again in description
+    let result = todo("Test todo @context\n\nDescription with @context again");
+    assert_eq!(
+        result,
+        Ok((
+            "",
+            TodoBuilder::default()
+                .title("Test todo".to_string())
+                .contexts(vec!["context".to_string()])
+                .description(Some("Description with again".to_string()))
                 .build()
                 .unwrap()
         ))
