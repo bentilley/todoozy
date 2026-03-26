@@ -40,6 +40,10 @@ name = "parser"
 harness = false
 required-features = ["testutils"]
 
+[[bench]]
+name = "todo_parser"
+harness = false
+
 [[example]]
 name = "profile_parser"
 required-features = ["testutils"]
