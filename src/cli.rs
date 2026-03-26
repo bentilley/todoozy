@@ -50,7 +50,7 @@ pub fn import_all(conf: &mut config::Config) -> Result<(), Box<dyn std::error::E
             None => {
                 conf.num_todos += 1;
                 let id = conf.num_todos;
-                todo.id = Some(id);
+                todo.id = Some(todoozy::todo::TodoIdentifier::Primary(id));
                 todo.write_id()?;
                 println!("Imported: #{} {}", id, todo.title);
             }

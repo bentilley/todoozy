@@ -2,32 +2,6 @@ pub mod filter;
 pub mod parser;
 pub mod sort;
 
-// TODO #60 (D) 2026-03-22 Add TodoRef struct for multi-location todos +model +refs
-//
-// Allow multiple TODO comments to reference the same todo ID. A primary todo
-// owns the ID (`#43`), references point to it (`&43`).
-//
-// New struct:
-//   struct TodoRef {
-//       id: u32,                    // ID being referenced
-//       title: Option<String>,
-//       description: Option<String>,
-//       projects: Vec<String>,
-//       contexts: Vec<String>,
-//       metadata: Metadata,
-//       file: String,
-//       line_number: u32,
-//   }
-//
-// Add to Todo struct:
-//   references: Vec<TodoRef>
-//
-// For display, references roll up into the primary:
-// - Reference title becomes a `## Subtitle` in description
-// - Reference description appended after subtitle
-// - Projects/contexts/metadata merged for display (kept separate in model)
-// - Locations list shows all, with `*` marking the primary
-
 use std::fs::File;
 use std::io::{self, prelude::*, BufReader, BufWriter};
 
@@ -35,6 +9,13 @@ use derive_builder::Builder;
 use tempfile::NamedTempFile;
 
 use std::collections::HashMap;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum TodoIdentifier {
+    Primary(u32),
+    Reference(u32),
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Metadata(HashMap<String, String>);
 
@@ -129,7 +110,7 @@ impl FromIterator<(std::string::String, std::string::String)> for Metadata {
 #[derive(Builder, Debug, Default, PartialEq)]
 pub struct Todo {
     #[builder(default)]
-    pub id: Option<u32>,
+    pub id: Option<TodoIdentifier>,
 
     #[builder(default)]
     pub file: Option<String>,
@@ -161,8 +142,9 @@ pub struct Todo {
 
 impl Todo {
     pub fn display_id(&self) -> String {
-        match self.id {
-            Some(id) => format!("#{}", id),
+        match &self.id {
+            Some(TodoIdentifier::Primary(id)) => format!("#{}", id),
+            Some(TodoIdentifier::Reference(id)) => format!("&{}", id),
             None => "#-".to_string(),
         }
     }
@@ -211,8 +193,14 @@ impl Todo {
     }
 
     pub fn write_id(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let id = match self.id {
-            Some(id) => id,
+        let id = match &self.id {
+            Some(TodoIdentifier::Primary(id)) => *id,
+            Some(TodoIdentifier::Reference(_)) => {
+                return Err(Box::new(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Cannot write ID for a reference todo",
+                )))
+            }
             None => return Err(Box::new(io::Error::new(io::ErrorKind::NotFound, "No ID"))),
         };
         let file_name = match self.file {
@@ -272,7 +260,14 @@ pub struct Todos(Vec<Todo>);
 
 impl Todos {
     pub fn get_max_id(&self) -> u32 {
-        self.0.iter().map(|t| t.id.unwrap_or(0)).max().unwrap_or(0)
+        self.0
+            .iter()
+            .filter_map(|t| match &t.id {
+                Some(TodoIdentifier::Primary(id)) => Some(*id),
+                _ => None, // Don't count references or None
+            })
+            .max()
+            .unwrap_or(0)
     }
 
     pub fn apply_filter<F>(&mut self, filter: F)
@@ -322,8 +317,14 @@ impl IntoIterator for Todos {
 #[test]
 fn test_todos() {
     let todos: Todos = vec![
-        TodoBuilder::default().id(Some(1)).build().unwrap(),
-        TodoBuilder::default().id(Some(2)).build().unwrap(),
+        TodoBuilder::default()
+            .id(Some(TodoIdentifier::Primary(1)))
+            .build()
+            .unwrap(),
+        TodoBuilder::default()
+            .id(Some(TodoIdentifier::Primary(2)))
+            .build()
+            .unwrap(),
     ]
     .into();
     assert_eq!(todos.get_max_id(), 2);

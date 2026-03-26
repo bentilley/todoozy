@@ -1,4 +1,4 @@
-use crate::todo::{Metadata, Todo, TodoBuilder};
+use crate::todo::{Metadata, Todo, TodoBuilder, TodoIdentifier};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take, take_until},
@@ -29,34 +29,37 @@ impl<I> ParseError<I> for Error<I> {
     }
 }
 
-// TODO #59 (D) 2026-03-22 Parse reference syntax `TODO &<id>` +parser +refs
-//
-// Add support for parsing TODO references using `&` prefix instead of `#`:
-// - `TODO &43 Optional title` - reference to todo #43
-// - `TODO #43 Title` - primary todo (existing behavior)
-//
-// References have limited fields compared to primaries:
-// - Allowed: title, description, projects, contexts, metadata
-// - Not allowed: priority, created_date, due_date (these belong to primary only)
-//
-// Parser should reject priority/dates on references with a clear error message.
-// The `&` prefix evokes "address of" - the ID lives in the referenced primary.
-
-fn id(i: &str) -> IResult<&str, u32, Error<&str>> {
+fn identifier(i: &str) -> IResult<&str, TodoIdentifier, Error<&str>> {
     let (i, _) = space0(i)?;
-    let (i, p) = delimited(tag("#"), digit1, space1)(i)?;
-    Ok((i, p.parse().unwrap()))
+    let (i, prefix) = alt((tag("#"), tag("&")))(i)?;
+    let (i, digits) = digit1(i)?;
+    let (i, _) = space1(i)?;
+
+    let id: u32 = digits.parse().unwrap();
+    let identifier = match prefix {
+        "#" => TodoIdentifier::Primary(id),
+        "&" => TodoIdentifier::Reference(id),
+        _ => unreachable!(),
+    };
+    Ok((i, identifier))
 }
 
 #[test]
-fn test_id() {
-    assert_eq!(id("#123 "), Ok(("", 123)));
+fn test_identifier() {
     assert_eq!(
-        id("#123"),
+        identifier("#123 "),
+        Ok(("", TodoIdentifier::Primary(123)))
+    );
+    assert_eq!(
+        identifier("&456 "),
+        Ok(("", TodoIdentifier::Reference(456)))
+    );
+    assert_eq!(
+        identifier("#123"),
         Err(nom::Err::Error(Error::Nom("", ErrorKind::Space)))
     );
     assert_eq!(
-        id("123"),
+        identifier("123"),
         Err(nom::Err::Error(Error::Nom("123", ErrorKind::Tag)))
     );
 }
@@ -582,7 +585,7 @@ And here is some text that follows.
 }
 
 pub fn todo(s: &str) -> IResult<&str, Todo, Error<&str>> {
-    let (i, id) = opt(id)(s)?;
+    let (i, id) = opt(identifier)(s)?;
     let (i, priority) = opt(priority)(i)?;
     let (i, date1) = opt(date)(i)?;
     let (i, date2) = opt(date)(i)?;
@@ -709,7 +712,7 @@ fn test_todo() {
             "",
             TodoBuilder::default()
                 .title("This is a test todo".to_string())
-                .id(Some(123))
+                .id(Some(TodoIdentifier::Primary(123)))
                 .priority(Some('A'))
                 .build()
                 .unwrap()
@@ -796,7 +799,7 @@ it contains `:` characters which immediately flip the parser into metadata munch
             "",
             TodoBuilder::default()
                 .title("Meta data parsing interferes with code in todos".to_string())
-                .id(Some(3))
+                .id(Some(TodoIdentifier::Primary(3)))
                 .priority(Some('C'))
                 .projects(vec!["bug".to_string()])
                 .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 9, 6))
@@ -823,7 +826,7 @@ Span::styled(
             "",
             TodoBuilder::default()
                 .title("Meta data parsing interferes with code in todos".to_string())
-                .id(Some(3))
+                .id(Some(TodoIdentifier::Primary(3)))
                 .priority(Some('C'))
                 .projects(vec!["bug".to_string()])
                 .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 9, 6))
@@ -857,7 +860,7 @@ a case by case basis feels impossible.
             "",
             TodoBuilder::default()
                 .title("Meta data parsing interferes with code in todos".to_string())
-                .id(Some(3))
+                .id(Some(TodoIdentifier::Primary(3)))
                 .priority(Some('C'))
                 .projects(vec!["bug".to_string()])
                 .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 9, 6))
@@ -977,6 +980,39 @@ fn test_todo_duplicate_contexts_across_title_and_description_deduplicated() {
                 .title("Test todo".to_string())
                 .contexts(vec!["context".to_string()])
                 .description(Some("Description with again".to_string()))
+                .build()
+                .unwrap()
+        ))
+    );
+}
+
+#[test]
+fn test_todo_reference() {
+    assert_eq!(
+        todo("&43 Reference title +project"),
+        Ok((
+            "",
+            TodoBuilder::default()
+                .id(Some(TodoIdentifier::Reference(43)))
+                .title("Reference title".to_string())
+                .projects(vec!["project".to_string()])
+                .build()
+                .unwrap()
+        ))
+    );
+}
+
+#[test]
+fn test_todo_reference_with_priority() {
+    // Parser accepts this - validation happens during linking
+    assert_eq!(
+        todo("&43 (A) Reference with priority"),
+        Ok((
+            "",
+            TodoBuilder::default()
+                .id(Some(TodoIdentifier::Reference(43)))
+                .priority(Some('A'))
+                .title("Reference with priority".to_string())
                 .build()
                 .unwrap()
         ))

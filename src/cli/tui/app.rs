@@ -26,6 +26,7 @@ use ratatui::{
 use super::input::{Input, InputFor};
 use todoozy::todo::filter;
 use todoozy::todo::sort;
+use todoozy::todo::TodoIdentifier;
 use todoozy::Todo;
 
 // TODO #15 (D) Come up with a way to refactor the TodoList struct into a Widget +refactor
@@ -353,14 +354,17 @@ impl App {
         match self.todo_list.selected() {
             Some(todo_item) => {
                 let mut todo = todo_item.todo.borrow_mut();
-                match todo.id {
-                    Some(id) => {
+                match &todo.id {
+                    Some(TodoIdentifier::Primary(id)) => {
                         self.message = Some(format!("Todo already imported with ID {}", id))
+                    }
+                    Some(TodoIdentifier::Reference(id)) => {
+                        self.message = Some(format!("Cannot import reference todo &{}", id))
                     }
                     None => {
                         self.config.num_todos += 1;
                         let id = self.config.num_todos;
-                        todo.id = Some(id);
+                        todo.id = Some(TodoIdentifier::Primary(id));
                         todo.write_id().unwrap();
                         self.config.save().unwrap();
                         self.message = Some(format!("Todo imported with ID {}", id));
@@ -375,12 +379,12 @@ impl App {
         let mut num_imported = 0;
         for todo in &self.todo_view {
             let mut todo = todo.borrow_mut();
-            match todo.id {
+            match &todo.id {
                 Some(_) => {}
                 None => {
                     num_imported += 1;
                     self.config.num_todos += 1;
-                    todo.id = Some(self.config.num_todos);
+                    todo.id = Some(TodoIdentifier::Primary(self.config.num_todos));
                     todo.write_id().unwrap();
                     self.config.save().unwrap();
                 }
@@ -460,7 +464,10 @@ impl App {
             .todo_list
             .items
             .iter()
-            .map(|t| t.todo.borrow().id.unwrap_or(0))
+            .filter_map(|t| match &t.todo.borrow().id {
+                Some(TodoIdentifier::Primary(id)) => Some(*id),
+                _ => None,
+            })
             .max()
             .unwrap_or(0);
         let max_id_digits = crate::cli::display::num_digits(max_id);
@@ -502,11 +509,20 @@ impl App {
         let mut text = Text::default();
 
         let mut spans: Vec<Span> = Vec::new();
-        if let Some(id) = &todo.borrow().id {
-            spans.push(Span::styled(
-                format!("#{} ", id),
-                Style::new().fg(Color::Green),
-            ));
+        match &todo.borrow().id {
+            Some(TodoIdentifier::Primary(id)) => {
+                spans.push(Span::styled(
+                    format!("#{} ", id),
+                    Style::new().fg(Color::Green),
+                ));
+            }
+            Some(TodoIdentifier::Reference(id)) => {
+                spans.push(Span::styled(
+                    format!("&{} ", id),
+                    Style::new().fg(Color::Cyan),
+                ));
+            }
+            None => {}
         }
         spans.push(Span::styled(
             todo.borrow().title.clone(),
@@ -614,12 +630,18 @@ impl App {
         let line = Line::from(
             vec![
                 Span::styled(
-                    match todo_item.todo.borrow().id {
-                        Some(id) => format!("#{:<width$} ", id, width = max_id_digits as usize),
+                    match &todo_item.todo.borrow().id {
+                        Some(TodoIdentifier::Primary(id)) => {
+                            format!("#{:<width$} ", id, width = max_id_digits as usize)
+                        }
+                        Some(TodoIdentifier::Reference(id)) => {
+                            format!("&{:<width$} ", id, width = max_id_digits as usize)
+                        }
                         None => format!("#{:-<width$} ", "", width = max_id_digits as usize),
                     },
-                    Style::new().fg(match todo_item.todo.borrow().id {
-                        Some(_) => Color::Green,
+                    Style::new().fg(match &todo_item.todo.borrow().id {
+                        Some(TodoIdentifier::Primary(_)) => Color::Green,
+                        Some(TodoIdentifier::Reference(_)) => Color::Cyan,
                         None => Color::Yellow,
                     }),
                 ),

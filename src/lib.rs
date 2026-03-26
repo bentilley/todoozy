@@ -50,6 +50,12 @@ pub fn get_todos(exclude: &[String]) -> Result<todo::Todos, Box<dyn error::Error
 //    - Duplicate primary (same ID twice): "Warning: Duplicate TODO #43 found
 //      at `file:line`, ignoring (first occurrence at `file:line`)"
 //
+// For display, references roll up into the primary:
+// - Reference title becomes a `## Subtitle` in description
+// - Reference description appended after subtitle
+// - Projects/contexts/metadata merged for display (kept separate in model)
+// - Locations list shows all, with `*` marking the primary
+//
 // These warnings indicate ID assignment issues - see separate TODO for
 // improved branch-aware ID assignment system.
 
