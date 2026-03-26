@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
             Cli(ListProjects) => Ok(cli::list_projects(&config.exclude)),
             Cli(ListContexts) => Ok(cli::list_contexts(&config.exclude)),
             Cli(ImportAll) => Ok(cli::import_all(&mut config)?),
-            Cli(Todo(List)) => Ok(cli::todo_list(&config)),
+            Cli(Todo(List(ref opts))) => Ok(cli::todo_list(&config, opts)),
             TUI(mut args) => {
                 args.apply(&mut config);
                 cli::tui::run(config)
