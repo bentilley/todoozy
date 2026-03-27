@@ -20,29 +20,6 @@ impl<T> Default for Override<T> {
     }
 }
 
-// TODO #54 (D) 2026-03-22 Implement `tdz todo` subcommands +cli
-//
-// Add subcommand support for todo operations:
-//
-// - [x] `tdz todo list` - list todos in compact table format
-//   - [x] supports `--limit <n>` to cap number of results
-//   - [x] supports `-f/--filter` and `-s/--sort` (via config)
-//   - [x] supports `--format <table|json>` (default: table)
-//   - [x] table columns: ID, PRI, LOCATION (file:line), TITLE, PROJECTS
-//
-// - [x] `tdz todo get <id>` - show full details for a specific todo
-//   - [x] all metadata: id, priority, dates, tags, key:values
-//   - [x] full description text
-//   - [x] file location
-//   - [x] supports `--format <table|json>` (default: table)
-//
-// - [ ] `tdz todo import <id>` - import a specific untracked todo (assign ID)
-// - [ ] `tdz todo import-all` - import all untracked todos
-// - [ ] `tdz todo edit <id>` - open $EDITOR at todo's file:line
-// - [ ] `tdz todo remove <id>` - delete the TODO comment from source file
-//
-// This replaces --import-all flag (breaking change).
-// Default `tdz` (no subcommand) still launches TUI.
 
 // TODO #57 (D) 2026-03-22 Implement `tdz summary` command +cli
 //
@@ -122,7 +99,6 @@ Options:
     -E, --exclude <PATH<,PATH>>  Files or directories to exclude from search
     -f, --filter <FILTER>        Filter which todos to display
     -s, --sort <SORT>            How to sort the todos
-    --import-all                 Import all todos
     --help                       Print help
     "#;
 
@@ -231,7 +207,6 @@ fn parse_tui_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
                     };
                 }
             }
-            Long("import-all") => return Ok(Mode::Cli(Command::ImportAll)),
             Long("help") => {
                 println!("{}", USAGE);
                 std::process::exit(0);
@@ -252,12 +227,6 @@ mod tests {
     fn no_args_returns_tui_mode() {
         let mode = parse_args(lexopt::Parser::from_iter(["tdz"])).unwrap();
         assert!(matches!(mode, Mode::TUI(_)));
-    }
-
-    #[test]
-    fn import_all_returns_cli_mode() {
-        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "--import-all"])).unwrap();
-        assert!(matches!(mode, Mode::Cli(Command::ImportAll)));
     }
 
     #[test]

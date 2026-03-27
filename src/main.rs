@@ -19,9 +19,13 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     use cli::Command::*;
     match cli::args::parse_args(lexopt::Parser::from_env()) {
         Ok(mode) => match mode {
-            Cli(ImportAll) => Ok(cli::import_all(&mut config)?),
             Cli(Todo(TodoCommand::List(ref opts))) => Ok(cli::todo::list(&config, opts)),
             Cli(Todo(TodoCommand::Get(ref opts))) => Ok(cli::todo::get(&config, opts)),
+            Cli(Todo(TodoCommand::Import(ref opts))) => {
+                Ok(cli::todo::import(&mut config, opts))
+            }
+            Cli(Todo(TodoCommand::Edit(ref opts))) => Ok(cli::todo::edit(&config, opts)),
+            Cli(Todo(TodoCommand::Remove(ref opts))) => Ok(cli::todo::remove(&config, opts)),
             Cli(Tag(TagCommand::List(ref opts))) => Ok(cli::tag::list(&config, opts)),
             TUI(mut args) => {
                 args.apply(&mut config);
