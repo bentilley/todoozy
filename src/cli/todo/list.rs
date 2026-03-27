@@ -1,6 +1,7 @@
 use crate::cli::config;
 use todoozy::todo::filter;
 use todoozy::todo::sort;
+use super::OutputFormat;
 
 pub struct TodoListOptions {
     pub limit: Option<usize>,
@@ -16,28 +17,6 @@ impl Default for TodoListOptions {
             format: OutputFormat::Table,
             filter: None,
             sorter: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum OutputFormat {
-    #[default]
-    Table,
-    Json,
-}
-
-impl std::str::FromStr for OutputFormat {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "table" => Ok(OutputFormat::Table),
-            "json" => Ok(OutputFormat::Json),
-            other => Err(format!(
-                "unknown format '{}', expected 'table' or 'json'",
-                other
-            )),
         }
     }
 }

@@ -29,10 +29,11 @@ impl<T> Default for Override<T> {
 //   - [x] supports `--format <table|json>` (default: table)
 //   - [x] table columns: ID, PRI, LOCATION (file:line), TITLE, PROJECTS
 //
-// - [ ] `tdz todo get <id>` - show full details for a specific todo
-//   - all metadata: id, priority, dates, tags, key:values
-//   - full description text
-//   - file location
+// - [x] `tdz todo get <id>` - show full details for a specific todo
+//   - [x] all metadata: id, priority, dates, tags, key:values
+//   - [x] full description text
+//   - [x] file location
+//   - [x] supports `--format <table|json>` (default: table)
 //
 // - [ ] `tdz todo import <id>` - import a specific untracked todo (assign ID)
 // - [ ] `tdz todo import-all` - import all untracked todos
@@ -240,7 +241,7 @@ fn parse_tui_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::todo::TodoCommand;
+    use super::todo::{TodoCommand, OutputFormat};
     use super::*;
 
     #[test]
@@ -368,7 +369,7 @@ mod tests {
         ]))
         .unwrap();
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
-            assert_eq!(format!("{:?}", opts.format), "Json");
+            assert_eq!(opts.format, OutputFormat::Json);
         } else {
             panic!("expected TodoCommand::List");
         }
@@ -381,7 +382,7 @@ mod tests {
         ]))
         .unwrap();
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
-            assert_eq!(format!("{:?}", opts.format), "Table");
+            assert_eq!(opts.format, OutputFormat::Table);
         } else {
             panic!("expected TodoCommand::List");
         }
@@ -395,7 +396,7 @@ mod tests {
         .unwrap();
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
             assert_eq!(opts.limit, Some(5));
-            assert_eq!(format!("{:?}", opts.format), "Table");
+            assert_eq!(opts.format, OutputFormat::Table);
         } else {
             panic!("expected TodoCommand::List");
         }
@@ -506,9 +507,60 @@ mod tests {
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
             assert_eq!(opts.limit, Some(5));
             assert!(opts.filter.is_some());
-            assert_eq!(format!("{:?}", opts.format), "Json");
+            assert_eq!(opts.format, OutputFormat::Json);
         } else {
             panic!("expected TodoCommand::List");
         }
+    }
+
+    #[test]
+    fn todo_get_basic() {
+        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "get", "54"])).unwrap();
+        if let Mode::Cli(Command::Todo(TodoCommand::Get(opts))) = mode {
+            assert_eq!(opts.id, 54);
+            assert_eq!(opts.format, OutputFormat::Table);
+        } else {
+            panic!("expected TodoCommand::Get");
+        }
+    }
+
+    #[test]
+    fn todo_get_with_format_json() {
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz", "todo", "get", "54", "--format", "json",
+        ]))
+        .unwrap();
+        if let Mode::Cli(Command::Todo(TodoCommand::Get(opts))) = mode {
+            assert_eq!(opts.id, 54);
+            assert_eq!(opts.format, OutputFormat::Json);
+        } else {
+            panic!("expected TodoCommand::Get");
+        }
+    }
+
+    #[test]
+    fn todo_get_with_format_table() {
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz", "todo", "get", "42", "--format", "table",
+        ]))
+        .unwrap();
+        if let Mode::Cli(Command::Todo(TodoCommand::Get(opts))) = mode {
+            assert_eq!(opts.id, 42);
+            assert_eq!(opts.format, OutputFormat::Table);
+        } else {
+            panic!("expected TodoCommand::Get");
+        }
+    }
+
+    #[test]
+    fn todo_get_missing_id_returns_error() {
+        let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "get"]));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn todo_get_invalid_id_returns_error() {
+        let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "get", "abc"]));
+        assert!(result.is_err());
     }
 }

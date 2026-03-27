@@ -20,6 +20,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         Ok(mode) => match mode {
             Cli(ImportAll) => Ok(cli::import_all(&mut config)?),
             Cli(Todo(List(ref opts))) => Ok(cli::todo::list(&config, opts)),
+            Cli(Todo(Get(ref opts))) => Ok(cli::todo::get(&config, opts)),
             TUI(mut args) => {
                 args.apply(&mut config);
                 cli::tui::run(config)
