@@ -112,6 +112,11 @@ pub enum Mode {
     TUI(TuiOptions),
 }
 
+// TODO #71 (C) 2026-03-27 Update --help usage for tdz and all sub-commands
+//
+// Subcommands should have their own help text in their respective files which they can parse args
+// for. Don't want std::process::exit(1) in the middle of arg parsing, so need a way for each sub
+// command to return some Help like enum up to main.rs where we can handle it.
 const USAGE: &str = r#"Todos as code manager
 
 Usage: tdz [OPTIONS]
