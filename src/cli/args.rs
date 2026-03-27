@@ -253,7 +253,7 @@ fn parse_tui_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::todo::{OutputFormat, TodoCommand};
+    use super::todo::TodoCommand;
     use super::*;
 
     #[test]
@@ -393,7 +393,7 @@ mod tests {
         ]))
         .unwrap();
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
-            assert_eq!(opts.format, OutputFormat::Json);
+            assert_eq!(format!("{:?}", opts.format), "Json");
         } else {
             panic!("expected TodoCommand::List");
         }
@@ -406,7 +406,7 @@ mod tests {
         ]))
         .unwrap();
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
-            assert_eq!(opts.format, OutputFormat::Table);
+            assert_eq!(format!("{:?}", opts.format), "Table");
         } else {
             panic!("expected TodoCommand::List");
         }
@@ -420,7 +420,7 @@ mod tests {
         .unwrap();
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
             assert_eq!(opts.limit, Some(5));
-            assert_eq!(opts.format, OutputFormat::Table);
+            assert_eq!(format!("{:?}", opts.format), "Table");
         } else {
             panic!("expected TodoCommand::List");
         }
@@ -531,7 +531,7 @@ mod tests {
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
             assert_eq!(opts.limit, Some(5));
             assert!(opts.filter.is_some());
-            assert_eq!(opts.format, OutputFormat::Json);
+            assert_eq!(format!("{:?}", opts.format), "Json");
         } else {
             panic!("expected TodoCommand::List");
         }
