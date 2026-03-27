@@ -55,6 +55,13 @@ pub fn get(conf: &config::Config, opts: &TodoGetOptions) {
     }
 }
 
+// TODO #72 (E) 2026-03-27 Rename "table" to "raw" in OutputFormat +refactor
+//
+// Table came from the `todo list` command, but really it should be more generic since it can be
+// used for both `get` and `list`. The "table" format is really just a more human-friendly raw
+// output, so "raw" might be a better name. This would also make it clearer that the "table" format
+// doesn't necessarily have to be a literal table with columns, but can be any human-readable
+// format that isn't JSON.
 fn print_table(todo: &todoozy::todo::Todo) {
     // ID and priority
     println!("ID:          {}", todo.display_id());
