@@ -1,5 +1,23 @@
+use super::TodoCommand;
+use crate::cli::args::{Command, Mode};
 use crate::cli::config;
+use crate::cli::error;
 use todoozy::todo::TodoIdentifier;
+
+pub const USAGE: &str = r#"Import untracked todos (assign IDs)
+
+Usage: tdz todo import [OPTIONS]
+
+Options:
+    --all                      Import all untracked todos
+    --location <FILE[:LINE]>   Import todo at specific location
+    --help                     Print help
+
+Examples:
+    tdz todo import --all
+    tdz todo import --location src/main.rs
+    tdz todo import --location src/main.rs:42
+"#;
 
 pub struct TodoImportOptions {
     pub all: bool,
@@ -20,7 +38,7 @@ impl TodoImportOptions {
     }
 }
 
-pub fn parse_opts(mut parser: lexopt::Parser) -> Result<TodoImportOptions, lexopt::Error> {
+pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     use lexopt::prelude::*;
 
     let mut opts = TodoImportOptions::new();
@@ -32,26 +50,23 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> Result<TodoImportOptions, lexop
                 let value: String = parser.value()?.parse()?;
                 opts.location = Some(parse_location(&value)?);
             }
-            _ => return Err(arg.unexpected()),
+            Long("help") => return Ok(Mode::Help(USAGE)),
+            _ => return Err(arg.unexpected().into()),
         }
     }
 
     if !opts.all && opts.location.is_none() {
-        return Err(lexopt::Error::Custom(
-            "must specify --all or --location <file[:line]>".into(),
-        ));
+        return Err("must specify --all or --location <file[:line]>".into());
     }
 
     if opts.all && opts.location.is_some() {
-        return Err(lexopt::Error::Custom(
-            "cannot specify both --all and --location".into(),
-        ));
+        return Err("cannot specify both --all and --location".into());
     }
 
-    Ok(opts)
+    Ok(Mode::Cli(Command::Todo(TodoCommand::Import(opts))))
 }
 
-fn parse_location(value: &str) -> Result<LocationSpec, lexopt::Error> {
+fn parse_location(value: &str) -> error::Result<LocationSpec> {
     if let Some((file, line_str)) = value.rsplit_once(':') {
         if let Ok(line) = line_str.parse::<usize>() {
             return Ok(LocationSpec::FileLine(file.to_string(), line));

@@ -1,8 +1,26 @@
-mod edit;
-mod get;
-mod import;
-mod list;
-mod remove;
+pub mod edit;
+pub mod get;
+pub mod import;
+pub mod list;
+pub mod remove;
+
+use super::args::Mode;
+use super::error;
+
+pub const USAGE: &str = r#"Manage todos
+
+Usage: tdz todo <COMMAND>
+
+Commands:
+    list      List todos in compact table format
+    get       Show full details for a specific todo
+    import    Import untracked todos (assign IDs)
+    edit      Open todo in $EDITOR at its file location
+    remove    Delete a todo comment from its source file
+
+Options:
+    --help    Print help
+"#;
 
 pub enum TodoCommand {
     List(list::TodoListOptions),
@@ -18,25 +36,20 @@ pub use import::import;
 pub use list::list;
 pub use remove::remove;
 
-pub fn parse_cmd(mut parser: lexopt::Parser) -> Result<TodoCommand, lexopt::Error> {
+pub fn parse_cmd(mut parser: lexopt::Parser) -> error::Result<Mode> {
     use lexopt::prelude::*;
 
     match parser.next()? {
-        Some(Value(val)) if val == "list" => Ok(TodoCommand::List(list::parse_opts(parser)?)),
-        Some(Value(val)) if val == "get" => Ok(TodoCommand::Get(get::parse_opts(parser)?)),
-        Some(Value(val)) if val == "import" => {
-            Ok(TodoCommand::Import(import::parse_opts(parser)?))
+        Some(Value(val)) if val == "list" => list::parse_opts(parser),
+        Some(Value(val)) if val == "get" => get::parse_opts(parser),
+        Some(Value(val)) if val == "import" => import::parse_opts(parser),
+        Some(Value(val)) if val == "edit" => edit::parse_opts(parser),
+        Some(Value(val)) if val == "remove" => remove::parse_opts(parser),
+        Some(Long("help")) => Ok(Mode::Help(USAGE)),
+        Some(Value(other)) => {
+            Err(format!("unknown todo action '{}'", other.to_string_lossy()).into())
         }
-        Some(Value(val)) if val == "edit" => Ok(TodoCommand::Edit(edit::parse_opts(parser)?)),
-        Some(Value(val)) if val == "remove" => {
-            Ok(TodoCommand::Remove(remove::parse_opts(parser)?))
-        }
-        Some(Value(other)) => Err(lexopt::Error::Custom(
-            format!("unknown todo action '{}'", other.to_string_lossy()).into(),
-        )),
-        _ => Err(lexopt::Error::Custom(
-            "missing todo action (e.g., 'list')".into(),
-        )),
+        _ => Err("missing todo action (e.g., 'list')".into()),
     }
 }
 
@@ -61,4 +74,3 @@ impl std::str::FromStr for OutputFormat {
         }
     }
 }
-

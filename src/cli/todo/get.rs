@@ -1,13 +1,27 @@
-use super::OutputFormat;
+use super::{OutputFormat, TodoCommand};
+use crate::cli::args::{Command, Mode};
 use crate::cli::config;
+use crate::cli::error;
 use todoozy::todo::TodoIdentifier;
+
+pub const USAGE: &str = r#"Show full details for a specific todo
+
+Usage: tdz todo get [OPTIONS] <ID>
+
+Arguments:
+    <ID>    The todo ID to display
+
+Options:
+    --format <FORMAT>  Output format: table, json (default: table)
+    --help             Print help
+"#;
 
 pub struct TodoGetOptions {
     pub id: u32,
     pub format: OutputFormat,
 }
 
-pub fn parse_opts(mut parser: lexopt::Parser) -> Result<TodoGetOptions, lexopt::Error> {
+pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     use lexopt::prelude::*;
 
     let mut id: Option<u32> = None;
@@ -16,18 +30,22 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> Result<TodoGetOptions, lexopt::
     while let Some(arg) = parser.next()? {
         match arg {
             Long("format") => format = parser.value()?.parse()?,
+            Long("help") => return Ok(Mode::Help(USAGE)),
             Value(val) if id.is_none() => {
                 id = Some(val.parse().map_err(|_| {
-                    lexopt::Error::Custom(format!("invalid ID '{}'", val.to_string_lossy()).into())
+                    error::Error::from(format!("invalid ID '{}'", val.to_string_lossy()))
                 })?);
             }
-            _ => return Err(arg.unexpected()),
+            _ => return Err(arg.unexpected().into()),
         }
     }
 
-    let id = id.ok_or_else(|| lexopt::Error::Custom("missing ID argument".into()))?;
+    let id = id.ok_or_else(|| error::Error::from("missing ID argument"))?;
 
-    Ok(TodoGetOptions { id, format })
+    Ok(Mode::Cli(Command::Todo(TodoCommand::Get(TodoGetOptions {
+        id,
+        format,
+    }))))
 }
 
 pub fn get(conf: &config::Config, opts: &TodoGetOptions) {

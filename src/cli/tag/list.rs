@@ -1,5 +1,19 @@
+use super::TagCommand;
+use crate::cli::args::{Command, Mode};
 use crate::cli::config;
+use crate::cli::error;
 use std::collections::HashMap;
+
+pub const USAGE: &str = r#"List all tags with counts
+
+Usage: tdz tag list [OPTIONS]
+
+Options:
+    -n, --limit <N>       Limit number of results
+    -s, --sort <SORT>     Sort order: name, count (default: name)
+    --format <FORMAT>     Output format: table, json (default: table)
+    --help                Print help
+"#;
 
 pub struct TagListOptions {
     pub limit: Option<usize>,
@@ -67,7 +81,7 @@ struct TagOutput {
     count: usize,
 }
 
-pub fn parse_opts(mut parser: lexopt::Parser) -> Result<TagListOptions, lexopt::Error> {
+pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     use lexopt::prelude::*;
 
     let mut opts = TagListOptions::default();
@@ -77,11 +91,12 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> Result<TagListOptions, lexopt::
             Long("format") => opts.format = parser.value()?.parse()?,
             Short('n') | Long("limit") => opts.limit = Some(parser.value()?.parse()?),
             Short('s') | Long("sort") => opts.sort = parser.value()?.parse()?,
-            _ => return Err(arg.unexpected()),
+            Long("help") => return Ok(Mode::Help(USAGE)),
+            _ => return Err(arg.unexpected().into()),
         }
     }
 
-    Ok(opts)
+    Ok(Mode::Cli(Command::Tag(TagCommand::List(opts))))
 }
 
 pub fn list(conf: &config::Config, opts: &TagListOptions) {

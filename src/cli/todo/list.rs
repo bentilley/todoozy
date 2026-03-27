@@ -1,7 +1,21 @@
+use super::{OutputFormat, TodoCommand};
+use crate::cli::args::{Command, Mode};
 use crate::cli::config;
+use crate::cli::error;
 use todoozy::todo::filter;
 use todoozy::todo::sort;
-use super::OutputFormat;
+
+pub const USAGE: &str = r#"List todos in compact table format
+
+Usage: tdz todo list [OPTIONS]
+
+Options:
+    -n, --limit <N>         Limit number of results
+    -f, --filter <FILTER>   Filter which todos to display
+    -s, --sort <SORT>       How to sort the todos
+    --format <FORMAT>       Output format: table, json (default: table)
+    --help                  Print help
+"#;
 
 pub struct TodoListOptions {
     pub limit: Option<usize>,
@@ -50,7 +64,7 @@ impl From<&todoozy::todo::Todo> for TodoOutput {
     }
 }
 
-pub fn parse_opts(mut parser: lexopt::Parser) -> Result<TodoListOptions, lexopt::Error> {
+pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     use lexopt::prelude::*;
 
     let mut opts = TodoListOptions::default();
@@ -61,11 +75,12 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> Result<TodoListOptions, lexopt:
             Long("format") => opts.format = parser.value()?.parse()?,
             Short('n') | Long("limit") => opts.limit = Some(parser.value()?.parse()?),
             Short('s') | Long("sort") => opts.sorter = Some(parser.value()?.parse()?),
-            _ => return Err(arg.unexpected()),
+            Long("help") => return Ok(Mode::Help(USAGE)),
+            _ => return Err(arg.unexpected().into()),
         }
     }
 
-    Ok(opts)
+    Ok(Mode::Cli(Command::Todo(TodoCommand::List(opts))))
 }
 
 pub fn list(conf: &config::Config, opts: &TodoListOptions) {

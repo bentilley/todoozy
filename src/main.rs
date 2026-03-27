@@ -11,27 +11,35 @@ mod cli;
 // A few useful tools like listing tags feels fine, but slicing and dicing the
 // todo metadata feels like too much.
 fn main() -> Result<(), Box<dyn error::Error>> {
-    let mut config = cli::config::Config::load_config()?;
-
+    use cli::args::Command::*;
     use cli::args::Mode::*;
     use cli::tag::TagCommand;
     use cli::todo::TodoCommand;
-    use cli::Command::*;
+
     match cli::args::parse_args(lexopt::Parser::from_env()) {
-        Ok(mode) => match mode {
-            Cli(Todo(TodoCommand::List(ref opts))) => Ok(cli::todo::list(&config, opts)),
-            Cli(Todo(TodoCommand::Get(ref opts))) => Ok(cli::todo::get(&config, opts)),
-            Cli(Todo(TodoCommand::Import(ref opts))) => {
-                Ok(cli::todo::import(&mut config, opts))
+        Ok(Help(text)) => {
+            println!("{}", text);
+            Ok(())
+        }
+        Ok(Cli(cmd)) => {
+            let mut config = cli::config::Config::load_config()?;
+            match cmd {
+                Todo(TodoCommand::List(ref opts)) => Ok(cli::todo::list(&config, opts)),
+                Todo(TodoCommand::Get(ref opts)) => Ok(cli::todo::get(&config, opts)),
+                Todo(TodoCommand::Import(ref opts)) => Ok(cli::todo::import(&mut config, opts)),
+                Todo(TodoCommand::Edit(ref opts)) => Ok(cli::todo::edit(&config, opts)),
+                Todo(TodoCommand::Remove(ref opts)) => Ok(cli::todo::remove(&config, opts)),
+                Tag(TagCommand::List(ref opts)) => Ok(cli::tag::list(&config, opts)),
             }
-            Cli(Todo(TodoCommand::Edit(ref opts))) => Ok(cli::todo::edit(&config, opts)),
-            Cli(Todo(TodoCommand::Remove(ref opts))) => Ok(cli::todo::remove(&config, opts)),
-            Cli(Tag(TagCommand::List(ref opts))) => Ok(cli::tag::list(&config, opts)),
-            TUI(mut args) => {
-                args.apply(&mut config);
-                cli::tui::run(config)
-            }
-        },
-        Err(e) => Err(e.into()),
+        }
+        Ok(TUI(mut args)) => {
+            let mut config = cli::config::Config::load_config()?;
+            args.apply(&mut config);
+            cli::tui::run(config)
+        }
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
     }
 }
