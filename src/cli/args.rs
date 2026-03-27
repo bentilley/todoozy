@@ -117,18 +117,61 @@ impl<T> Default for Override<T> {
 
 pub enum Mode {
     Cli(Command),
-    TUI(Args),
+    TUI(TuiOptions),
 }
 
-pub struct Args {
+const USAGE: &str = r#"Todos as code manager
+
+Usage: tdz [OPTIONS]
+
+Options:
+    -E, --exclude <PATH<,PATH>>  Files or directories to exclude from search
+    -f, --filter <FILTER>        Filter which todos to display
+    -s, --sort <SORT>            How to sort the todos
+    --list-projects              List all projects
+    --list-contexts              List all contexts
+    --import-all                 Import all todos
+    --help                       Print help
+    "#;
+
+pub fn parse_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
+    use Command::*;
+    use Mode::*;
+    match detect_subcommand(&mut parser) {
+        Some(cmd) if cmd == "todo" => Ok(Cli(Todo(todo::parse_cmd(parser)?))),
+        Some(other) => {
+            eprintln!("error: unknown subcommand '{}'", other);
+            std::process::exit(1);
+        }
+        None => parse_tui_args(parser),
+    }
+}
+
+/// Peeks at the first argument to see if it's a subcommand (positional, not a flag).
+/// If it is, consumes it and returns the subcommand name.
+/// If it's a flag or there are no args, returns None without consuming anything.
+fn detect_subcommand(parser: &mut lexopt::Parser) -> Option<String> {
+    let mut raw = parser.try_raw_args()?;
+    let arg = raw.peek()?;
+
+    if arg.to_string_lossy().starts_with('-') {
+        return None;
+    }
+
+    let cmd = arg.to_string_lossy().into_owned();
+    raw.next(); // consume the argument
+    Some(cmd)
+}
+
+pub struct TuiOptions {
     pub exclude: Vec<String>,
     pub filter: Override<Box<dyn filter::Filter>>,
     pub sorter: Override<Box<dyn sort::Sorter>>,
 }
 
-impl Args {
-    pub fn new() -> Args {
-        Args {
+impl TuiOptions {
+    pub fn new() -> TuiOptions {
+        TuiOptions {
             exclude: Vec::new(),
             filter: Override::NotSet,
             sorter: Override::NotSet,
@@ -150,52 +193,9 @@ impl Args {
     }
 }
 
-const USAGE: &str = r#"Todos as code manager
-
-Usage: tdz [OPTIONS]
-
-Options:
-    -E, --exclude <PATH<,PATH>>  Files or directories to exclude from search
-    -f, --filter <FILTER>        Filter which todos to display
-    -s, --sort <SORT>            How to sort the todos
-    --list-projects              List all projects
-    --list-contexts              List all contexts
-    --import-all                 Import all todos
-    --help                       Print help
-    "#;
-
-pub fn parse_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
-    match detect_subcommand(&mut parser) {
-        Some(cmd) if cmd == "todo" => Ok(Mode::Cli(Command::Todo(todo::parse_cmd(parser)?))),
-        Some(other) => {
-            eprintln!("error: unknown subcommand '{}'", other);
-            std::process::exit(1);
-        }
-        None => parse_tui_args(parser),
-    }
-}
-
-/// Peeks at the first argument to see if it's a subcommand (positional, not a flag).
-/// If it is, consumes it and returns the subcommand name.
-/// If it's a flag or there are no args, returns None without consuming anything.
-fn detect_subcommand(parser: &mut lexopt::Parser) -> Option<String> {
-    let mut raw = parser.try_raw_args()?;
-    let arg = raw.peek()?;
-
-    // If it starts with '-', it's a flag, not a subcommand
-    if arg.to_string_lossy().starts_with('-') {
-        return None;
-    }
-
-    // It's a subcommand - consume it and return
-    let cmd = arg.to_string_lossy().into_owned();
-    raw.next(); // consume the argument
-    Some(cmd)
-}
-
 fn parse_tui_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
     use lexopt::prelude::*;
-    let mut args = Args::new();
+    let mut args = TuiOptions::new();
     while let Some(arg) = parser.next()? {
         match arg {
             // TODO #7 (Z) 2024-08-05 Implement a .tdzignore file +idea
@@ -215,7 +215,7 @@ fn parse_tui_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
                 if value.is_empty() {
                     args.filter = Override::Unset;
                 } else {
-                    args.filter = match filter::parse_str(value.clone()) {
+                    args.filter = match filter::parse_str(&value) {
                         Ok(f) => Override::Value(f),
                         Err(e) => {
                             eprintln!("error: invalid filter '{}': {}", value, e);
@@ -229,7 +229,7 @@ fn parse_tui_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
                 if value.is_empty() {
                     args.sorter = Override::Unset;
                 } else {
-                    args.sorter = match sort::parse_str(value.clone()) {
+                    args.sorter = match sort::parse_str(&value) {
                         Ok(s) => Override::Value(s),
                         Err(e) => {
                             eprintln!("error: invalid sort '{}': {}", value, e);

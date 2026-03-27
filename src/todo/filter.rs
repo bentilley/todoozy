@@ -1,5 +1,6 @@
 use core::fmt::{self, Display};
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 mod parser;
 
@@ -39,7 +40,7 @@ impl<'de> Deserialize<'de> for Box<dyn Filter> {
         D: serde::de::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        parse_str(s).map_err(serde::de::Error::custom)
+        parse_str(&s).map_err(serde::de::Error::custom)
     }
 }
 
@@ -385,6 +386,13 @@ impl Display for All {
     }
 }
 
-pub fn parse_str(filter_def: String) -> Result<Box<dyn Filter>, String> {
+pub fn parse_str(filter_def: &str) -> Result<Box<dyn Filter>, String> {
     self::parser::parse_expression(&filter_def)
+}
+
+impl FromStr for Box<dyn Filter> {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        parse_str(s)
+    }
 }

@@ -80,14 +80,10 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> Result<TodoListOptions, lexopt:
 
     while let Some(arg) = parser.next()? {
         match arg {
-            Short('f') | Long("filter") => {
-                opts.filter = Some(filter::parse_str(parser.value()?.parse()?)?);
-            }
+            Short('f') | Long("filter") => opts.filter = Some(parser.value()?.parse()?),
             Long("format") => opts.format = parser.value()?.parse()?,
             Short('n') | Long("limit") => opts.limit = Some(parser.value()?.parse()?),
-            Short('s') | Long("sort") => {
-                opts.sorter = Some(sort::parse_str(parser.value()?.parse()?)?);
-            }
+            Short('s') | Long("sort") => opts.sorter = Some(parser.value()?.parse()?),
             _ => return Err(arg.unexpected()),
         }
     }

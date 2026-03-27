@@ -1,5 +1,6 @@
 use core::fmt::Display;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 mod parser;
 
@@ -39,7 +40,7 @@ impl<'de> Deserialize<'de> for Box<dyn Sorter> {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        parse_str(s).map_err(serde::de::Error::custom)
+        parse_str(&s).map_err(serde::de::Error::custom)
     }
 }
 
@@ -203,6 +204,13 @@ impl Display for SortPipeline {
     }
 }
 
-pub fn parse_str(sort_def: String) -> Result<Box<dyn Sorter>, String> {
-    self::parser::parse_expression(&sort_def)
+pub fn parse_str(sort_def: &str) -> Result<Box<dyn Sorter>, String> {
+    self::parser::parse_expression(sort_def)
+}
+
+impl FromStr for Box<dyn Sorter> {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        parse_str(s)
+    }
 }

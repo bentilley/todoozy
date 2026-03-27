@@ -1,10 +1,10 @@
 mod list;
 
 pub enum TodoCommand {
-    List(self::list::TodoListOptions),
+    List(list::TodoListOptions),
 }
 
-pub use self::list::{list, OutputFormat};
+pub use list::{list, OutputFormat};
 
 pub fn parse_cmd(mut parser: lexopt::Parser) -> Result<TodoCommand, lexopt::Error> {
     use lexopt::prelude::*;
