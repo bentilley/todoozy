@@ -30,7 +30,7 @@ impl<T> Default for Override<T> {
 //   - [x] table columns: ID, PRI, LOCATION (file:line), TITLE, PROJECTS
 //
 // - [ ] `tdz todo get <id>` - show full details for a specific todo
-//   - all metadata: id, priority, dates, projects, contexts, key:values
+//   - all metadata: id, priority, dates, tags, key:values
 //   - full description text
 //   - file location
 //
@@ -42,25 +42,16 @@ impl<T> Default for Override<T> {
 // This replaces --import-all flag (breaking change).
 // Default `tdz` (no subcommand) still launches TUI.
 
-// TODO #55 (D) 2026-03-22 Implement `tdz project` subcommands +cli
+// TODO #55 (D) 2026-03-22 Implement `tdz tag` subcommands +cli
 //
-// - `tdz project list` - list all +project tags found in todos
-//
-// This replaces --list-projects flag (breaking change).
-
-// TODO #56 (D) 2026-03-22 Implement `tdz context` subcommands +cli
-//
-// - `tdz context list` - list all `@context` tags found in todos
-//
-// This replaces --list-contexts flag (breaking change).
+// - `tdz tag list` - list all +tag tags found in todos
 
 // TODO #57 (D) 2026-03-22 Implement `tdz summary` command +cli
 //
 // Show summary statistics for the codebase:
 // - total todo count
 // - breakdown by priority
-// - breakdown by project
-// - breakdown by context
+// - breakdown by tag
 // - maybe: tracked vs untracked count
 
 // TODO #66 (D) 2026-03-22 Implement `tdz lint` command +cli +ids
@@ -128,8 +119,6 @@ Options:
     -E, --exclude <PATH<,PATH>>  Files or directories to exclude from search
     -f, --filter <FILTER>        Filter which todos to display
     -s, --sort <SORT>            How to sort the todos
-    --list-projects              List all projects
-    --list-contexts              List all contexts
     --import-all                 Import all todos
     --help                       Print help
     "#;
@@ -238,8 +227,6 @@ fn parse_tui_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
                     };
                 }
             }
-            Long("list-projects") => return Ok(Mode::Cli(Command::ListProjects)),
-            Long("list-contexts") => return Ok(Mode::Cli(Command::ListContexts)),
             Long("import-all") => return Ok(Mode::Cli(Command::ImportAll)),
             Long("help") => {
                 println!("{}", USAGE);
@@ -260,18 +247,6 @@ mod tests {
     fn no_args_returns_tui_mode() {
         let mode = parse_args(lexopt::Parser::from_iter(["tdz"])).unwrap();
         assert!(matches!(mode, Mode::TUI(_)));
-    }
-
-    #[test]
-    fn list_projects_returns_cli_mode() {
-        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "--list-projects"])).unwrap();
-        assert!(matches!(mode, Mode::Cli(Command::ListProjects)));
-    }
-
-    #[test]
-    fn list_contexts_returns_cli_mode() {
-        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "--list-contexts"])).unwrap();
-        assert!(matches!(mode, Mode::Cli(Command::ListContexts)));
     }
 
     #[test]

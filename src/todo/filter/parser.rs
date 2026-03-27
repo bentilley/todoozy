@@ -13,16 +13,14 @@ fn property(i: &str) -> IResult<&str, Property> {
     let (i, p) = alt((
         tag("file"),
         tag("priority"),
-        tag("project"),
-        tag("context"),
+        tag("tag"),
         tag("creation_date"),
         tag("completion_date"),
     ))(i)?;
     match p {
         "file" => Ok((i, Property::File)),
         "priority" => Ok((i, Property::Priority)),
-        "project" => Ok((i, Property::Project)),
-        "context" => Ok((i, Property::Context)),
+        "tag" => Ok((i, Property::Tag)),
         "creation_date" => Ok((i, Property::CreationDate)),
         "completion_date" => Ok((i, Property::CompletionDate)),
         _ => unreachable!(),
@@ -33,8 +31,7 @@ fn property(i: &str) -> IResult<&str, Property> {
 fn test_property() {
     assert_eq!(property("file"), Ok(("", Property::File)));
     assert_eq!(property("priority"), Ok(("", Property::Priority)));
-    assert_eq!(property("project"), Ok(("", Property::Project)));
-    assert_eq!(property("context"), Ok(("", Property::Context)));
+    assert_eq!(property("tag"), Ok(("", Property::Tag)));
     assert_eq!(property("creation_date"), Ok(("", Property::CreationDate)));
     assert_eq!(
         property("completion_date"),
@@ -87,22 +84,11 @@ fn property_filter(i: &str) -> IResult<&str, PropertyFilter> {
 #[test]
 fn test_property_filter() {
     assert_eq!(
-        property_filter("project=Test"),
+        property_filter("tag=Test"),
         Ok((
             "",
             PropertyFilter {
-                property: Property::Project,
-                relation: Relation::Equal,
-                value: "Test".to_owned()
-            }
-        ))
-    );
-    assert_eq!(
-        property_filter("context=Test"),
-        Ok((
-            "",
-            PropertyFilter {
-                property: Property::Context,
+                property: Property::Tag,
                 relation: Relation::Equal,
                 value: "Test".to_owned()
             }
@@ -152,18 +138,18 @@ fn term(i: &str) -> IResult<&str, Box<dyn Filter>> {
 
 #[test]
 fn test_term() {
-    let (i, f) = term("project=Test").expect("Failed to parse");
+    let (i, f) = term("tag=Test").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["Test".to_owned()])
+        .tags(vec!["Test".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
 
-    let (i, f) = term("project=Test and project=Else").expect("Failed to parse");
-    assert_eq!(i, " and project=Else");
+    let (i, f) = term("tag=Test and tag=Else").expect("Failed to parse");
+    assert_eq!(i, " and tag=Else");
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["Test".to_owned()])
+        .tags(vec!["Test".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
@@ -197,42 +183,42 @@ fn clause(i: &str) -> IResult<&str, Box<dyn Filter>> {
 
 #[test]
 fn test_clause() {
-    let (i, f) = clause("project=Test").expect("Failed to parse");
+    let (i, f) = clause("tag=Test").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["Test".to_owned()])
+        .tags(vec!["Test".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
 
-    let (i, f) = clause("not project=Test").expect("Failed to parse");
+    let (i, f) = clause("not tag=Test").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["Else".to_owned()])
+        .tags(vec!["Else".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
 
-    let (i, f) = clause("not (project=Test)").expect("Failed to parse");
+    let (i, f) = clause("not (tag=Test)").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["Else".to_owned()])
+        .tags(vec!["Else".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
 
-    let (i, f) = clause("not (project=Test and project=Else)").expect("Failed to parse");
+    let (i, f) = clause("not (tag=Test and tag=Else)").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["Test".to_owned()])
+        .tags(vec!["Test".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
 
-    let (i, f) = clause("not (project=Test or project=Else)").expect("Failed to parse");
+    let (i, f) = clause("not (tag=Test or tag=Else)").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["Test".to_owned()])
+        .tags(vec!["Test".to_owned()])
         .build()
         .unwrap();
     assert!(!f.filter(&todo));
@@ -250,10 +236,10 @@ fn disjunction(i: &str) -> IResult<&str, Box<dyn Filter>> {
 
 #[test]
 fn test_disjunction() {
-    let (i, f) = disjunction("project=p1 or project=p2").expect("Failed to parse");
+    let (i, f) = disjunction("tag=p1 or tag=p2").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p1".to_owned()])
+        .tags(vec!["p1".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
@@ -284,62 +270,62 @@ fn test_conjunction() {
         .unwrap();
     assert!(!f.filter(&todo));
 
-    let (i, f) = conjunction("project=p1 and project=p2").expect("Failed to parse");
+    let (i, f) = conjunction("tag=p1 and tag=p2").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p1".to_owned(), "p2".to_owned()])
+        .tags(vec!["p1".to_owned(), "p2".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p2".to_owned()])
+        .tags(vec!["p2".to_owned()])
         .build()
         .unwrap();
     assert!(!f.filter(&todo));
 
-    let (i, f) = conjunction("project=p1 or project=p2").expect("Failed to parse");
+    let (i, f) = conjunction("tag=p1 or tag=p2").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p1".to_owned()])
+        .tags(vec!["p1".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p2".to_owned()])
+        .tags(vec!["p2".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
     let todo = crate::todo::TodoBuilder::default().build().unwrap();
     assert!(!f.filter(&todo));
 
-    let (i, f) = conjunction("project=p1 and project=p2 or project=p3").expect("Failed to parse");
+    let (i, f) = conjunction("tag=p1 and tag=p2 or tag=p3").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p1".to_owned(), "p2".to_owned()])
+        .tags(vec!["p1".to_owned(), "p2".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p1".to_owned(), "p3".to_owned()])
+        .tags(vec!["p1".to_owned(), "p3".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p1".to_owned()])
+        .tags(vec!["p1".to_owned()])
         .build()
         .unwrap();
     assert!(!f.filter(&todo));
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p2".to_owned()])
+        .tags(vec!["p2".to_owned()])
         .build()
         .unwrap();
     assert!(!f.filter(&todo));
 
-    let (i, f) = conjunction("(project=A and project=B) and (project=C and project=D)")
+    let (i, f) = conjunction("(tag=A and tag=B) and (tag=C and tag=D)")
         .expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec![
+        .tags(vec![
             "A".to_owned(),
             "B".to_owned(),
             "C".to_owned(),
@@ -349,54 +335,54 @@ fn test_conjunction() {
         .unwrap();
     assert!(f.filter(&todo));
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["A".to_owned(), "B".to_owned(), "C".to_owned()])
+        .tags(vec!["A".to_owned(), "B".to_owned(), "C".to_owned()])
         .build()
         .unwrap();
     assert!(!f.filter(&todo));
 
-    let (i, f) = conjunction("(project=p1 and project=p2) or project=p3").expect("Failed to parse");
+    let (i, f) = conjunction("(tag=p1 and tag=p2) or tag=p3").expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p1".to_owned(), "p2".to_owned()])
+        .tags(vec!["p1".to_owned(), "p2".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p1".to_owned(), "p3".to_owned()])
+        .tags(vec!["p1".to_owned(), "p3".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p3".to_owned()])
+        .tags(vec!["p3".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p1".to_owned()])
+        .tags(vec!["p1".to_owned()])
         .build()
         .unwrap();
     assert!(!f.filter(&todo));
 
-    let (i, f) = conjunction("(project=p1 and (project=p2 or project=p3)) or project=p4")
+    let (i, f) = conjunction("(tag=p1 and (tag=p2 or tag=p3)) or tag=p4")
         .expect("Failed to parse");
     assert_eq!(i, "");
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p1".to_owned(), "p2".to_owned()])
+        .tags(vec!["p1".to_owned(), "p2".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p1".to_owned(), "p3".to_owned()])
+        .tags(vec!["p1".to_owned(), "p3".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p4".to_owned()])
+        .tags(vec!["p4".to_owned()])
         .build()
         .unwrap();
     assert!(f.filter(&todo));
     let todo = crate::todo::TodoBuilder::default()
-        .projects(vec!["p1".to_owned()])
+        .tags(vec!["p1".to_owned()])
         .build()
         .unwrap();
     assert!(!f.filter(&todo));

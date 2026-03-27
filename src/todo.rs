@@ -73,25 +73,6 @@ impl Metadata {
 // Recommendation: Option 2 initially, then Option 1 in a future major version.
 // Display VCS dates in UI/CLI, but don't break existing TODOs that have dates.
 
-// TODO #69 (E) 2026-03-22 Consolidate +project and @context into +tag +model
-//
-// The distinction between +project and @context doesn't add much value in a
-// repo-specific context. @context was inherited from todo.txt where it made
-// sense for life-wide task lists ("@home", "@work"), but in a codebase the
-// context is always "this repo."
-//
-// Proposal: Simplify to two primitives:
-// - `+tag` (boolean tag, replaces both +project and @context)
-// - `key:value` (arbitrary string metadata)
-//
-// This is a breaking change. Migration path:
-// 1. Parse both syntaxes, normalize to tags internally
-// 2. Deprecation warnings for @context usage
-// 3. Future version removes @context parsing
-//
-// Leaves room to repurpose @syntax later if a compelling use case emerges
-// (e.g., @status was considered but deferred - metadata handles it fine).
-
 impl FromIterator<(std::string::String, std::string::String)> for Metadata {
     fn from_iter<I: IntoIterator<Item = (std::string::String, std::string::String)>>(
         iter: I,
@@ -132,9 +113,7 @@ pub struct Todo {
     pub description: Option<String>,
 
     #[builder(default)]
-    pub projects: Vec<String>,
-    #[builder(default)]
-    pub contexts: Vec<String>,
+    pub tags: Vec<String>,
 
     #[builder(default)]
     pub metadata: Metadata,
@@ -167,29 +146,18 @@ impl Todo {
     }
 
     pub fn display_title(&self) -> String {
-        let projects: String = self
-            .projects
+        let tags: String = self
+            .tags
             .iter()
-            .map(|p| format!("+{}", p))
+            .map(|t| format!("+{}", t))
             .collect::<Vec<_>>()
             .join(" ");
 
-        let contexts: String = self
-            .contexts
-            .iter()
-            .map(|c| format!("@{}", c))
-            .collect::<Vec<_>>()
-            .join(" ");
-
-        format!("{} {} {}", self.title, projects, contexts)
+        format!("{} {}", self.title, tags).trim_end().to_string()
     }
 
-    pub fn has_project(&self, project: &str) -> bool {
-        self.projects.iter().any(|p| p == project)
-    }
-
-    pub fn has_context(&self, context: &str) -> bool {
-        self.contexts.iter().any(|c| c == context)
+    pub fn has_tag(&self, tag: &str) -> bool {
+        self.tags.iter().any(|t| t == tag)
     }
 
     pub fn write_id(&self) -> Result<(), Box<dyn std::error::Error>> {

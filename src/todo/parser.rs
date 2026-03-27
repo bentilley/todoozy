@@ -153,55 +153,28 @@ fn test_date() {
 
 #[derive(Debug, PartialEq)]
 enum Word<'a> {
-    Context(&'a str),
-    Project(&'a str),
+    Tag(&'a str),
     Metadata((&'a str, &'a str)),
     Plain(&'a str),
     Raw(&'a str),
 }
 
-fn project(i: &str) -> IResult<&str, Word<'_>, Error<&str>> {
+fn todo_tag(i: &str) -> IResult<&str, Word<'_>, Error<&str>> {
     let (i, _) = space0(i)?;
-    let (i, p) = preceded(tag("+"), alphanumeric1)(i)?;
-    Ok((i, Word::Project(p)))
+    let (i, t) = preceded(tag("+"), alphanumeric1)(i)?;
+    Ok((i, Word::Tag(t)))
 }
 
 #[test]
-fn test_project() {
-    assert_eq!(project("+test"), Ok(("", Word::Project("test"))));
+fn test_tag_parser() {
+    assert_eq!(todo_tag("+test"), Ok(("", Word::Tag("test"))));
     assert_eq!(
-        project("+test something"),
-        Ok((" something", Word::Project("test")))
+        todo_tag("+test something"),
+        Ok((" something", Word::Tag("test")))
     );
     assert_eq!(
-        project("test"),
+        todo_tag("test"),
         Err(nom::Err::Error(Error::Nom("test", ErrorKind::Tag)))
-    );
-}
-
-fn context(i: &str) -> IResult<&str, Word<'_>, Error<&str>> {
-    let (i, _) = space0(i)?;
-    let (i, c) = preceded(tag("@"), alphanumeric1)(i)?;
-    Ok((i, Word::Context(c)))
-}
-
-#[test]
-fn test_context() {
-    assert_eq!(context("@test"), Ok(("", Word::Context("test"))));
-    assert_eq!(
-        context("@test something"),
-        Ok((" something", Word::Context("test")))
-    );
-    assert_eq!(
-        context("test"),
-        Err(nom::Err::Error(Error::Nom("test", ErrorKind::Tag)))
-    );
-    assert_eq!(
-        context("hello@example.com"),
-        Err(nom::Err::Error(Error::Nom(
-            "hello@example.com",
-            ErrorKind::Tag
-        )))
     );
 }
 
@@ -298,29 +271,17 @@ fn test_plain() {
 }
 
 fn word(i: &str) -> IResult<&str, Word<'_>, Error<&str>> {
-    alt((raw_string, context, project, metadata, plain))(i)
+    alt((raw_string, todo_tag, metadata, plain))(i)
 }
 
 #[test]
 fn test_word() {
-    assert_eq!(word("word +project"), Ok((" +project", Word::Plain("word"))));
-    assert_eq!(
-        word(" word @context"),
-        Ok((" @context", Word::Plain(" word")))
-    );
+    assert_eq!(word("word +tag"), Ok((" +tag", Word::Plain("word"))));
+    assert_eq!(word(" word +tag"), Ok((" +tag", Word::Plain(" word"))));
     assert_eq!(word("Nospace"), Ok(("", Word::Plain("Nospace"))));
-    assert_eq!(word("+project"), Ok(("", Word::Project("project"))));
-    assert_eq!(word(" +project"), Ok(("", Word::Project("project"))));
-    assert_eq!(word("@context"), Ok(("", Word::Context("context"))));
-    assert_eq!(word(" @context"), Ok(("", Word::Context("context"))));
-    assert_eq!(
-        word("+project word"),
-        Ok((" word", Word::Project("project")))
-    );
-    assert_eq!(
-        word("@context word"),
-        Ok((" word", Word::Context("context")))
-    );
+    assert_eq!(word("+tag"), Ok(("", Word::Tag("tag"))));
+    assert_eq!(word(" +tag"), Ok(("", Word::Tag("tag"))));
+    assert_eq!(word("+tag word"), Ok((" word", Word::Tag("tag"))));
     assert_eq!(
         word("key:value word"),
         Ok((" word", Word::Metadata(("key", "value"))))
@@ -344,14 +305,14 @@ fn test_text() {
         ))
     );
     assert_eq!(
-        text("Hello, World! +project @context"),
+        text("Hello, World! +tag1 +tag2"),
         Ok((
             "",
             vec![
                 Word::Plain("Hello,"),
                 Word::Plain(" World!"),
-                Word::Project("project"),
-                Word::Context("context"),
+                Word::Tag("tag1"),
+                Word::Tag("tag2"),
             ]
         ))
     );
@@ -384,14 +345,14 @@ fn text_line(i: &str) -> IResult<&str, Vec<Word<'_>>, Error<&str>> {
 #[test]
 fn test_text_line() {
     assert_eq!(
-        text_line("Hello, World! +project @context\n\n"),
+        text_line("Hello, World! +tag1 +tag2\n\n"),
         Ok((
             "",
             vec![
                 Word::Plain("Hello,"),
                 Word::Plain(" World!"),
-                Word::Project("project"),
-                Word::Context("context"),
+                Word::Tag("tag1"),
+                Word::Tag("tag2"),
                 Word::Plain("\n\n"),
             ]
         ))
@@ -453,15 +414,15 @@ fn text_multiline(i: &str) -> IResult<&str, Vec<Vec<Word<'_>>>, Error<&str>> {
 #[test]
 fn test_text_multiline() {
     assert_eq!(
-        text_multiline("Hello, World! +project @context\n\nAnother line. meta:data"),
+        text_multiline("Hello, World! +tag1 +tag2\n\nAnother line. meta:data"),
         Ok((
             "",
             vec![
                 vec![
                     Word::Plain("Hello,"),
                     Word::Plain(" World!"),
-                    Word::Project("project"),
-                    Word::Context("context"),
+                    Word::Tag("tag1"),
+                    Word::Tag("tag2"),
                     Word::Plain("\n\n"),
                 ],
                 vec![
@@ -599,16 +560,14 @@ pub fn todo(s: &str) -> IResult<&str, Todo, Error<&str>> {
     let (i, text) = text(i)?;
 
     let mut title = String::new();
-    let mut projects: Vec<String> = Vec::new();
-    let mut contexts: Vec<String> = Vec::new();
+    let mut tags: Vec<String> = Vec::new();
     let mut metadata = Metadata::new();
 
     for word in text {
         match word {
             Word::Plain(p) => title.push_str(p),
             Word::Raw(r) => title.push_str(r),
-            Word::Project(p) => projects.push(p.to_owned()),
-            Word::Context(c) => contexts.push(c.to_owned()),
+            Word::Tag(t) => tags.push(t.to_owned()),
             Word::Metadata((k, v)) => {
                 // Metadata keys starting with an underscore are reserved for internal use.
                 if k.starts_with("_") {
@@ -636,8 +595,7 @@ pub fn todo(s: &str) -> IResult<&str, Todo, Error<&str>> {
                     match word {
                         Word::Plain(p) => description.push_str(p),
                         Word::Raw(r) => description.push_str(r),
-                        Word::Project(p) => projects.push(p.to_owned()),
-                        Word::Context(c) => contexts.push(c.to_owned()),
+                        Word::Tag(t) => tags.push(t.to_owned()),
                         Word::Metadata((k, v)) => {
                             // Metadata keys starting with an underscore are reserved for internal use.
                             if k.starts_with("_") {
@@ -659,12 +617,9 @@ pub fn todo(s: &str) -> IResult<&str, Todo, Error<&str>> {
         None => None,
     };
 
-    // Deduplicate projects and contexts while preserving insertion order
+    // Deduplicate tags while preserving insertion order
     let mut seen = std::collections::HashSet::new();
-    projects.retain(|p| seen.insert(p.clone()));
-
-    let mut seen = std::collections::HashSet::new();
-    contexts.retain(|c| seen.insert(c.clone()));
+    tags.retain(|t| seen.insert(t.clone()));
 
     Ok((
         i,
@@ -675,8 +630,7 @@ pub fn todo(s: &str) -> IResult<&str, Todo, Error<&str>> {
             .creation_date(creation_date)
             .title(title.trim().to_string())
             .description(description)
-            .projects(projects)
-            .contexts(contexts)
+            .tags(tags)
             .metadata(metadata)
             .build()
             .unwrap(),
@@ -719,14 +673,13 @@ fn test_todo() {
         ))
     );
     assert_eq!(
-        todo("(A) Test todo +project @context key:value"),
+        todo("(A) Test todo +tag1 +tag2 key:value"),
         Ok((
             "",
             TodoBuilder::default()
                 .title("Test todo".to_string())
                 .priority(Some('A'))
-                .projects(vec!["project".to_string()])
-                .contexts(vec!["context".to_string()])
+                .tags(vec!["tag1".to_string(), "tag2".to_string()])
                 .metadata(
                     vec![("key".to_string(), "value".to_string())]
                         .into_iter()
@@ -738,19 +691,18 @@ fn test_todo() {
     );
     assert_eq!(
         todo(
-            r#"(A) 2024-08-11 Test todo +project @context
+            r#"(A) 2024-08-11 Test todo +tag1
 
 This is a test todo with a description. more:data
 
-With multiple paragraphs, and some paragraphs that contain projects. +extra"#
+With multiple paragraphs, and some paragraphs that contain tags. +extra"#
         ),
         Ok((
             "",
             TodoBuilder::default()
                 .title("Test todo".to_string())
                 .priority(Some('A'))
-                .projects(vec!["project".to_string(), "extra".to_string()])
-                .contexts(vec!["context".to_string()])
+                .tags(vec!["tag1".to_string(), "extra".to_string()])
                 .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 8, 11))
                 .metadata(
                     vec![("more".to_string(), "data".to_string())]
@@ -758,7 +710,7 @@ With multiple paragraphs, and some paragraphs that contain projects. +extra"#
                         .collect()
                 )
                 .description(Some(
-                    "This is a test todo with a description.\n\nWith multiple paragraphs, and some paragraphs that contain projects."
+                    "This is a test todo with a description.\n\nWith multiple paragraphs, and some paragraphs that contain tags."
                         .to_string()
                 ))
                 .build()
@@ -767,7 +719,7 @@ With multiple paragraphs, and some paragraphs that contain projects. +extra"#
     );
     assert_eq!(
         todo(
-            r#"(A) 2024-08-14 2024-08-11 Test todo +project @context
+            r#"(A) 2024-08-14 2024-08-11 Test todo +tag1
 
 - Can it handle indented lines?
   - Yes, it can. +extra"#
@@ -777,8 +729,7 @@ With multiple paragraphs, and some paragraphs that contain projects. +extra"#
             TodoBuilder::default()
                 .title("Test todo".to_string())
                 .priority(Some('A'))
-                .projects(vec!["project".to_string(), "extra".to_string()])
-                .contexts(vec!["context".to_string()])
+                .tags(vec!["tag1".to_string(), "extra".to_string()])
                 .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 8, 11))
                 .completion_date(chrono::NaiveDate::from_ymd_opt(2024, 8, 14))
                 .description(Some(
@@ -801,7 +752,7 @@ it contains `:` characters which immediately flip the parser into metadata munch
                 .title("Meta data parsing interferes with code in todos".to_string())
                 .id(Some(TodoIdentifier::Primary(3)))
                 .priority(Some('C'))
-                .projects(vec!["bug".to_string()])
+                .tags(vec!["bug".to_string()])
                 .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 9, 6))
                 .description(Some(
                     "This code needs to be in some kind of escaped string so that it can be parsed correctly because\nit contains `:` characters which immediately flip the parser into metadata munching.".to_string()
@@ -828,7 +779,7 @@ Span::styled(
                 .title("Meta data parsing interferes with code in todos".to_string())
                 .id(Some(TodoIdentifier::Primary(3)))
                 .priority(Some('C'))
-                .projects(vec!["bug".to_string()])
+                .tags(vec!["bug".to_string()])
                 .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 9, 6))
                 .description(Some(
                     r##"Span::styled(
@@ -862,7 +813,7 @@ a case by case basis feels impossible.
                 .title("Meta data parsing interferes with code in todos".to_string())
                 .id(Some(TodoIdentifier::Primary(3)))
                 .priority(Some('C'))
-                .projects(vec!["bug".to_string()])
+                .tags(vec!["bug".to_string()])
                 .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 9, 6))
                 .description(Some(
                     r##"Span::styled(
@@ -881,16 +832,16 @@ a case by case basis feels impossible."##
 }
 
 #[test]
-fn test_todo_duplicate_projects_in_title_deduplicated() {
-    // +project appears twice in title
-    let result = todo("Test todo +project +project +other");
+fn test_todo_duplicate_tags_in_title_deduplicated() {
+    // +tag appears twice in title
+    let result = todo("Test todo +tag +tag +other");
     assert_eq!(
         result,
         Ok((
             "",
             TodoBuilder::default()
                 .title("Test todo".to_string())
-                .projects(vec!["project".to_string(), "other".to_string()])
+                .tags(vec!["tag".to_string(), "other".to_string()])
                 .build()
                 .unwrap()
         ))
@@ -898,16 +849,16 @@ fn test_todo_duplicate_projects_in_title_deduplicated() {
 }
 
 #[test]
-fn test_todo_duplicate_projects_in_description_deduplicated() {
-    // +project appears twice in description only
-    let result = todo("Test todo\n\nDescription +project and +project again");
+fn test_todo_duplicate_tags_in_description_deduplicated() {
+    // +tag appears twice in description only
+    let result = todo("Test todo\n\nDescription +tag and +tag again");
     assert_eq!(
         result,
         Ok((
             "",
             TodoBuilder::default()
                 .title("Test todo".to_string())
-                .projects(vec!["project".to_string()])
+                .tags(vec!["tag".to_string()])
                 .description(Some("Description and again".to_string()))
                 .build()
                 .unwrap()
@@ -916,69 +867,16 @@ fn test_todo_duplicate_projects_in_description_deduplicated() {
 }
 
 #[test]
-fn test_todo_duplicate_projects_across_title_and_description_deduplicated() {
-    // +project appears in title and again in description
-    let result = todo("Test todo +project\n\nDescription with +project again");
+fn test_todo_duplicate_tags_across_title_and_description_deduplicated() {
+    // +tag appears in title and again in description
+    let result = todo("Test todo +tag\n\nDescription with +tag again");
     assert_eq!(
         result,
         Ok((
             "",
             TodoBuilder::default()
                 .title("Test todo".to_string())
-                .projects(vec!["project".to_string()])
-                .description(Some("Description with again".to_string()))
-                .build()
-                .unwrap()
-        ))
-    );
-}
-
-#[test]
-fn test_todo_duplicate_contexts_in_title_deduplicated() {
-    // @context appears twice in title
-    let result = todo("Test todo @context @context @other");
-    assert_eq!(
-        result,
-        Ok((
-            "",
-            TodoBuilder::default()
-                .title("Test todo".to_string())
-                .contexts(vec!["context".to_string(), "other".to_string()])
-                .build()
-                .unwrap()
-        ))
-    );
-}
-
-#[test]
-fn test_todo_duplicate_contexts_in_description_deduplicated() {
-    // @context appears twice in description only
-    let result = todo("Test todo\n\nDescription @context and @context again");
-    assert_eq!(
-        result,
-        Ok((
-            "",
-            TodoBuilder::default()
-                .title("Test todo".to_string())
-                .contexts(vec!["context".to_string()])
-                .description(Some("Description and again".to_string()))
-                .build()
-                .unwrap()
-        ))
-    );
-}
-
-#[test]
-fn test_todo_duplicate_contexts_across_title_and_description_deduplicated() {
-    // @context appears in title and again in description
-    let result = todo("Test todo @context\n\nDescription with @context again");
-    assert_eq!(
-        result,
-        Ok((
-            "",
-            TodoBuilder::default()
-                .title("Test todo".to_string())
-                .contexts(vec!["context".to_string()])
+                .tags(vec!["tag".to_string()])
                 .description(Some("Description with again".to_string()))
                 .build()
                 .unwrap()
@@ -989,13 +887,13 @@ fn test_todo_duplicate_contexts_across_title_and_description_deduplicated() {
 #[test]
 fn test_todo_reference() {
     assert_eq!(
-        todo("&43 Reference title +project"),
+        todo("&43 Reference title +tag"),
         Ok((
             "",
             TodoBuilder::default()
                 .id(Some(TodoIdentifier::Reference(43)))
                 .title("Reference title".to_string())
-                .projects(vec!["project".to_string()])
+                .tags(vec!["tag".to_string()])
                 .build()
                 .unwrap()
         ))

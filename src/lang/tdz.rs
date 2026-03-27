@@ -5,7 +5,7 @@
 // - Batching TODOs in one place (e.g., `next-sprint.tdz`)
 //
 // Format:
-//   # TODO (A) Title here +project `@context` key:value
+//   # TODO (A) Title here +tag key:value
 //
 //   Description spans multiple lines and paragraphs until the next
 //   `# TODO` or end of file.
@@ -16,7 +16,7 @@
 //
 // Rules:
 // - `# TODO ...` starts a new TODO (markdown H1 style)
-// - Full TODO syntax supported: priority, dates, projects, contexts, metadata
+// - Full TODO syntax supported: priority, dates, tags, metadata
 // - Description = everything until next `# TODO` or EOF
 // - Trailing whitespace trimmed (extra blank lines between TODOs ignored)
 // - `## TODO` / `### TODO` reserved for future sub-task support (not parsed yet)

@@ -612,20 +612,12 @@ impl App {
             location.push_str(&" ".repeat(max_path_width - location.len()));
         }
 
-        let projects: Vec<Span> = todo_item
+        let tags: Vec<Span> = todo_item
             .todo
             .borrow()
-            .projects
+            .tags
             .iter()
-            .map(|p| Span::styled(format!(" +{}", p), Style::new().fg(Color::Magenta)))
-            .collect();
-
-        let contexts: Vec<Span> = todo_item
-            .todo
-            .borrow()
-            .contexts
-            .iter()
-            .map(|p| Span::styled(format!(" @{}", p), Style::new().fg(Color::Cyan)))
+            .map(|t| Span::styled(format!(" +{}", t), Style::new().fg(Color::Magenta)))
             .collect();
 
         let line = Line::from(
@@ -668,8 +660,7 @@ impl App {
                 ),
             ]
             .into_iter()
-            .chain(projects.into_iter())
-            .chain(contexts.into_iter())
+            .chain(tags.into_iter())
             .collect::<Vec<Span>>(),
         );
 

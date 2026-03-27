@@ -51,8 +51,7 @@ struct TodoOutput {
     description: Option<String>,
     file: Option<String>,
     line_number: Option<usize>,
-    projects: Vec<String>,
-    contexts: Vec<String>,
+    tags: Vec<String>,
 }
 
 impl From<&todoozy::todo::Todo> for TodoOutput {
@@ -67,8 +66,7 @@ impl From<&todoozy::todo::Todo> for TodoOutput {
             description: todo.description.clone(),
             file: todo.file.clone(),
             line_number: todo.line_number,
-            projects: todo.projects.clone(),
-            contexts: todo.contexts.clone(),
+            tags: todo.tags.clone(),
         }
     }
 }

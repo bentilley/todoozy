@@ -8,7 +8,7 @@ mod cli;
 // somewhere where we would expect them to pick up the slack, rather that making this a full
 // project management software stack.
 //
-// A few useful tools like listing projects and contexts feels fine, but slicing and dicing the
+// A few useful tools like listing tags feels fine, but slicing and dicing the
 // todo metadata feels like too much.
 fn main() -> Result<(), Box<dyn error::Error>> {
     let mut config = cli::config::Config::load_config()?;
@@ -18,8 +18,6 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     use cli::Command::*;
     match cli::args::parse_args(lexopt::Parser::from_env()) {
         Ok(mode) => match mode {
-            Cli(ListProjects) => Ok(cli::list_projects(&config.exclude)),
-            Cli(ListContexts) => Ok(cli::list_contexts(&config.exclude)),
             Cli(ImportAll) => Ok(cli::import_all(&mut config)?),
             Cli(Todo(List(ref opts))) => Ok(cli::todo::list(&config, opts)),
             TUI(mut args) => {

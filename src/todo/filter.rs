@@ -63,8 +63,7 @@ fn test_deserialize_json_filter() {
 enum Property {
     File,
     Priority,
-    Project,
-    Context,
+    Tag,
     CreationDate,
     CompletionDate,
 }
@@ -74,8 +73,7 @@ impl Display for Property {
         match self {
             Property::File => write!(f, "file"),
             Property::Priority => write!(f, "priority"),
-            Property::Project => write!(f, "project"),
-            Property::Context => write!(f, "context"),
+            Property::Tag => write!(f, "tag"),
             Property::CreationDate => write!(f, "creation_date"),
             Property::CompletionDate => write!(f, "completion_date"),
         }
@@ -140,14 +138,9 @@ impl Filter for PropertyFilter {
                     Relation::LessEqual => priority >= value,
                 }
             }
-            Property::Project => match self.relation {
-                Relation::Equal => todo.has_project(&self.value),
-                Relation::NotEqual => !todo.has_project(&self.value),
-                _ => false,
-            },
-            Property::Context => match self.relation {
-                Relation::Equal => todo.has_context(&self.value),
-                Relation::NotEqual => !todo.has_context(&self.value),
+            Property::Tag => match self.relation {
+                Relation::Equal => todo.has_tag(&self.value),
+                Relation::NotEqual => !todo.has_tag(&self.value),
                 _ => false,
             },
             Property::CreationDate => {
