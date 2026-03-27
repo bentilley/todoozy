@@ -558,6 +558,20 @@ mod tests {
     }
 
     #[test]
+    fn todo_get_format_before_id() {
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz", "todo", "get", "--format", "json", "54",
+        ]))
+        .unwrap();
+        if let Mode::Cli(Command::Todo(TodoCommand::Get(opts))) = mode {
+            assert_eq!(opts.id, 54);
+            assert_eq!(opts.format, OutputFormat::Json);
+        } else {
+            panic!("expected TodoCommand::Get");
+        }
+    }
+
+    #[test]
     fn todo_get_missing_id_returns_error() {
         let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "get"]));
         assert!(result.is_err());

@@ -10,23 +10,22 @@ pub struct TodoGetOptions {
 pub fn parse_opts(mut parser: lexopt::Parser) -> Result<TodoGetOptions, lexopt::Error> {
     use lexopt::prelude::*;
 
-    // First positional argument is the required ID
-    let id = match parser.next()? {
-        Some(Value(val)) => val.parse().map_err(|_| {
-            lexopt::Error::Custom(format!("invalid ID '{}'", val.to_string_lossy()).into())
-        })?,
-        Some(arg) => return Err(arg.unexpected()),
-        None => return Err(lexopt::Error::Custom("missing ID argument".into())),
-    };
-
+    let mut id: Option<u32> = None;
     let mut format = OutputFormat::Table;
 
     while let Some(arg) = parser.next()? {
         match arg {
             Long("format") => format = parser.value()?.parse()?,
+            Value(val) if id.is_none() => {
+                id = Some(val.parse().map_err(|_| {
+                    lexopt::Error::Custom(format!("invalid ID '{}'", val.to_string_lossy()).into())
+                })?);
+            }
             _ => return Err(arg.unexpected()),
         }
     }
+
+    let id = id.ok_or_else(|| lexopt::Error::Custom("missing ID argument".into()))?;
 
     Ok(TodoGetOptions { id, format })
 }
@@ -40,9 +39,9 @@ pub fn get(conf: &config::Config, opts: &TodoGetOptions) {
         }
     };
 
-    let todo = todos.iter().find(|t| {
-        matches!(&t.id, Some(TodoIdentifier::Primary(id)) if *id == opts.id)
-    });
+    let todo = todos
+        .iter()
+        .find(|t| matches!(&t.id, Some(TodoIdentifier::Primary(id)) if *id == opts.id));
 
     match todo {
         Some(todo) => match opts.format {
