@@ -1,3 +1,4 @@
+use super::tag;
 use super::todo;
 use crate::cli::Command;
 use todoozy::todo::filter;
@@ -42,10 +43,6 @@ impl<T> Default for Override<T> {
 //
 // This replaces --import-all flag (breaking change).
 // Default `tdz` (no subcommand) still launches TUI.
-
-// TODO #55 (D) 2026-03-22 Implement `tdz tag` subcommands +cli
-//
-// - `tdz tag list` - list all +tag tags found in todos
 
 // TODO #57 (D) 2026-03-22 Implement `tdz summary` command +cli
 //
@@ -133,6 +130,7 @@ pub fn parse_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
     use Command::*;
     use Mode::*;
     match detect_subcommand(&mut parser) {
+        Some(cmd) if cmd == "tag" => Ok(Cli(Tag(tag::parse_cmd(parser)?))),
         Some(cmd) if cmd == "todo" => Ok(Cli(Todo(todo::parse_cmd(parser)?))),
         Some(other) => {
             eprintln!("error: unknown subcommand '{}'", other);
@@ -246,6 +244,7 @@ fn parse_tui_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
 
 #[cfg(test)]
 mod tests {
+    use super::tag::TagCommand;
     use super::todo::{TodoCommand, OutputFormat};
     use super::*;
 
@@ -581,5 +580,107 @@ mod tests {
     fn todo_get_invalid_id_returns_error() {
         let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "get", "abc"]));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn tag_list_returns_cli_mode() {
+        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "tag", "list"])).unwrap();
+        assert!(matches!(
+            mode,
+            Mode::Cli(Command::Tag(TagCommand::List(_)))
+        ));
+    }
+
+    #[test]
+    fn tag_list_limit_long_flag() {
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz", "tag", "list", "--limit", "10",
+        ]))
+        .unwrap();
+        if let Mode::Cli(Command::Tag(TagCommand::List(opts))) = mode {
+            assert_eq!(opts.limit, Some(10));
+        } else {
+            panic!("expected TagCommand::List");
+        }
+    }
+
+    #[test]
+    fn tag_list_limit_short_flag() {
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz", "tag", "list", "-n", "5",
+        ]))
+        .unwrap();
+        if let Mode::Cli(Command::Tag(TagCommand::List(opts))) = mode {
+            assert_eq!(opts.limit, Some(5));
+        } else {
+            panic!("expected TagCommand::List");
+        }
+    }
+
+    #[test]
+    fn tag_list_format_json() {
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz", "tag", "list", "--format", "json",
+        ]))
+        .unwrap();
+        if let Mode::Cli(Command::Tag(TagCommand::List(opts))) = mode {
+            assert_eq!(format!("{:?}", opts.format), "Json");
+        } else {
+            panic!("expected TagCommand::List");
+        }
+    }
+
+    #[test]
+    fn tag_list_format_table() {
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz", "tag", "list", "--format", "table",
+        ]))
+        .unwrap();
+        if let Mode::Cli(Command::Tag(TagCommand::List(opts))) = mode {
+            assert_eq!(format!("{:?}", opts.format), "Table");
+        } else {
+            panic!("expected TagCommand::List");
+        }
+    }
+
+    #[test]
+    fn tag_list_sort_name() {
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz", "tag", "list", "--sort", "name",
+        ]))
+        .unwrap();
+        if let Mode::Cli(Command::Tag(TagCommand::List(opts))) = mode {
+            assert_eq!(format!("{:?}", opts.sort), "Name");
+        } else {
+            panic!("expected TagCommand::List");
+        }
+    }
+
+    #[test]
+    fn tag_list_sort_count() {
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz", "tag", "list", "--sort", "count",
+        ]))
+        .unwrap();
+        if let Mode::Cli(Command::Tag(TagCommand::List(opts))) = mode {
+            assert_eq!(format!("{:?}", opts.sort), "Count");
+        } else {
+            panic!("expected TagCommand::List");
+        }
+    }
+
+    #[test]
+    fn tag_list_all_flags() {
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz", "tag", "list", "--limit", "5", "--format", "json", "--sort", "count",
+        ]))
+        .unwrap();
+        if let Mode::Cli(Command::Tag(TagCommand::List(opts))) = mode {
+            assert_eq!(opts.limit, Some(5));
+            assert_eq!(format!("{:?}", opts.format), "Json");
+            assert_eq!(format!("{:?}", opts.sort), "Count");
+        } else {
+            panic!("expected TagCommand::List");
+        }
     }
 }

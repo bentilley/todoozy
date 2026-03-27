@@ -14,13 +14,15 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     let mut config = cli::config::Config::load_config()?;
 
     use cli::args::Mode::*;
-    use cli::todo::TodoCommand::*;
+    use cli::tag::TagCommand;
+    use cli::todo::TodoCommand;
     use cli::Command::*;
     match cli::args::parse_args(lexopt::Parser::from_env()) {
         Ok(mode) => match mode {
             Cli(ImportAll) => Ok(cli::import_all(&mut config)?),
-            Cli(Todo(List(ref opts))) => Ok(cli::todo::list(&config, opts)),
-            Cli(Todo(Get(ref opts))) => Ok(cli::todo::get(&config, opts)),
+            Cli(Todo(TodoCommand::List(ref opts))) => Ok(cli::todo::list(&config, opts)),
+            Cli(Todo(TodoCommand::Get(ref opts))) => Ok(cli::todo::get(&config, opts)),
+            Cli(Tag(TagCommand::List(ref opts))) => Ok(cli::tag::list(&config, opts)),
             TUI(mut args) => {
                 args.apply(&mut config);
                 cli::tui::run(config)
