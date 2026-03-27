@@ -14,14 +14,14 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     let mut config = cli::config::Config::load_config()?;
 
     use cli::args::Mode::*;
+    use cli::todo::TodoCommand::*;
     use cli::Command::*;
-    use cli::TodoCommand::*;
     match cli::args::parse_args(lexopt::Parser::from_env()) {
         Ok(mode) => match mode {
             Cli(ListProjects) => Ok(cli::list_projects(&config.exclude)),
             Cli(ListContexts) => Ok(cli::list_contexts(&config.exclude)),
             Cli(ImportAll) => Ok(cli::import_all(&mut config)?),
-            Cli(Todo(List(ref opts))) => Ok(cli::todo_list(&config, opts)),
+            Cli(Todo(List(ref opts))) => Ok(cli::todo::list(&config, opts)),
             TUI(mut args) => {
                 args.apply(&mut config);
                 cli::tui::run(config)

@@ -457,7 +457,7 @@ impl App {
             .todo_list
             .items
             .iter()
-            .map(|t| crate::cli::display::truncate_path(&t.todo.borrow().display_location_start()))
+            .map(|t| super::display::truncate_path(&t.todo.borrow().display_location_start()))
             .collect();
         let max_path_width = short_paths.iter().map(|s| s.len()).max().unwrap_or(0);
         let max_id = self
@@ -470,7 +470,7 @@ impl App {
             })
             .max()
             .unwrap_or(0);
-        let max_id_digits = crate::cli::display::num_digits(max_id);
+        let max_id_digits = super::display::num_digits(max_id);
 
         let items: Vec<ListItem> = self
             .todo_list
@@ -605,8 +605,9 @@ impl App {
         max_id_digits: u32,
         max_path_width: usize,
     ) -> ListItem<'a> {
-        let mut location =
-            crate::cli::display::truncate_path(todo_item.todo.borrow().display_location_start().as_str());
+        let mut location = super::display::truncate_path(
+            todo_item.todo.borrow().display_location_start().as_str(),
+        );
         if location.len() < max_path_width {
             location.push_str(&" ".repeat(max_path_width - location.len()));
         }

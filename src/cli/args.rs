@@ -1,4 +1,5 @@
-use crate::cli::{Command, OutputFormat, TodoCommand, TodoListOptions};
+use super::todo;
+use crate::cli::Command;
 use todoozy::todo::filter;
 use todoozy::todo::sort;
 
@@ -164,18 +165,39 @@ Options:
     "#;
 
 pub fn parse_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
+    match detect_subcommand(&mut parser) {
+        Some(cmd) if cmd == "todo" => Ok(Mode::Cli(Command::Todo(todo::parse_cmd(parser)?))),
+        Some(other) => {
+            eprintln!("error: unknown subcommand '{}'", other);
+            std::process::exit(1);
+        }
+        None => parse_tui_args(parser),
+    }
+}
+
+/// Peeks at the first argument to see if it's a subcommand (positional, not a flag).
+/// If it is, consumes it and returns the subcommand name.
+/// If it's a flag or there are no args, returns None without consuming anything.
+fn detect_subcommand(parser: &mut lexopt::Parser) -> Option<String> {
+    let mut raw = parser.try_raw_args()?;
+    let arg = raw.peek()?;
+
+    // If it starts with '-', it's a flag, not a subcommand
+    if arg.to_string_lossy().starts_with('-') {
+        return None;
+    }
+
+    // It's a subcommand - consume it and return
+    let cmd = arg.to_string_lossy().into_owned();
+    raw.next(); // consume the argument
+    Some(cmd)
+}
+
+fn parse_tui_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
     use lexopt::prelude::*;
-
     let mut args = Args::new();
-    let mut subcommand: Option<String> = None;
-
     while let Some(arg) = parser.next()? {
         match arg {
-            Value(val) if subcommand.is_none() => {
-                subcommand = Some(val.string()?);
-                break;
-            }
-
             // TODO #7 (Z) 2024-08-05 Implement a .tdzignore file +idea
             //
             // This would allow users to specify a list of directories or files to exclude without
@@ -188,7 +210,6 @@ pub fn parse_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
                 args.exclude
                     .append(&mut e.split(',').map(String::from).collect());
             }
-
             Short('f') | Long("filter") => {
                 let value: String = parser.value()?.parse()?;
                 if value.is_empty() {
@@ -203,7 +224,6 @@ pub fn parse_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
                     };
                 }
             }
-
             Short('s') | Long("sort") => {
                 let value: String = parser.value()?.parse()?;
                 if value.is_empty() {
@@ -218,11 +238,9 @@ pub fn parse_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
                     };
                 }
             }
-
             Long("list-projects") => return Ok(Mode::Cli(Command::ListProjects)),
             Long("list-contexts") => return Ok(Mode::Cli(Command::ListContexts)),
             Long("import-all") => return Ok(Mode::Cli(Command::ImportAll)),
-
             Long("help") => {
                 println!("{}", USAGE);
                 std::process::exit(0);
@@ -230,83 +248,12 @@ pub fn parse_args(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
             _ => return Err(arg.unexpected()),
         }
     }
-
-    match subcommand.as_deref() {
-        Some("todo") => parse_todo_subcommand(parser),
-        Some(other) => {
-            eprintln!("error: unknown subcommand '{}'", other);
-            std::process::exit(1);
-        }
-        None => Ok(Mode::TUI(args)),
-    }
-}
-
-fn parse_todo_subcommand(mut parser: lexopt::Parser) -> Result<Mode, lexopt::Error> {
-    use lexopt::prelude::*;
-
-    let mut action: Option<String> = None;
-    let mut limit: Option<usize> = None;
-    let mut format = OutputFormat::Table;
-    let mut filter_opt: Option<Box<dyn filter::Filter>> = None;
-    let mut sorter: Option<Box<dyn sort::Sorter>> = None;
-
-    while let Some(arg) = parser.next()? {
-        match arg {
-            Value(val) if action.is_none() => {
-                action = Some(val.string()?);
-            }
-            Short('n') | Long("limit") => {
-                let value: String = parser.value()?.parse()?;
-                limit = Some(value.parse().unwrap_or_else(|_| {
-                    eprintln!("error: --limit must be a positive number");
-                    std::process::exit(1);
-                }));
-            }
-            Long("format") => {
-                let value: String = parser.value()?.parse()?;
-                format = value.parse().unwrap_or_else(|e| {
-                    eprintln!("error: {}", e);
-                    std::process::exit(1);
-                });
-            }
-            Short('f') | Long("filter") => {
-                let value: String = parser.value()?.parse()?;
-                filter_opt = Some(filter::parse_str(value.clone()).unwrap_or_else(|e| {
-                    eprintln!("error: invalid filter '{}': {}", value, e);
-                    std::process::exit(1);
-                }));
-            }
-            Short('s') | Long("sort") => {
-                let value: String = parser.value()?.parse()?;
-                sorter = Some(sort::parse_str(value.clone()).unwrap_or_else(|e| {
-                    eprintln!("error: invalid sort '{}': {}", value, e);
-                    std::process::exit(1);
-                }));
-            }
-            _ => return Err(arg.unexpected()),
-        }
-    }
-
-    match action.as_deref() {
-        Some("list") => Ok(Mode::Cli(Command::Todo(TodoCommand::List(TodoListOptions {
-            limit,
-            format,
-            filter: filter_opt,
-            sorter,
-        })))),
-        Some(other) => {
-            eprintln!("error: unknown todo action '{}'", other);
-            std::process::exit(1);
-        }
-        None => {
-            eprintln!("error: missing todo action (e.g., 'list')");
-            std::process::exit(1);
-        }
-    }
+    Ok(Mode::TUI(args))
 }
 
 #[cfg(test)]
 mod tests {
+    use super::todo::{OutputFormat, TodoCommand};
     use super::*;
 
     #[test]
@@ -345,7 +292,12 @@ mod tests {
 
     #[test]
     fn exclude_multiple_paths_comma_separated() {
-        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "--exclude", "foo,bar,baz"])).unwrap();
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz",
+            "--exclude",
+            "foo,bar,baz",
+        ]))
+        .unwrap();
         if let Mode::TUI(args) = mode {
             assert_eq!(args.exclude, vec!["foo", "bar", "baz"]);
         } else {
@@ -402,12 +354,18 @@ mod tests {
     #[test]
     fn todo_list_returns_cli_mode() {
         let mode = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "list"])).unwrap();
-        assert!(matches!(mode, Mode::Cli(Command::Todo(TodoCommand::List(_)))));
+        assert!(matches!(
+            mode,
+            Mode::Cli(Command::Todo(TodoCommand::List(_)))
+        ));
     }
 
     #[test]
     fn todo_list_limit_long_flag() {
-        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "list", "--limit", "10"])).unwrap();
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz", "todo", "list", "--limit", "10",
+        ]))
+        .unwrap();
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
             assert_eq!(opts.limit, Some(10));
         } else {
@@ -417,7 +375,10 @@ mod tests {
 
     #[test]
     fn todo_list_limit_short_flag() {
-        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "list", "-n", "5"])).unwrap();
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz", "todo", "list", "-n", "5",
+        ]))
+        .unwrap();
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
             assert_eq!(opts.limit, Some(5));
         } else {
@@ -427,7 +388,10 @@ mod tests {
 
     #[test]
     fn todo_list_format_json() {
-        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "list", "--format", "json"])).unwrap();
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz", "todo", "list", "--format", "json",
+        ]))
+        .unwrap();
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
             assert_eq!(opts.format, OutputFormat::Json);
         } else {
@@ -437,7 +401,10 @@ mod tests {
 
     #[test]
     fn todo_list_format_table() {
-        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "list", "--format", "table"])).unwrap();
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz", "todo", "list", "--format", "table",
+        ]))
+        .unwrap();
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
             assert_eq!(opts.format, OutputFormat::Table);
         } else {
@@ -447,7 +414,10 @@ mod tests {
 
     #[test]
     fn todo_list_limit_and_format() {
-        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "list", "--limit", "5", "--format", "table"])).unwrap();
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz", "todo", "list", "--limit", "5", "--format", "table",
+        ]))
+        .unwrap();
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
             assert_eq!(opts.limit, Some(5));
             assert_eq!(opts.format, OutputFormat::Table);
@@ -458,7 +428,14 @@ mod tests {
 
     #[test]
     fn todo_list_filter_long_flag() {
-        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "list", "--filter", "priority=A"])).unwrap();
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz",
+            "todo",
+            "list",
+            "--filter",
+            "priority=A",
+        ]))
+        .unwrap();
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
             assert!(opts.filter.is_some());
         } else {
@@ -468,7 +445,14 @@ mod tests {
 
     #[test]
     fn todo_list_filter_short_flag() {
-        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "list", "-f", "priority=A"])).unwrap();
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz",
+            "todo",
+            "list",
+            "-f",
+            "priority=A",
+        ]))
+        .unwrap();
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
             assert!(opts.filter.is_some());
         } else {
@@ -478,7 +462,14 @@ mod tests {
 
     #[test]
     fn todo_list_sort_long_flag() {
-        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "list", "--sort", "priority:asc"])).unwrap();
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz",
+            "todo",
+            "list",
+            "--sort",
+            "priority:asc",
+        ]))
+        .unwrap();
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
             assert!(opts.sorter.is_some());
         } else {
@@ -488,7 +479,14 @@ mod tests {
 
     #[test]
     fn todo_list_sort_short_flag() {
-        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "list", "-s", "priority:asc"])).unwrap();
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz",
+            "todo",
+            "list",
+            "-s",
+            "priority:asc",
+        ]))
+        .unwrap();
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
             assert!(opts.sorter.is_some());
         } else {
@@ -498,7 +496,16 @@ mod tests {
 
     #[test]
     fn todo_list_filter_and_sort() {
-        let mode = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "list", "--filter", "priority=A", "--sort", "priority:asc"])).unwrap();
+        let mode = parse_args(lexopt::Parser::from_iter([
+            "tdz",
+            "todo",
+            "list",
+            "--filter",
+            "priority=A",
+            "--sort",
+            "priority:asc",
+        ]))
+        .unwrap();
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
             assert!(opts.filter.is_some());
             assert!(opts.sorter.is_some());
@@ -510,11 +517,17 @@ mod tests {
     #[test]
     fn todo_list_all_flags() {
         let mode = parse_args(lexopt::Parser::from_iter([
-            "tdz", "todo", "list",
-            "--limit", "5",
-            "--filter", "priority=A",
-            "--format", "json"
-        ])).unwrap();
+            "tdz",
+            "todo",
+            "list",
+            "--limit",
+            "5",
+            "--filter",
+            "priority=A",
+            "--format",
+            "json",
+        ]))
+        .unwrap();
         if let Mode::Cli(Command::Todo(TodoCommand::List(opts))) = mode {
             assert_eq!(opts.limit, Some(5));
             assert!(opts.filter.is_some());
