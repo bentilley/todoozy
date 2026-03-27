@@ -20,40 +20,6 @@ impl Default for TodoListOptions {
     }
 }
 
-impl TodoListOptions {
-    fn parse_filter(&mut self, value: String) -> Result<(), ()> {
-        self.filter = match filter::parse_str(value) {
-            Ok(f) => Some(f),
-            Err(_) => return Err(()),
-        };
-        Ok(())
-    }
-
-    fn parse_format(&mut self, value: String) -> Result<(), ()> {
-        self.format = match value.parse() {
-            Ok(f) => f,
-            Err(_) => return Err(()),
-        };
-        Ok(())
-    }
-
-    fn parse_limit(&mut self, value: String) -> Result<(), ()> {
-        self.limit = match value.parse() {
-            Ok(n) => Some(n),
-            Err(_) => return Err(()),
-        };
-        Ok(())
-    }
-
-    fn parse_sort(&mut self, value: String) -> Result<(), ()> {
-        self.sorter = match sort::parse_str(value) {
-            Ok(s) => Some(s),
-            Err(_) => return Err(()),
-        };
-        Ok(())
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OutputFormat {
     #[default]
@@ -115,28 +81,12 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> Result<TodoListOptions, lexopt:
     while let Some(arg) = parser.next()? {
         match arg {
             Short('f') | Long("filter") => {
-                let value: String = parser.value()?.parse()?;
-                opts.parse_filter(value).map_err(|()| {
-                    lexopt::Error::Custom(format!("invalid filter").into())
-                })?;
+                opts.filter = Some(filter::parse_str(parser.value()?.parse()?)?);
             }
-            Long("format") => {
-                let value: String = parser.value()?.parse()?;
-                opts.parse_format(value).map_err(|()| {
-                    lexopt::Error::Custom(format!("invalid format").into())
-                })?;
-            }
-            Short('n') | Long("limit") => {
-                let value: String = parser.value()?.parse()?;
-                opts.parse_limit(value).map_err(|()| {
-                    lexopt::Error::Custom("--limit must be a positive number".into())
-                })?;
-            }
+            Long("format") => opts.format = parser.value()?.parse()?,
+            Short('n') | Long("limit") => opts.limit = Some(parser.value()?.parse()?),
             Short('s') | Long("sort") => {
-                let value: String = parser.value()?.parse()?;
-                opts.parse_sort(value).map_err(|()| {
-                    lexopt::Error::Custom(format!("invalid sort").into())
-                })?;
+                opts.sorter = Some(sort::parse_str(parser.value()?.parse()?)?);
             }
             _ => return Err(arg.unexpected()),
         }
