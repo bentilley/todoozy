@@ -85,23 +85,13 @@ fn print_table(todo: &todoozy::todo::Todo) {
         _ => {}
     }
 
-    // Projects and contexts
-    if !todo.projects.is_empty() {
+    // Tags
+    if !todo.tags.is_empty() {
         println!(
-            "Projects:    {}",
-            todo.projects
+            "Tags:        {}",
+            todo.tags
                 .iter()
-                .map(|p| format!("+{}", p))
-                .collect::<Vec<_>>()
-                .join(" ")
-        );
-    }
-    if !todo.contexts.is_empty() {
-        println!(
-            "Contexts:    {}",
-            todo.contexts
-                .iter()
-                .map(|c| format!("@{}", c))
+                .map(|t| format!("+{}", t))
                 .collect::<Vec<_>>()
                 .join(" ")
         );
@@ -145,8 +135,7 @@ fn print_json(todo: &todoozy::todo::Todo) {
         end_line_number: Option<usize>,
         title: String,
         description: Option<String>,
-        projects: Vec<String>,
-        contexts: Vec<String>,
+        tags: Vec<String>,
         metadata: std::collections::HashMap<String, String>,
     }
 
@@ -167,8 +156,7 @@ fn print_json(todo: &todoozy::todo::Todo) {
         end_line_number: todo.end_line_number,
         title: todo.title.clone(),
         description: todo.description.clone(),
-        projects: todo.projects.clone(),
-        contexts: todo.contexts.clone(),
+        tags: todo.tags.clone(),
         metadata: todo
             .metadata
             .iter()
