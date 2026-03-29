@@ -24,12 +24,12 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         Ok(Cli(cmd)) => {
             let mut config = cli::config::Config::load_config()?;
             match cmd {
-                Todo(TodoCommand::List(ref opts)) => Ok(cli::todo::list(&config, opts)),
-                Todo(TodoCommand::Get(ref opts)) => Ok(cli::todo::get(&config, opts)),
-                Todo(TodoCommand::Import(ref opts)) => Ok(cli::todo::import(&mut config, opts)),
-                Todo(TodoCommand::Edit(ref opts)) => Ok(cli::todo::edit(&config, opts)),
-                Todo(TodoCommand::Remove(ref opts)) => Ok(cli::todo::remove(&config, opts)),
-                Tag(TagCommand::List(ref opts)) => Ok(cli::tag::list(&config, opts)),
+                Todo(TodoCommand::List(ref opts)) => cli::todo::list(&config, opts),
+                Todo(TodoCommand::Get(ref opts)) => cli::todo::get(&config, opts),
+                Todo(TodoCommand::Import(ref opts)) => cli::todo::import(&mut config, opts),
+                Todo(TodoCommand::Edit(ref opts)) => cli::todo::edit(&config, opts),
+                Todo(TodoCommand::Remove(ref opts)) => cli::todo::remove(&config, opts),
+                Tag(TagCommand::List(ref opts)) => cli::tag::list(&config, opts),
             }
         }
         Ok(TUI(mut args)) => {

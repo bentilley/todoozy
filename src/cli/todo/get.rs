@@ -48,29 +48,18 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     }))))
 }
 
-pub fn get(conf: &config::Config, opts: &TodoGetOptions) {
-    let todos = match todoozy::get_todos(&conf.exclude) {
-        Ok(todos) => todos,
-        Err(e) => {
-            eprintln!("Error loading todos: {}", e);
-            return;
-        }
-    };
-
-    let todo = todos
-        .iter()
-        .find(|t| matches!(&t.id, Some(TodoIdentifier::Primary(id)) if *id == opts.id));
+pub fn get(conf: &config::Config, opts: &TodoGetOptions) -> error::Result<()> {
+    let todo = todoozy::get_todo(opts.id, &conf.exclude)?;
 
     match todo {
         Some(todo) => match opts.format {
-            OutputFormat::Table => print_table(todo),
-            OutputFormat::Json => print_json(todo),
+            OutputFormat::Table => print_table(&todo),
+            OutputFormat::Json => print_json(&todo),
         },
-        None => {
-            eprintln!("Todo #{} not found", opts.id);
-            std::process::exit(1);
-        }
-    }
+        None => return Err(format!("Todo #{} not found", opts.id).into()),
+    };
+
+    Ok(())
 }
 
 // TODO #72 (E) 2026-03-27 Rename "table" to "raw" in OutputFormat +refactor

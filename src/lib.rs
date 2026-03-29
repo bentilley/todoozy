@@ -1,3 +1,4 @@
+pub mod error;
 mod fs;
 mod lang;
 pub mod todo;
@@ -6,10 +7,9 @@ pub mod todo;
 pub mod testutils;
 
 pub use fs::FileType;
-pub use todo::{Todo, Todos};
+pub use todo::{Todo, TodoIdentifier, Todos};
 
-use ignore::Walk;
-use std::error;
+use error::Result;
 
 // TODO #64 (D) 2026-03-22 VCS interface for extracting todo history +vcs
 //
@@ -35,8 +35,16 @@ use std::error;
 /// Search for all the available todos in the project.
 ///
 /// * `exclude`: A slice of files to exclude from the search.
-pub fn get_todos(exclude: &[String]) -> Result<todo::Todos, Box<dyn error::Error>> {
-    parse_files(fs::get_files(exclude))
+pub fn get_todos(exclude: &[String]) -> Result<todo::Todos> {
+    let walk = fs::Walk::new(&fs::WalkConfig::new(".", Some(exclude)));
+    parse_files(walk)
+}
+
+pub fn get_todo(id: u32, exclude: &[String]) -> Result<Option<Todo>> {
+    let todos = get_todos(exclude)?;
+    Ok(todos
+        .into_iter()
+        .find(|t| t.id == Some(TodoIdentifier::Primary(id))))
 }
 
 // TODO #61 (D) 2026-03-22 Link references to primaries and validate IDs +refs
@@ -59,25 +67,26 @@ pub fn get_todos(exclude: &[String]) -> Result<todo::Todos, Box<dyn error::Error
 // These warnings indicate ID assignment issues - see separate TODO for
 // improved branch-aware ID assignment system.
 
-fn parse_files(files: Walk) -> Result<todo::Todos, Box<dyn error::Error>> {
-    let mut todos = Vec::<todo::Todo>::new();
+use std::sync::{Arc, Mutex};
 
-    for file in files {
-        match file {
-            Ok(entry) => {
-                if entry.file_type().unwrap().is_dir() {
-                    continue;
-                }
+fn parse_files(files: fs::Walk) -> Result<todo::Todos> {
+    let todos: Arc<Mutex<Vec<Todo>>> = Arc::new(Mutex::new(Vec::new()));
 
-                let file_path = entry.path().to_str().unwrap();
+    files.run(|| {
+        let todos = Arc::clone(&todos);
+        move |path: &std::path::Path| {
+            if let Some(file_path) = path.to_str() {
                 if let Some(ref mut tdz) = parse_file(file_path) {
-                    todos.append(tdz);
+                    todos.lock().unwrap().append(tdz);
                 }
             }
-            Err(err) => eprintln!("Error: {}", err),
         }
-    }
+    });
 
+    let todos = Arc::try_unwrap(todos)
+        .expect("Walk should have completed")
+        .into_inner()
+        .unwrap();
     Ok(todos.into())
 }
 

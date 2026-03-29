@@ -83,14 +83,8 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     Ok(Mode::Cli(Command::Todo(TodoCommand::List(opts))))
 }
 
-pub fn list(conf: &config::Config, opts: &TodoListOptions) {
-    let mut todos = match todoozy::get_todos(&conf.exclude) {
-        Ok(todos) => todos,
-        Err(e) => {
-            eprintln!("Error loading todos: {}", e);
-            return;
-        }
-    };
+pub fn list(conf: &config::Config, opts: &TodoListOptions) -> error::Result<()> {
+    let mut todos = todoozy::get_todos(&conf.exclude)?;
 
     // Use opts.filter if present, otherwise fall back to conf.filter
     if let Some(ref f) = opts.filter {
@@ -146,4 +140,6 @@ pub fn list(conf: &config::Config, opts: &TodoListOptions) {
             }
         }
     }
+
+    Ok(())
 }

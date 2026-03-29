@@ -99,14 +99,8 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     Ok(Mode::Cli(Command::Tag(TagCommand::List(opts))))
 }
 
-pub fn list(conf: &config::Config, opts: &TagListOptions) {
-    let todos = match todoozy::get_todos(&conf.exclude) {
-        Ok(todos) => todos,
-        Err(e) => {
-            eprintln!("Error loading todos: {}", e);
-            return;
-        }
-    };
+pub fn list(conf: &config::Config, opts: &TagListOptions) -> error::Result<()> {
+    let todos = todoozy::get_todos(&conf.exclude)?;
 
     // Collect tags with counts
     let mut tags: HashMap<String, usize> = HashMap::new();
@@ -155,4 +149,6 @@ pub fn list(conf: &config::Config, opts: &TagListOptions) {
             }
         }
     }
+
+    Ok(())
 }

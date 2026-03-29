@@ -1,18 +1,6 @@
-use ignore::{Walk, WalkBuilder};
+mod walk;
 
-pub fn get_files(to_exclude: &[String]) -> Walk {
-    let mut exclude = ignore::overrides::OverrideBuilder::new("./");
-    exclude.add("!.git/").unwrap();
-
-    for e in to_exclude {
-        exclude.add(&format!("!{}", e)).unwrap();
-    }
-
-    WalkBuilder::new("./")
-        .hidden(false)
-        .overrides(exclude.build().unwrap())
-        .build()
-}
+pub use walk::{Walk, WalkConfig};
 
 #[derive(Debug, PartialEq)]
 pub enum FileType {
@@ -89,7 +77,10 @@ fn get_filetype_from_shebang(filename: &str) -> Option<FileType> {
         Some(Zsh)
     } else if first_line.contains("ksh") {
         Some(Ksh)
-    } else if first_line.contains("/sh") || first_line.ends_with(" sh\n") || first_line.ends_with(" sh") {
+    } else if first_line.contains("/sh")
+        || first_line.ends_with(" sh\n")
+        || first_line.ends_with(" sh")
+    {
         Some(Sh)
     } else {
         None

@@ -75,14 +75,8 @@ fn parse_location(value: &str) -> error::Result<LocationSpec> {
     Ok(LocationSpec::File(value.to_string()))
 }
 
-pub fn import(conf: &mut config::Config, opts: &TodoImportOptions) {
-    let todos = match todoozy::get_todos(&conf.exclude) {
-        Ok(todos) => todos,
-        Err(e) => {
-            eprintln!("Error loading todos: {}", e);
-            return;
-        }
-    };
+pub fn import(conf: &mut config::Config, opts: &TodoImportOptions) -> error::Result<()> {
+    let todos = todoozy::get_todos(&conf.exclude)?;
 
     let mut imported_count = 0;
 
@@ -136,4 +130,6 @@ pub fn import(conf: &mut config::Config, opts: &TodoImportOptions) {
     if imported_count == 0 {
         println!("No untracked todos found matching the criteria.");
     }
+
+    Ok(())
 }

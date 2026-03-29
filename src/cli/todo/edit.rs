@@ -2,7 +2,6 @@ use super::TodoCommand;
 use crate::cli::args::{Command, Mode};
 use crate::cli::config;
 use crate::cli::error;
-use todoozy::todo::TodoIdentifier;
 
 pub const USAGE: &str = r#"Open todo in $EDITOR at its file location
 
@@ -45,34 +44,14 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     Ok(Mode::Cli(Command::Todo(TodoCommand::Edit(TodoEditOptions { id }))))
 }
 
-pub fn edit(conf: &config::Config, opts: &TodoEditOptions) {
-    let todos = match todoozy::get_todos(&conf.exclude) {
-        Ok(todos) => todos,
-        Err(e) => {
-            eprintln!("Error loading todos: {}", e);
-            std::process::exit(1);
-        }
-    };
+pub fn edit(conf: &config::Config, opts: &TodoEditOptions) -> error::Result<()> {
+    let todo = todoozy::get_todo(opts.id, &conf.exclude)?
+        .ok_or_else(|| error::Error::from(format!("Todo #{} not found", opts.id)))?;
 
-    let todo = todos
-        .iter()
-        .find(|t| matches!(&t.id, Some(TodoIdentifier::Primary(id)) if *id == opts.id));
-
-    let todo = match todo {
-        Some(t) => t,
-        None => {
-            eprintln!("Todo #{} not found", opts.id);
-            std::process::exit(1);
-        }
-    };
-
-    let file = match &todo.file {
-        Some(f) => f,
-        None => {
-            eprintln!("Todo #{} has no file location", opts.id);
-            std::process::exit(1);
-        }
-    };
+    let file = todo
+        .file
+        .as_ref()
+        .ok_or_else(|| error::Error::from(format!("Todo #{} has no file location", opts.id)))?;
 
     let line = todo.line_number.unwrap_or(1);
 
@@ -119,19 +98,20 @@ pub fn edit(conf: &config::Config, opts: &TodoEditOptions) {
             .status(),
     };
 
-    // TODO #73 (C) 2026-03-27 Lift these exits up to src/main.rs
-    //
-    // Functions should end with a Result<(), Error> and let main.rs handle the exit codes. This
-    // allows for better error handling, cleanup, and testing.
     match status {
         Ok(exit_status) => {
             if !exit_status.success() {
-                std::process::exit(exit_status.code().unwrap_or(1));
+                return Err(format!(
+                    "Editor exited with code {}",
+                    exit_status.code().unwrap_or(1)
+                )
+                .into());
             }
         }
         Err(e) => {
-            eprintln!("Failed to launch editor '{}': {}", editor, e);
-            std::process::exit(1);
+            return Err(format!("Failed to launch editor '{}': {}", editor, e).into());
         }
     }
+
+    Ok(())
 }
