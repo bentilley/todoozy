@@ -31,7 +31,7 @@ export default config;"#,
         group.bench_with_input(
             BenchmarkId::from_parameter(format!("{}_chunks", num_chunks)),
             &large,
-            |b, content| b.iter(|| parse_text(black_box(content), FileType::Typescript, None)),
+            |b, content| b.iter(|| parse_text(black_box(content), FileType::Typescript)),
         );
     }
 
@@ -66,7 +66,7 @@ impl Config {
         group.bench_with_input(
             BenchmarkId::from_parameter(format!("{}_chunks", num_chunks)),
             &large,
-            |b, content| b.iter(|| parse_text(black_box(content), FileType::Rust, None)),
+            |b, content| b.iter(|| parse_text(black_box(content), FileType::Rust)),
         );
     }
 
@@ -117,12 +117,17 @@ configure() {
         group.bench_with_input(
             BenchmarkId::from_parameter(format!("{}_chunks", num_chunks)),
             &large,
-            |b, content| b.iter(|| parse_text(black_box(content), FileType::Sh, None)),
+            |b, content| b.iter(|| parse_text(black_box(content), FileType::Sh)),
         );
     }
 
     group.finish();
 }
 
-criterion_group!(benches, bench_typescript_parser, bench_rust_parser, bench_sh_parser);
+criterion_group!(
+    benches,
+    bench_typescript_parser,
+    bench_rust_parser,
+    bench_sh_parser
+);
 criterion_main!(benches);

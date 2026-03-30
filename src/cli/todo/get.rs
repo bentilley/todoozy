@@ -82,21 +82,23 @@ fn print_table(todo: &todoozy::todo::Todo) {
         println!("Completed:   {}", date);
     }
 
-    // Location with line range
-    match (&todo.file, todo.line_number, todo.end_line_number) {
-        (Some(file), Some(start), Some(end)) => {
-            println!("Location:    {}:{}-{}", file, start, end)
+    // Location(s) with line range
+    if todo.references.is_empty() {
+        println!("Location:    {}", todo.location);
+    } else {
+        // Multiple locations with markers
+        println!("Locations:");
+        for location in &todo.display_locations_with_marker() {
+            println!("             {}", location);
         }
-        (Some(file), Some(line), None) => println!("Location:    {}:{}", file, line),
-        (Some(file), None, None) => println!("Location:    {}", file),
-        _ => {}
     }
 
-    // Tags
-    if !todo.tags.is_empty() {
+    // Tags (merged from primary + references)
+    let merged_tags = todo.display_merged_tags();
+    if !merged_tags.is_empty() {
         println!(
             "Tags:        {}",
-            todo.tags
+            merged_tags
                 .iter()
                 .map(|t| format!("+{}", t))
                 .collect::<Vec<_>>()
@@ -109,8 +111,8 @@ fn print_table(todo: &todoozy::todo::Todo) {
     println!("Title:");
     println!("  {}", todo.title);
 
-    // Description
-    if let Some(ref desc) = todo.description {
+    // Description (merged with reference subtitles)
+    if let Some(ref desc) = todo.display_merged_description() {
         println!();
         println!("Description:");
         for line in desc.lines() {
@@ -131,6 +133,18 @@ fn print_table(todo: &todoozy::todo::Todo) {
 
 fn print_json(todo: &todoozy::todo::Todo) {
     #[derive(serde::Serialize)]
+    struct TodoRefOutput {
+        id: Option<u32>,
+        file: Option<String>,
+        line_number: Option<usize>,
+        end_line_number: Option<usize>,
+        title: String,
+        description: Option<String>,
+        tags: Vec<String>,
+        metadata: std::collections::HashMap<String, String>,
+    }
+
+    #[derive(serde::Serialize)]
     struct TodoFullOutput {
         id: Option<u32>,
         id_type: Option<String>,
@@ -144,6 +158,7 @@ fn print_json(todo: &todoozy::todo::Todo) {
         description: Option<String>,
         tags: Vec<String>,
         metadata: std::collections::HashMap<String, String>,
+        references: Vec<TodoRefOutput>,
     }
 
     let (id, id_type) = match &todo.id {
@@ -152,15 +167,41 @@ fn print_json(todo: &todoozy::todo::Todo) {
         None => (None, None),
     };
 
+    let references: Vec<TodoRefOutput> = todo
+        .references
+        .iter()
+        .map(|r| {
+            let ref_id = match &r.id {
+                Some(TodoIdentifier::Reference(n)) => Some(*n),
+                Some(TodoIdentifier::Primary(n)) => Some(*n),
+                None => None,
+            };
+            TodoRefOutput {
+                id: ref_id,
+                file: r.location.file_path.clone(),
+                line_number: Some(r.location.start_line_num),
+                end_line_number: Some(r.location.end_line_num),
+                title: r.title.clone(),
+                description: r.description.clone(),
+                tags: r.tags.clone(),
+                metadata: r
+                    .metadata
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
+            }
+        })
+        .collect();
+
     let output = TodoFullOutput {
         id,
         id_type,
         priority: todo.priority,
         creation_date: todo.creation_date.map(|d| d.to_string()),
         completion_date: todo.completion_date.map(|d| d.to_string()),
-        file: todo.file.clone(),
-        line_number: todo.line_number,
-        end_line_number: todo.end_line_number,
+        file: todo.location.file_path.clone(),
+        line_number: Some(todo.location.start_line_num),
+        end_line_number: Some(todo.location.end_line_num),
         title: todo.title.clone(),
         description: todo.description.clone(),
         tags: todo.tags.clone(),
@@ -169,6 +210,7 @@ fn print_json(todo: &todoozy::todo::Todo) {
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect(),
+        references,
     };
 
     match serde_json::to_string_pretty(&output) {

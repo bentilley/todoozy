@@ -2,10 +2,10 @@ pub mod filter;
 pub mod parser;
 pub mod sort;
 
+use std::fmt;
 use std::fs::File;
 use std::io::{self, prelude::*, BufReader, BufWriter};
 
-use derive_builder::Builder;
 use tempfile::NamedTempFile;
 
 use std::collections::HashMap;
@@ -88,76 +88,102 @@ impl FromIterator<(std::string::String, std::string::String)> for Metadata {
     }
 }
 
-#[derive(Builder, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Location {
+    pub file_path: Option<String>,
+    pub start_line_num: usize,
+    pub end_line_num: usize,
+}
+
+impl fmt::Display for Location {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let file_display = self.file_location_prefix();
+        if self.start_line_num == self.end_line_num {
+            return write!(f, "{}{}", file_display, self.start_line_num);
+        }
+        write!(
+            f,
+            "{}{}-{}",
+            file_display, self.start_line_num, self.end_line_num
+        )
+    }
+}
+
+impl Location {
+    pub fn new(file: Option<String>, line_number: usize, end_line_number: usize) -> Self {
+        Location {
+            file_path: file,
+            start_line_num: line_number,
+            end_line_num: end_line_number,
+        }
+    }
+
+    fn file_location_prefix(&self) -> String {
+        self.file_path
+            .clone()
+            .map_or("".to_string(), |p| format!("{}:", p))
+    }
+
+    pub fn from_file_line(file: Option<String>, line_number: usize) -> Self {
+        Location {
+            file_path: file,
+            start_line_num: line_number,
+            end_line_num: line_number,
+        }
+    }
+
+    pub fn display_start(&self) -> String {
+        format!("{}{}", self.file_location_prefix(), self.start_line_num)
+    }
+}
+
+// TODO #76 (A) 2026-03-30 Consolidate TUI logic with the new logic in the CLI
+//
+// We have duplicated logic the TUI code and the CLI code. Needs to be lifted up to here and just
+// called from both.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Todo {
-    #[builder(default)]
     pub id: Option<TodoIdentifier>,
 
-    #[builder(default)]
-    pub file: Option<String>,
-    #[builder(default)]
-    pub line_number: Option<usize>,
-    #[builder(default)]
-    pub end_line_number: Option<usize>,
-
-    #[builder(default)]
     pub priority: Option<char>,
-    #[builder(default)]
     pub completion_date: Option<chrono::NaiveDate>,
-    #[builder(default)]
     pub creation_date: Option<chrono::NaiveDate>,
 
-    #[builder(default)]
     pub title: String,
-    #[builder(default)]
     pub description: Option<String>,
 
-    #[builder(default)]
     pub tags: Vec<String>,
-
-    #[builder(default)]
     pub metadata: Metadata,
+
+    pub location: Location,
+    pub references: Vec<Todo>,
+}
+
+impl TryFrom<crate::lang::RawTodo> for Todo {
+    type Error = String;
+
+    fn try_from(raw_todo: crate::lang::RawTodo) -> Result<Self, Self::Error> {
+        let (start, end, text) = raw_todo;
+        let location = Location::new(None, start, end);
+        let info = parser::TodoInfo::try_from(text.as_str()).map_err(|e| format!("{}", e))?;
+        Ok(Todo::new(info, location))
+    }
 }
 
 impl Todo {
-    pub fn display_id(&self) -> String {
-        match &self.id {
-            Some(TodoIdentifier::Primary(id)) => format!("#{}", id),
-            Some(TodoIdentifier::Reference(id)) => format!("&{}", id),
-            None => "#-".to_string(),
+    pub fn new(info: parser::TodoInfo, location: Location) -> Self {
+        Todo {
+            id: info.id,
+            priority: info.priority,
+            completion_date: info.completion_date,
+            creation_date: info.creation_date,
+            title: info.title,
+            description: info.description,
+            tags: info.tags,
+            metadata: info.metadata,
+            location,
+            references: Vec::new(),
         }
-    }
-
-    pub fn display_priority(&self) -> String {
-        match self.priority {
-            Some(priority) => format!("({})", priority),
-            None => "(Z)".to_string(),
-        }
-    }
-
-    pub fn display_location_start(&self) -> String {
-        match (&self.file, self.line_number) {
-            (Some(file), Some(line)) => {
-                format!("{}:{}", file, line)
-            }
-            (Some(file), None) => file.to_string(),
-            _ => String::new(),
-        }
-    }
-
-    pub fn display_title(&self) -> String {
-        let tags: String = self
-            .tags
-            .iter()
-            .map(|t| format!("+{}", t))
-            .collect::<Vec<_>>()
-            .join(" ");
-
-        format!("{} {}", self.title, tags).trim_end().to_string()
-    }
-
-    pub fn has_tag(&self, tag: &str) -> bool {
-        self.tags.iter().any(|t| t == tag)
     }
 
     pub fn write_id(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -171,21 +197,13 @@ impl Todo {
             }
             None => return Err(Box::new(io::Error::new(io::ErrorKind::NotFound, "No ID"))),
         };
-        let file_name = match self.file {
-            Some(ref file) => file,
-            None => return Err(Box::new(io::Error::new(io::ErrorKind::NotFound, "No file"))),
-        };
-        let line_number = match self.line_number {
-            Some(line_number) => line_number,
-            None => {
-                return Err(Box::new(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "No line number",
-                )))
-            }
-        };
 
-        let file = File::open(file_name)?;
+        let file_path = self
+            .location
+            .file_path
+            .as_ref()
+            .ok_or("Cannot write ID: No file path in location")?;
+        let file = File::open(&file_path)?;
         let reader = BufReader::new(file);
 
         let tmp_file = NamedTempFile::new()?;
@@ -194,7 +212,7 @@ impl Todo {
         for (i, line) in reader.lines().enumerate() {
             match line {
                 Ok(line) => {
-                    if i + 1 == line_number {
+                    if i + 1 == self.location.start_line_num {
                         let new_line = match line.split_once("TODO") {
                             Some((pref, suff)) => {
                                 format!("{}TODO #{}{}", pref, id, suff)
@@ -218,9 +236,126 @@ impl Todo {
         }
 
         writer.flush()?;
-        std::fs::copy(tmp_file.path(), file_name)?;
+        std::fs::copy(tmp_file.path(), &file_path)?;
 
         Ok(())
+    }
+
+    pub fn display_locations_with_marker(&self) -> Vec<String> {
+        let mut locations = Vec::new();
+
+        locations.push(format!("* {}", self.location)); // primary marker
+
+        for reference in &self.references {
+            locations.push(format!("  {}", reference.location));
+        }
+
+        locations
+    }
+
+    /// Description with reference titles as ## Subtitles
+    pub fn display_merged_description(&self) -> Option<String> {
+        let mut parts = Vec::new();
+
+        // Add primary description if present
+        if let Some(ref desc) = self.description {
+            parts.push(desc.clone());
+        }
+
+        // Add each reference as a subtitle section
+        for reference in &self.references {
+            let subtitle = format!("## {}", reference.title);
+            parts.push(subtitle);
+
+            if let Some(ref desc) = reference.description {
+                parts.push(desc.clone());
+            }
+        }
+
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join("\n\n"))
+        }
+    }
+
+    /// Deduplicated tags from primary + references
+    pub fn display_merged_tags(&self) -> Vec<String> {
+        let mut tags: Vec<String> = self.tags.clone();
+
+        for reference in &self.references {
+            for tag in &reference.tags {
+                if !tags.contains(tag) {
+                    tags.push(tag.clone());
+                }
+            }
+        }
+
+        tags
+    }
+    pub fn display_id(&self) -> String {
+        match &self.id {
+            Some(TodoIdentifier::Primary(id)) => format!("#{}", id),
+            Some(TodoIdentifier::Reference(id)) => format!("&{}", id),
+            None => "#-".to_string(),
+        }
+    }
+
+    pub fn display_priority(&self) -> String {
+        match self.priority {
+            Some(priority) => format!("({})", priority),
+            None => "(Z)".to_string(),
+        }
+    }
+
+    pub fn display_tags(&self) -> String {
+        self.tags
+            .iter()
+            .map(|t| format!("+{}", t))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    pub fn has_tag(&self, tag: &str) -> bool {
+        self.tags.iter().any(|t| t == tag)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum LinkingWarning {
+    OrphanReference {
+        id: u32,
+        location: Location,
+    },
+    DuplicatePrimary {
+        id: u32,
+        duplicate_location: Location,
+        first_location: Location,
+    },
+}
+
+impl fmt::Display for LinkingWarning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LinkingWarning::OrphanReference { id, location } => {
+                write!(
+                    f,
+                    "Warning: TODO &{} references non-existent primary #{} at `{}`",
+                    id, id, location
+                )
+            }
+            LinkingWarning::DuplicatePrimary {
+                id,
+                duplicate_location,
+                first_location,
+            } => {
+                write!(
+                    f,
+                    "Warning: Duplicate TODO #{} found at `{}`, ignoring (first occurrence at `{}`)",
+                    id, duplicate_location, first_location
+                )
+            }
+        }
     }
 }
 
@@ -250,6 +385,60 @@ impl Todos {
         F: Fn(&Todo, &Todo) -> std::cmp::Ordering,
     {
         self.0.sort_by(sorter);
+    }
+
+    pub fn link_references(self) -> Self {
+        let mut warnings = Vec::new();
+        let mut primaries: Vec<Todo> = Vec::new();
+        let mut primary_index: HashMap<u32, usize> = HashMap::new();
+        let mut references: Vec<Todo> = Vec::new();
+
+        // Separate primaries (including todos with no ID) and references
+        for todo in self.0 {
+            match &todo.id {
+                Some(TodoIdentifier::Reference(_)) => {
+                    references.push(todo);
+                }
+                Some(TodoIdentifier::Primary(id)) => {
+                    if let Some(&existing_idx) = primary_index.get(id) {
+                        // Duplicate primary - warn and ignore
+                        let existing = &primaries[existing_idx];
+                        warnings.push(LinkingWarning::DuplicatePrimary {
+                            id: *id,
+                            duplicate_location: todo.location.clone(),
+                            first_location: existing.location.clone(),
+                        });
+                    } else {
+                        primary_index.insert(*id, primaries.len());
+                        primaries.push(todo);
+                    }
+                }
+                None => {
+                    // Todos without IDs are treated as primaries
+                    primaries.push(todo);
+                }
+            }
+        }
+
+        // Link references to their primaries
+        for reference in references {
+            if let Some(TodoIdentifier::Reference(ref_id)) = &reference.id {
+                if let Some(&primary_idx) = primary_index.get(ref_id) {
+                    primaries[primary_idx].references.push(reference);
+                } else {
+                    // Orphan reference - warn and discard
+                    warnings.push(LinkingWarning::OrphanReference {
+                        id: *ref_id,
+                        location: reference.location.clone(),
+                    });
+                }
+            }
+        }
+
+        for warning in warnings {
+            eprintln!("{}", warning);
+        }
+        Todos(primaries)
     }
 }
 
@@ -282,18 +471,30 @@ impl IntoIterator for Todos {
     }
 }
 
-#[test]
-fn test_todos() {
-    let todos: Todos = vec![
-        TodoBuilder::default()
-            .id(Some(TodoIdentifier::Primary(1)))
-            .build()
-            .unwrap(),
-        TodoBuilder::default()
-            .id(Some(TodoIdentifier::Primary(2)))
-            .build()
-            .unwrap(),
-    ]
-    .into();
-    assert_eq!(todos.get_max_id(), 2);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use parser::TodoInfoBuilder;
+
+    #[test]
+    fn test_todos() {
+        let todos: Todos = vec![
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Primary(1)))
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Primary(2)))
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+        ]
+        .into();
+        assert_eq!(todos.get_max_id(), 2);
+    }
 }

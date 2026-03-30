@@ -10,6 +10,7 @@ pub use fs::FileType;
 pub use todo::{Todo, TodoIdentifier, Todos};
 
 use error::Result;
+use std::sync::{Arc, Mutex};
 
 // TODO #64 (D) 2026-03-22 VCS interface for extracting todo history +vcs
 //
@@ -37,7 +38,8 @@ use error::Result;
 /// * `exclude`: A slice of files to exclude from the search.
 pub fn get_todos(exclude: &[String]) -> Result<todo::Todos> {
     let walk = fs::Walk::new(&fs::WalkConfig::new(".", Some(exclude)));
-    parse_files(walk)
+    let todos = parse_files(walk)?;
+    Ok(todos.link_references())
 }
 
 pub fn get_todo(id: u32, exclude: &[String]) -> Result<Option<Todo>> {
@@ -67,8 +69,6 @@ pub fn get_todo(id: u32, exclude: &[String]) -> Result<Option<Todo>> {
 // These warnings indicate ID assignment issues - see separate TODO for
 // improved branch-aware ID assignment system.
 
-use std::sync::{Arc, Mutex};
-
 fn parse_files(files: fs::Walk) -> Result<todo::Todos> {
     let todos: Arc<Mutex<Vec<Todo>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -90,8 +90,6 @@ fn parse_files(files: fs::Walk) -> Result<todo::Todos> {
     Ok(todos.into())
 }
 
-type RawTodo = (usize, usize, String);
-
 pub fn parse_file(file_path: &str) -> Option<Vec<todo::Todo>> {
     let text = match std::fs::read_to_string(file_path) {
         Ok(text) => text,
@@ -101,20 +99,20 @@ pub fn parse_file(file_path: &str) -> Option<Vec<todo::Todo>> {
         },
     };
 
-    parse_text(
-        &text,
-        crate::fs::get_filetype(file_path)?,
-        Some(file_path.to_owned()),
+    Some(
+        parse_text(&text, crate::fs::get_filetype(file_path)?)?
+            .into_iter()
+            .map(|mut todo| {
+                todo.location.file_path = Some(file_path.to_string());
+                todo
+            })
+            .collect(),
     )
 }
 
 pub const TODO_TOKEN: &'static str = "TODO";
 
-pub fn parse_text(
-    text: &str,
-    file_type: crate::fs::FileType,
-    file_path: Option<String>,
-) -> Option<Vec<Todo>> {
+pub fn parse_text(text: &str, file_type: crate::fs::FileType) -> Option<Vec<Todo>> {
     use crate::fs::FileType;
     let syntax_rules: &[lang::SyntaxRule] = match file_type {
         FileType::Bash | FileType::Ksh | FileType::Sh | FileType::Zsh => &lang::sh::SH,
@@ -131,25 +129,22 @@ pub fn parse_text(
         FileType::YAML => &lang::yaml::YAML,
     };
     let parser = lang::Parser::new(TODO_TOKEN, &syntax_rules);
+
     let raw_todos = parser.parse_todos(&text);
     if raw_todos.len() == 0 {
         return None;
     }
-    Some(parse_raw(raw_todos, file_path))
-}
 
-fn parse_raw(raw_todos: Vec<RawTodo>, file_path: Option<String>) -> Vec<todo::Todo> {
-    let mut todos = Vec::<todo::Todo>::new();
-    for (start, end, raw) in raw_todos {
-        match todo::parser::todo(&raw) {
-            Ok((_, mut t)) => {
-                t.file = file_path.clone();
-                t.line_number = Some(start as usize);
-                t.end_line_number = Some(end as usize);
-                todos.push(t)
-            }
-            Err(err) => eprintln!("Error: {}", err),
-        }
-    }
-    todos
+    Some(
+        raw_todos
+            .into_iter()
+            .filter_map(|raw| match Todo::try_from(raw) {
+                Ok(todo) => Some(todo),
+                Err(err) => {
+                    eprintln!("Error: {}", err);
+                    None
+                }
+            })
+            .collect(),
+    )
 }

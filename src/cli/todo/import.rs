@@ -89,15 +89,15 @@ pub fn import(conf: &mut config::Config, opts: &TodoImportOptions) -> error::Res
         if let Some(ref location) = opts.location {
             match location {
                 LocationSpec::File(file) => {
-                    if todo.file.as_deref() != Some(file.as_str()) {
+                    if todo.location.file_path != Some(file.to_string()) {
                         continue;
                     }
                 }
                 LocationSpec::FileLine(file, line) => {
-                    if todo.file.as_deref() != Some(file.as_str()) {
+                    if todo.location.file_path != Some(file.to_string()) {
                         continue;
                     }
-                    if todo.line_number != Some(*line) {
+                    if todo.location.start_line_num != *line {
                         continue;
                     }
                 }

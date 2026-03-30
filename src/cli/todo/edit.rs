@@ -30,10 +30,9 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
         match arg {
             Long("help") => return Ok(Mode::Help(USAGE)),
             Value(val) if id.is_none() => {
-                id = Some(
-                    val.parse()
-                        .map_err(|_| error::Error::from(format!("invalid ID '{}'", val.to_string_lossy())))?,
-                );
+                id = Some(val.parse().map_err(|_| {
+                    error::Error::from(format!("invalid ID '{}'", val.to_string_lossy()))
+                })?);
             }
             _ => return Err(arg.unexpected().into()),
         }
@@ -41,19 +40,14 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
 
     let id = id.ok_or_else(|| error::Error::from("missing ID argument"))?;
 
-    Ok(Mode::Cli(Command::Todo(TodoCommand::Edit(TodoEditOptions { id }))))
+    Ok(Mode::Cli(Command::Todo(TodoCommand::Edit(
+        TodoEditOptions { id },
+    ))))
 }
 
 pub fn edit(conf: &config::Config, opts: &TodoEditOptions) -> error::Result<()> {
     let todo = todoozy::get_todo(opts.id, &conf.exclude)?
         .ok_or_else(|| error::Error::from(format!("Todo #{} not found", opts.id)))?;
-
-    let file = todo
-        .file
-        .as_ref()
-        .ok_or_else(|| error::Error::from(format!("Todo #{} has no file location", opts.id)))?;
-
-    let line = todo.line_number.unwrap_or(1);
 
     let editor = std::env::var("EDITOR")
         .or_else(|_| std::env::var("VISUAL"))
@@ -64,37 +58,42 @@ pub fn edit(conf: &config::Config, opts: &TodoEditOptions) -> error::Result<()> 
         .and_then(|n| n.to_str())
         .unwrap_or(&editor);
 
+    let file_path = &todo
+        .location
+        .file_path
+        .ok_or("Todo does not have a file location")?;
+
     let status = match editor_name {
         // Vim-style editors: +<line> <file>
         "vi" | "vim" | "nvim" | "neovim" | "gvim" | "mvim" => std::process::Command::new(&editor)
-            .arg(format!("+{}", line))
-            .arg(file)
+            .arg(format!("+{}", todo.location.start_line_num))
+            .arg(file_path)
             .status(),
         // Emacs-style: +<line> <file>
         "emacs" | "emacsclient" => std::process::Command::new(&editor)
-            .arg(format!("+{}", line))
-            .arg(file)
+            .arg(format!("+{}", todo.location.start_line_num))
+            .arg(file_path)
             .status(),
         // VS Code style: --goto <file>:<line>
         "code" | "code-insiders" => std::process::Command::new(&editor)
             .arg("--goto")
-            .arg(format!("{}:{}", file, line))
+            .arg(format!("{}:{}", file_path, todo.location.start_line_num))
             .arg("--wait")
             .status(),
         // Nano: +<line> <file>
         "nano" => std::process::Command::new(&editor)
-            .arg(format!("+{}", line))
-            .arg(file)
+            .arg(format!("+{}", todo.location.start_line_num))
+            .arg(file_path)
             .status(),
         // Sublime Text: <file>:<line>
         "subl" | "sublime_text" => std::process::Command::new(&editor)
-            .arg(format!("{}:{}", file, line))
+            .arg(format!("{}:{}", file_path, todo.location.start_line_num))
             .arg("--wait")
             .status(),
         // Default: try +<line> syntax (works for many editors)
         _ => std::process::Command::new(&editor)
-            .arg(format!("+{}", line))
-            .arg(file)
+            .arg(format!("+{}", todo.location.start_line_num))
+            .arg(file_path)
             .status(),
     };
 

@@ -57,8 +57,8 @@ impl From<&todoozy::todo::Todo> for TodoOutput {
             priority: todo.priority,
             title: todo.title.clone(),
             description: todo.description.clone(),
-            file: todo.file.clone(),
-            line_number: todo.line_number,
+            file: todo.location.file_path.clone(),
+            line_number: Some(todo.location.start_line_num),
             tags: todo.tags.clone(),
         }
     }
@@ -118,17 +118,18 @@ pub fn list(conf: &config::Config, opts: &TodoListOptions) -> error::Result<()> 
 
             let location_width = all_todos
                 .iter()
-                .map(|t| t.display_location_start().len())
+                .map(|t| t.location.display_start().len())
                 .max()
                 .unwrap_or(0);
 
             for todo in all_todos {
                 println!(
-                    "{:<id_width$} {} {:<location_width$} {}",
+                    "{:<id_width$} {} {:<location_width$} {} {}",
                     todo.display_id(),
                     todo.display_priority(),
-                    todo.display_location_start(),
-                    todo.display_title(),
+                    todo.location.display_start(),
+                    todo.title,
+                    todo.display_tags(),
                 )
             }
         }

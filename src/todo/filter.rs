@@ -24,16 +24,6 @@ impl Serialize for Box<dyn Filter> {
     }
 }
 
-#[test]
-fn test_serialize_json_filter() {
-    let filter: Box<dyn Filter> = Box::new(PropertyFilter {
-        property: Property::Priority,
-        relation: Relation::Equal,
-        value: "A".to_string(),
-    });
-    assert_eq!(serde_json::to_string(&filter).unwrap(), "\"priority=A\"");
-}
-
 impl<'de> Deserialize<'de> for Box<dyn Filter> {
     fn deserialize<D>(deserializer: D) -> Result<Box<dyn Filter>, D::Error>
     where
@@ -42,21 +32,6 @@ impl<'de> Deserialize<'de> for Box<dyn Filter> {
         let s = String::deserialize(deserializer)?;
         parse_str(&s).map_err(serde::de::Error::custom)
     }
-}
-
-#[test]
-fn test_deserialize_json_filter() {
-    let filter: Box<dyn Filter> = serde_json::from_str("\"priority=A\"").unwrap();
-    let todo_true = crate::todo::TodoBuilder::default()
-        .priority(Some('A'))
-        .build()
-        .unwrap();
-    let todo_false = crate::todo::TodoBuilder::default()
-        .priority(Some('B'))
-        .build()
-        .unwrap();
-    assert_eq!(filter.filter(&todo_true), true);
-    assert_eq!(filter.filter(&todo_false), false);
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -113,17 +88,17 @@ pub struct PropertyFilter {
 impl Filter for PropertyFilter {
     fn filter(&self, todo: &crate::todo::Todo) -> bool {
         match self.property {
-            Property::File => {
-                let value = Some(self.value.clone());
-                match self.relation {
-                    Relation::Equal => todo.file == value,
-                    Relation::NotEqual => todo.file != value,
-                    Relation::Greater => todo.file > value,
-                    Relation::GreaterEqual => todo.file >= value,
-                    Relation::Less => todo.file < value,
-                    Relation::LessEqual => todo.file <= value,
-                }
-            }
+            Property::File => match todo.location.file_path.clone() {
+                Some(file_path) => match self.relation {
+                    Relation::Equal => file_path == self.value,
+                    Relation::NotEqual => file_path != self.value,
+                    Relation::Greater => file_path > self.value,
+                    Relation::GreaterEqual => file_path >= self.value,
+                    Relation::Less => file_path < self.value,
+                    Relation::LessEqual => file_path <= self.value,
+                },
+                None => false,
+            },
             Property::Priority => {
                 let priority = todo.priority.unwrap_or('Z');
                 let value = self.value.chars().next().unwrap();
@@ -188,53 +163,10 @@ impl Filter for PropertyFilter {
 //     }
 // }
 
-#[test]
-fn test_property_filter() {
-    let filter = PropertyFilter {
-        property: Property::Priority,
-        relation: Relation::Equal,
-        value: "A".to_string(),
-    };
-    assert_eq!(
-        filter.filter(
-            &crate::todo::TodoBuilder::default()
-                .priority(Some('A'))
-                .build()
-                .unwrap()
-        ),
-        true
-    );
-
-    let filter = PropertyFilter {
-        property: Property::Priority,
-        relation: Relation::Greater,
-        value: "A".to_string(),
-    };
-    assert_eq!(
-        filter.filter(
-            &crate::todo::TodoBuilder::default()
-                .priority(Some('B'))
-                .build()
-                .unwrap()
-        ),
-        false
-    );
-}
-
 impl Display for PropertyFilter {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}{}{}", self.property, self.relation, self.value)
     }
-}
-
-#[test]
-fn test_display_property_filter() {
-    let filter = PropertyFilter {
-        property: Property::Priority,
-        relation: Relation::GreaterEqual,
-        value: "A".to_string(),
-    };
-    assert_eq!(format!("{}", filter), "priority>=A");
 }
 
 #[derive(Debug, Clone)]
@@ -263,25 +195,6 @@ impl Display for Disjunction {
     }
 }
 
-#[test]
-fn test_display_disjunction() {
-    let filter = Disjunction {
-        filters: vec![
-            Box::new(PropertyFilter {
-                property: Property::Priority,
-                relation: Relation::Equal,
-                value: "A".to_string(),
-            }),
-            Box::new(PropertyFilter {
-                property: Property::Priority,
-                relation: Relation::NotEqual,
-                value: "B".to_string(),
-            }),
-        ],
-    };
-    assert_eq!(format!("{}", filter), "(priority=A or priority!=B)");
-}
-
 #[derive(Debug, Clone)]
 pub struct Conjunction {
     pub filters: Vec<Box<dyn Filter>>,
@@ -308,25 +221,6 @@ impl Display for Conjunction {
     }
 }
 
-#[test]
-fn test_display_conjunction() {
-    let filter = Conjunction {
-        filters: vec![
-            Box::new(PropertyFilter {
-                property: Property::Priority,
-                relation: Relation::Greater,
-                value: "A".to_string(),
-            }),
-            Box::new(PropertyFilter {
-                property: Property::Priority,
-                relation: Relation::LessEqual,
-                value: "B".to_string(),
-            }),
-        ],
-    };
-    assert_eq!(format!("{}", filter), "(priority>A and priority<=B)");
-}
-
 #[derive(Debug, Clone)]
 pub struct Negation {
     pub filter: Box<dyn Filter>,
@@ -346,18 +240,6 @@ impl Display for Negation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "not {}", self.filter)
     }
-}
-
-#[test]
-fn test_display_negation() {
-    let filter = Negation {
-        filter: Box::new(PropertyFilter {
-            property: Property::Priority,
-            relation: Relation::Equal,
-            value: "A".to_string(),
-        }),
-    };
-    assert_eq!(format!("{}", filter), "not priority=A");
 }
 
 #[derive(Debug, Default, PartialEq, Clone)]
@@ -387,5 +269,137 @@ impl FromStr for Box<dyn Filter> {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         parse_str(s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::todo::{parser::TodoInfoBuilder, Location, Todo};
+
+    #[test]
+    fn test_serialize_json_filter() {
+        let filter: Box<dyn Filter> = Box::new(PropertyFilter {
+            property: Property::Priority,
+            relation: Relation::Equal,
+            value: "A".to_string(),
+        });
+        assert_eq!(serde_json::to_string(&filter).unwrap(), "\"priority=A\"");
+    }
+
+    #[test]
+    fn test_deserialize_json_filter() {
+        let filter: Box<dyn Filter> = serde_json::from_str("\"priority=A\"").unwrap();
+        let todo_true = Todo::new(
+            TodoInfoBuilder::default()
+                .priority(Some('A'))
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        let todo_false = Todo::new(
+            TodoInfoBuilder::default()
+                .priority(Some('B'))
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        assert_eq!(filter.filter(&todo_true), true);
+        assert_eq!(filter.filter(&todo_false), false);
+    }
+
+    #[test]
+    fn test_display_property_filter() {
+        let filter = PropertyFilter {
+            property: Property::Priority,
+            relation: Relation::GreaterEqual,
+            value: "A".to_string(),
+        };
+        assert_eq!(format!("{}", filter), "priority>=A");
+    }
+
+    #[test]
+    fn test_property_filter() {
+        let filter = PropertyFilter {
+            property: Property::Priority,
+            relation: Relation::Equal,
+            value: "A".to_string(),
+        };
+        assert_eq!(
+            filter.filter(&Todo::new(
+                TodoInfoBuilder::default()
+                    .priority(Some('A'))
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            )),
+            true
+        );
+
+        let filter = PropertyFilter {
+            property: Property::Priority,
+            relation: Relation::Greater,
+            value: "A".to_string(),
+        };
+        assert_eq!(
+            filter.filter(&Todo::new(
+                TodoInfoBuilder::default()
+                    .priority(Some('B'))
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            )),
+            false
+        );
+    }
+
+    #[test]
+    fn test_display_disjunction() {
+        let filter = Disjunction {
+            filters: vec![
+                Box::new(PropertyFilter {
+                    property: Property::Priority,
+                    relation: Relation::Equal,
+                    value: "A".to_string(),
+                }),
+                Box::new(PropertyFilter {
+                    property: Property::Priority,
+                    relation: Relation::NotEqual,
+                    value: "B".to_string(),
+                }),
+            ],
+        };
+        assert_eq!(format!("{}", filter), "(priority=A or priority!=B)");
+    }
+
+    #[test]
+    fn test_display_conjunction() {
+        let filter = Conjunction {
+            filters: vec![
+                Box::new(PropertyFilter {
+                    property: Property::Priority,
+                    relation: Relation::Greater,
+                    value: "A".to_string(),
+                }),
+                Box::new(PropertyFilter {
+                    property: Property::Priority,
+                    relation: Relation::LessEqual,
+                    value: "B".to_string(),
+                }),
+            ],
+        };
+        assert_eq!(format!("{}", filter), "(priority>A and priority<=B)");
+    }
+
+    #[test]
+    fn test_display_negation() {
+        let filter = Negation {
+            filter: Box::new(PropertyFilter {
+                property: Property::Priority,
+                relation: Relation::Equal,
+                value: "A".to_string(),
+            }),
+        };
+        assert_eq!(format!("{}", filter), "not priority=A");
     }
 }

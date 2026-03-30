@@ -263,24 +263,37 @@ impl App {
         self.todo_list.state.select_last();
     }
 
+    // TODO &76 Consolidate edit logic with the edit logic in the CLI
+    //
+    // This should be moved up to the todo module and then reused both here and in
+    // src/cli/todo/edit.rs. +refactor
     fn edit_selected(&mut self, terminal: &mut Terminal<impl Backend>) -> io::Result<()> {
         let editor = std::env::var("EDITOR").unwrap_or("vi".to_string());
 
         if let Some(item) = self.todo_list.selected() {
-            if let Some(file) = &item.todo.borrow().file {
-                stdout().execute(LeaveAlternateScreen)?;
-                disable_raw_mode()?;
-                let _ = Command::new(editor)
-                    .arg(file)
-                    .arg(format!(
-                        "+{}",
-                        item.todo.borrow().line_number.unwrap_or(1).to_string()
-                    ))
-                    .status();
-                stdout().execute(EnterAlternateScreen)?;
-                enable_raw_mode()?;
-                terminal.clear()?;
-            }
+            let file_path =
+                &item
+                    .todo
+                    .borrow()
+                    .location
+                    .file_path
+                    .clone()
+                    .ok_or(io::Error::new(
+                        io::ErrorKind::Other,
+                        "Selected todo does not have a file path",
+                    ))?;
+            stdout().execute(LeaveAlternateScreen)?;
+            disable_raw_mode()?;
+            let _ = Command::new(editor)
+                .arg(file_path)
+                .arg(format!(
+                    "+{}",
+                    item.todo.borrow().location.start_line_num.to_string()
+                ))
+                .status();
+            stdout().execute(EnterAlternateScreen)?;
+            enable_raw_mode()?;
+            terminal.clear()?;
         }
         Ok(())
     }
@@ -350,6 +363,10 @@ impl App {
         self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
     }
 
+    // TODO &76 Consolidate import logic with the import logic in the CLI
+    //
+    // This should be moved up to the todo module and then reused both here and in
+    // src/cli/todo/import.rs. +refactor
     fn import_selected(&mut self) {
         match self.todo_list.selected() {
             Some(todo_item) => {
@@ -457,7 +474,7 @@ impl App {
             .todo_list
             .items
             .iter()
-            .map(|t| super::display::truncate_path(&t.todo.borrow().display_location_start()))
+            .map(|t| super::display::truncate_path(&t.todo.borrow().location.display_start()))
             .collect();
         let max_path_width = short_paths.iter().map(|s| s.len()).max().unwrap_or(0);
         let max_id = self
@@ -549,14 +566,10 @@ impl App {
             Style::new().fg(Color::Magenta),
         ));
 
-        if let Some(ref file) = todo.borrow().file {
-            let mut t = "location: ".to_string();
-            t.push_str(file);
-            if let Some(line_number) = todo.borrow().line_number {
-                t.push_str(&format!(":{}", line_number));
-            }
-            text.push_line(Line::styled(t, Style::new().fg(Color::Blue)));
-        }
+        text.push_line(Line::styled(
+            format!("location: {}", todo.borrow().location),
+            Style::new().fg(Color::Magenta),
+        ));
 
         if let Some(priority) = todo.borrow().priority {
             text.push_line(Line::styled(
@@ -587,7 +600,7 @@ impl App {
             text.push_line("\n");
         }
 
-        if let Some(ref description) = todo.borrow().description {
+        if let Some(ref description) = todo.borrow().display_merged_description() {
             for line in Text::from(description.clone()).iter() {
                 text.push_line(line.clone());
             }
@@ -606,7 +619,7 @@ impl App {
         max_path_width: usize,
     ) -> ListItem<'a> {
         let mut location = super::display::truncate_path(
-            todo_item.todo.borrow().display_location_start().as_str(),
+            todo_item.todo.borrow().location.display_start().as_str(),
         );
         if location.len() < max_path_width {
             location.push_str(&" ".repeat(max_path_width - location.len()));

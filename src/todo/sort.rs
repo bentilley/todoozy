@@ -24,16 +24,6 @@ impl Serialize for Box<dyn Sorter> {
     }
 }
 
-#[test]
-fn test_serialize_json_sorter() {
-    let sorter: Box<dyn Sorter> = Box::new(PropertySorter {
-        property: Property::Priority,
-        direction: Direction::Ascending,
-    });
-    let json = serde_json::to_string(&sorter).unwrap();
-    assert_eq!(json, "\"priority:asc\"");
-}
-
 impl<'de> Deserialize<'de> for Box<dyn Sorter> {
     fn deserialize<D>(deserializer: D) -> Result<Box<dyn Sorter>, D::Error>
     where
@@ -42,26 +32,6 @@ impl<'de> Deserialize<'de> for Box<dyn Sorter> {
         let s = String::deserialize(deserializer)?;
         parse_str(&s).map_err(serde::de::Error::custom)
     }
-}
-
-#[test]
-fn test_deserialize_json_sorter() {
-    let sorter: Box<dyn Sorter> = serde_json::from_str("\"priority:desc\"").unwrap();
-    let mut todos = vec![
-        crate::todo::TodoBuilder::default()
-            .title("A".to_string())
-            .priority(Some('A'))
-            .build()
-            .unwrap(),
-        crate::todo::TodoBuilder::default()
-            .title("B".to_string())
-            .priority(Some('B'))
-            .build()
-            .unwrap(),
-    ];
-    todos.sort_by(|a, b| sorter.compare(a, b));
-    assert_eq!(todos[0].title, "B");
-    assert_eq!(todos[1].title, "A");
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -124,8 +94,8 @@ impl Sorter for PropertySorter {
     fn compare(&self, a: &crate::todo::Todo, b: &crate::todo::Todo) -> std::cmp::Ordering {
         let ord = match self.property {
             Property::Title => a.title.cmp(&b.title),
-            Property::File => a.file.cmp(&b.file),
-            Property::LineNumber => a.line_number.cmp(&b.line_number),
+            Property::File => a.location.file_path.cmp(&b.location.file_path),
+            Property::LineNumber => a.location.start_line_num.cmp(&b.location.start_line_num),
             Property::Priority => {
                 let a = a.priority.unwrap_or('Z');
                 let b = b.priority.unwrap_or('Z');
@@ -212,5 +182,47 @@ impl FromStr for Box<dyn Sorter> {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         parse_str(s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::todo::{Location, Todo, parser::TodoInfoBuilder};
+
+    #[test]
+    fn test_serialize_json_sorter() {
+        let sorter: Box<dyn Sorter> = Box::new(PropertySorter {
+            property: Property::Priority,
+            direction: Direction::Ascending,
+        });
+        let json = serde_json::to_string(&sorter).unwrap();
+        assert_eq!(json, "\"priority:asc\"");
+    }
+
+    #[test]
+    fn test_deserialize_json_sorter() {
+        let sorter: Box<dyn Sorter> = serde_json::from_str("\"priority:desc\"").unwrap();
+        let mut todos = vec![
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .title("A".to_string())
+                    .priority(Some('A'))
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .title("B".to_string())
+                    .priority(Some('B'))
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+        ];
+        todos.sort_by(|a, b| sorter.compare(a, b));
+        assert_eq!(todos[0].title, "B");
+        assert_eq!(todos[1].title, "A");
     }
 }

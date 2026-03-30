@@ -229,6 +229,8 @@ pub struct Parser<'a> {
     syntax_rules: &'static [SyntaxRule],
 }
 
+pub type RawTodo = (usize, usize, String);
+
 impl<'a> Parser<'a> {
     pub fn new(todo_token: &'a str, syntax_rules: &'static [SyntaxRule]) -> Self {
         Self {
@@ -251,7 +253,7 @@ impl<'a> Parser<'a> {
             || !after_token.chars().next().unwrap().is_alphanumeric()
     }
 
-    pub fn parse_todos(&self, text: &str) -> Vec<(usize, usize, String)> {
+    pub fn parse_todos(&self, text: &str) -> Vec<RawTodo> {
         let mut todos = Vec::new();
 
         let mut comments = CommentParser::new(self.syntax_rules, text).peekable();
@@ -478,7 +480,10 @@ let x = 1;"#;
         let text = "//    TODO with extra spaces\nlet x = 1;";
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
-        assert_eq!(todos[0], (1, 1, "with extra spaces".to_string()));
+        assert_eq!(
+            todos[0],
+            (1, 1, "with extra spaces".to_string())
+        );
     }
 
     #[test]
@@ -642,7 +647,10 @@ let x = 1;"#;
  */"#;
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
-        assert_eq!(todos[0], (2, 4, "at end of file\nmore content".to_string()));
+        assert_eq!(
+            todos[0],
+            (2, 4, "at end of file\nmore content".to_string())
+        );
     }
 
     #[test]
@@ -777,7 +785,10 @@ let x = 1;"#;
         let text = "/* TODO with /**/ empty nested */\nlet x = 1;";
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
-        assert_eq!(todos[0], (1, 1, "with /**/ empty nested".to_string()));
+        assert_eq!(
+            todos[0],
+            (1, 1, "with /**/ empty nested".to_string())
+        );
     }
 
     // Multi-line string tests
@@ -796,7 +807,10 @@ let x = 1;"#;
 let y = 1;"#;
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
-        assert_eq!(todos[0], (4, 4, "this should be found".to_string()));
+        assert_eq!(
+            todos[0],
+            (4, 4, "this should be found".to_string())
+        );
     }
 
     #[test]
@@ -830,7 +844,10 @@ let x = 1;
 let y = 1;"#;
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 2);
-        assert_eq!(todos[0], (1, 1, "mentions ` backtick".to_string()));
+        assert_eq!(
+            todos[0],
+            (1, 1, "mentions ` backtick".to_string())
+        );
         assert_eq!(todos[1], (3, 3, "second todo".to_string()));
     }
 
@@ -851,9 +868,18 @@ let y = 2;
 let z = 3;"#;
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 3);
-        assert_eq!(todos[0], (1, 1, "first in line comment".to_string()));
-        assert_eq!(todos[1], (3, 3, "second in block comment".to_string()));
-        assert_eq!(todos[2], (5, 5, "third back to line comment".to_string()));
+        assert_eq!(
+            todos[0],
+            (1, 1, "first in line comment".to_string())
+        );
+        assert_eq!(
+            todos[1],
+            (3, 3, "second in block comment".to_string())
+        );
+        assert_eq!(
+            todos[2],
+            (5, 5, "third back to line comment".to_string())
+        );
     }
 
     #[test]
