@@ -36,6 +36,7 @@ use todoozy::Todo;
 struct TodoList {
     items: Vec<TodoItem>,
     state: ListState,
+    horizontal_scroll: u16,
 }
 
 impl TodoList {
@@ -58,7 +59,11 @@ impl TodoList {
             state.select(Some(0));
         }
 
-        Self { items, state }
+        Self {
+            items,
+            state,
+            horizontal_scroll: 0,
+        }
     }
 
     fn selected(&self) -> Option<&TodoItem> {
@@ -191,14 +196,6 @@ impl App {
             self.message = None;
         }
 
-        // TODO #5 (Z) 2024-08-23 A way to scroll the list view to the right
-        //
-        // So we can see all the info of long todos who's information can't fit on the current
-        // terminal width.
-        //
-        // Putting this in the backlog for now because file formatting will mean that there
-        // shouldn't be any massive long todos. If there are then you can always press enter to
-        // view the whole todo expanded.
         match self.input {
             None => match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => {
@@ -208,9 +205,9 @@ impl App {
                         self.should_exit = true
                     }
                 }
+                KeyCode::Char('0') => self.select_none(),
                 KeyCode::Char('d') => self.remove_selected(),
                 KeyCode::Char('e') => self.edit_selected(terminal).unwrap(),
-                KeyCode::Char('h') | KeyCode::Left => self.select_none(),
                 KeyCode::Char('i') => self.import_selected(),
                 KeyCode::Char('I') => self.import_all(),
                 KeyCode::Char('j') | KeyCode::Down => self.select_next(),
@@ -219,10 +216,12 @@ impl App {
                 KeyCode::Char('F') => self.reset_filter(),
                 KeyCode::Char('g') | KeyCode::Home => self.select_first(),
                 KeyCode::Char('G') | KeyCode::End => self.select_last(),
+                KeyCode::Char('h') | KeyCode::Left => self.scroll_left(),
+                KeyCode::Char('l') | KeyCode::Right => self.scroll_right(),
                 KeyCode::Enter => {
                     self.selected = self.todo_list.state.selected();
                 }
-                KeyCode::Char('l') | KeyCode::Right => self.toggle_status(),
+                KeyCode::Char(' ') => self.toggle_status(),
                 KeyCode::Char('R') => self.refresh_todos(),
                 KeyCode::Char('s') => self.get_input(InputFor::Sort),
                 KeyCode::Char('S') => self.reset_sort(),
@@ -261,6 +260,14 @@ impl App {
 
     fn select_last(&mut self) {
         self.todo_list.state.select_last();
+    }
+
+    fn scroll_left(&mut self) {
+        self.todo_list.horizontal_scroll = self.todo_list.horizontal_scroll.saturating_sub(4);
+    }
+
+    fn scroll_right(&mut self) {
+        self.todo_list.horizontal_scroll = self.todo_list.horizontal_scroll.saturating_add(4);
     }
 
     fn edit_selected(&mut self, terminal: &mut Terminal<impl Backend>) -> io::Result<()> {
@@ -487,11 +494,14 @@ impl App {
             .unwrap_or(0);
         let max_id_digits = super::display::num_digits(max_id);
 
+        let horizontal_scroll = self.todo_list.horizontal_scroll;
         let items: Vec<ListItem> = self
             .todo_list
             .items
             .iter()
-            .map(|todo_item| App::make_listitem(todo_item, max_id_digits, max_path_width))
+            .map(|todo_item| {
+                App::make_listitem(todo_item, max_id_digits, max_path_width, horizontal_scroll)
+            })
             .collect();
 
         let highlight_style = match self.todo_list.selected() {
@@ -612,6 +622,7 @@ impl App {
         todo_item: &TodoItem,
         max_id_digits: u32,
         max_path_width: usize,
+        horizontal_scroll: u16,
     ) -> ListItem<'a> {
         let mut location = super::display::truncate_path(
             todo_item.todo.borrow().location.display_start().as_str(),
@@ -628,50 +639,78 @@ impl App {
             .map(|t| Span::styled(format!(" +{}", t), Style::new().fg(Color::Magenta)))
             .collect();
 
-        let line = Line::from(
-            vec![
-                Span::styled(
-                    match &todo_item.todo.borrow().id {
-                        Some(TodoIdentifier::Primary(id)) => {
-                            format!("#{:<width$} ", id, width = max_id_digits as usize)
-                        }
-                        Some(TodoIdentifier::Reference(id)) => {
-                            format!("&{:<width$} ", id, width = max_id_digits as usize)
-                        }
-                        None => format!("#{:-<width$} ", "", width = max_id_digits as usize),
-                    },
-                    Style::new().fg(match &todo_item.todo.borrow().id {
-                        Some(TodoIdentifier::Primary(_)) => Color::Green,
-                        Some(TodoIdentifier::Reference(_)) => Color::Cyan,
-                        None => Color::Yellow,
-                    }),
-                ),
-                // TODO #2 (E) 2024-09-05 What are we going to do with the [ ] checkbox in the UI?
-                //
-                // Not sure how useful this is as toggling the status of todos from the UI is still
-                // not well defined. It would be nice to see in progress etc. especially if someone
-                // was working on one on another branch but it wasn't finished yet and they're
-                // partially committed their work.
-                //
-                // Currently, we just have a list, and when you complete stuff it disappears, which
-                // feels like it might not be the most satisfying experience (although it has been
-                // motivating me for a few weeks now on this project).
-                Span::styled("[ ] ", Style::new().fg(Color::Red)),
-                Span::styled(format!("{} ", location), Style::new().fg(Color::Blue)),
-                Span::styled(
-                    format!("({}) ", todo_item.todo.borrow().priority.unwrap_or('Z')),
-                    Style::new().fg(Color::Yellow),
-                ),
-                Span::styled(
-                    todo_item.todo.borrow().title.clone(),
-                    Style::new().fg(Color::White),
-                ),
-            ]
-            .into_iter()
-            .chain(tags.into_iter())
-            .collect::<Vec<Span>>(),
-        );
+        let spans: Vec<Span> = vec![
+            Span::styled(
+                match &todo_item.todo.borrow().id {
+                    Some(TodoIdentifier::Primary(id)) => {
+                        format!("#{:<width$} ", id, width = max_id_digits as usize)
+                    }
+                    Some(TodoIdentifier::Reference(id)) => {
+                        format!("&{:<width$} ", id, width = max_id_digits as usize)
+                    }
+                    None => format!("#{:-<width$} ", "", width = max_id_digits as usize),
+                },
+                Style::new().fg(match &todo_item.todo.borrow().id {
+                    Some(TodoIdentifier::Primary(_)) => Color::Green,
+                    Some(TodoIdentifier::Reference(_)) => Color::Cyan,
+                    None => Color::Yellow,
+                }),
+            ),
+            // TODO #2 (E) 2024-09-05 What are we going to do with the [ ] checkbox in the UI?
+            //
+            // Not sure how useful this is as toggling the status of todos from the UI is still
+            // not well defined. It would be nice to see in progress etc. especially if someone
+            // was working on one on another branch but it wasn't finished yet and they're
+            // partially committed their work.
+            //
+            // Currently, we just have a list, and when you complete stuff it disappears, which
+            // feels like it might not be the most satisfying experience (although it has been
+            // motivating me for a few weeks now on this project).
+            Span::styled("[ ] ", Style::new().fg(Color::Red)),
+            Span::styled(format!("{} ", location), Style::new().fg(Color::Blue)),
+            Span::styled(
+                format!("({}) ", todo_item.todo.borrow().priority.unwrap_or('Z')),
+                Style::new().fg(Color::Yellow),
+            ),
+            Span::styled(
+                todo_item.todo.borrow().title.clone(),
+                Style::new().fg(Color::White),
+            ),
+        ]
+        .into_iter()
+        .chain(tags.into_iter())
+        .collect();
 
-        ListItem::new(line)
+        let scrolled_spans = Self::scroll_spans(spans, horizontal_scroll as usize);
+        ListItem::new(Line::from(scrolled_spans))
+    }
+
+    /// Scrolls a list of spans by skipping the first `offset` characters.
+    fn scroll_spans(spans: Vec<Span<'_>>, offset: usize) -> Vec<Span<'_>> {
+        if offset == 0 {
+            return spans;
+        }
+
+        let mut remaining_offset = offset;
+        let mut result = Vec::new();
+
+        for span in spans {
+            let span_len = span.content.chars().count();
+
+            if remaining_offset >= span_len {
+                // Skip this entire span
+                remaining_offset -= span_len;
+            } else if remaining_offset > 0 {
+                // Partially skip this span
+                let new_content: String = span.content.chars().skip(remaining_offset).collect();
+                result.push(Span::styled(new_content, span.style));
+                remaining_offset = 0;
+            } else {
+                // No more offset to apply, keep span as-is
+                result.push(span);
+            }
+        }
+
+        result
     }
 }
