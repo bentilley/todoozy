@@ -4,6 +4,14 @@ use super::todo;
 use todoozy::todo::filter;
 use todoozy::todo::sort;
 
+//TODO #77 (E) 2026-03-31 Should some of the cli commands take file paths
+//
+// I feel like it would be good to be able to pass specific files to tdz commands, and possibly
+// even the TUI - i.e. `tdz file.rs` or `tdz dir` would start the TUI showing only todos in those
+// files / directories. Def useful for testing, or seeing how a todo you just wrote looks. Also,
+// useful if you want to just see todos for a specific package in a monorepo. Needs some scoping
+// first +idea.
+
 // TODO #57 (D) 2026-03-22 Implement `tdz summary` command +cli
 //
 // Show summary statistics for the codebase:
