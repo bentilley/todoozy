@@ -13,7 +13,7 @@ Options:
     -n, --limit <N>         Limit number of results
     -f, --filter <FILTER>   Filter which todos to display
     -s, --sort <SORT>       How to sort the todos
-    --format <FORMAT>       Output format: table, json (default: table)
+    --format <FORMAT>       Output format: raw, json (default: raw)
     --help                  Print help
 "#;
 
@@ -28,7 +28,7 @@ impl Default for TodoListOptions {
     fn default() -> Self {
         Self {
             limit: None,
-            format: OutputFormat::Table,
+            format: OutputFormat::Raw,
             filter: None,
             sorter: None,
         }
@@ -109,7 +109,7 @@ pub fn list(conf: &config::Config, opts: &TodoListOptions) -> error::Result<()> 
     };
 
     match opts.format {
-        OutputFormat::Table => {
+        OutputFormat::Raw => {
             let id_width = all_todos
                 .iter()
                 .map(|t| t.display_id().len())

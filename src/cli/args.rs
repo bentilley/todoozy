@@ -337,12 +337,12 @@ mod tests {
     }
 
     #[test]
-    fn todo_list_format_table() {
+    fn todo_list_format_raw() {
         let result = parse_args(lexopt::Parser::from_iter([
-            "tdz", "todo", "list", "--format", "table",
+            "tdz", "todo", "list", "--format", "raw",
         ]));
         if let Ok(Mode::Cli(Command::Todo(TodoCommand::List(opts)))) = result {
-            assert_eq!(opts.format, OutputFormat::Table);
+            assert_eq!(opts.format, OutputFormat::Raw);
         } else {
             panic!("expected Ok(Cli(Todo(List)))");
         }
@@ -351,11 +351,11 @@ mod tests {
     #[test]
     fn todo_list_limit_and_format() {
         let result = parse_args(lexopt::Parser::from_iter([
-            "tdz", "todo", "list", "--limit", "5", "--format", "table",
+            "tdz", "todo", "list", "--limit", "5", "--format", "raw",
         ]));
         if let Ok(Mode::Cli(Command::Todo(TodoCommand::List(opts)))) = result {
             assert_eq!(opts.limit, Some(5));
-            assert_eq!(opts.format, OutputFormat::Table);
+            assert_eq!(opts.format, OutputFormat::Raw);
         } else {
             panic!("expected Ok(Cli(Todo(List)))");
         }
@@ -471,7 +471,7 @@ mod tests {
         let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "get", "54"]));
         if let Ok(Mode::Cli(Command::Todo(TodoCommand::Get(opts)))) = result {
             assert_eq!(opts.id, 54);
-            assert_eq!(opts.format, OutputFormat::Table);
+            assert_eq!(opts.format, OutputFormat::Raw);
         } else {
             panic!("expected Ok(Cli(Todo(Get)))");
         }
@@ -491,13 +491,13 @@ mod tests {
     }
 
     #[test]
-    fn todo_get_with_format_table() {
+    fn todo_get_with_format_raw() {
         let result = parse_args(lexopt::Parser::from_iter([
-            "tdz", "todo", "get", "42", "--format", "table",
+            "tdz", "todo", "get", "42", "--format", "raw",
         ]));
         if let Ok(Mode::Cli(Command::Todo(TodoCommand::Get(opts)))) = result {
             assert_eq!(opts.id, 42);
-            assert_eq!(opts.format, OutputFormat::Table);
+            assert_eq!(opts.format, OutputFormat::Raw);
         } else {
             panic!("expected Ok(Cli(Todo(Get)))");
         }
@@ -574,12 +574,12 @@ mod tests {
     }
 
     #[test]
-    fn tag_list_format_table() {
+    fn tag_list_format_raw() {
         let result = parse_args(lexopt::Parser::from_iter([
-            "tdz", "tag", "list", "--format", "table",
+            "tdz", "tag", "list", "--format", "raw",
         ]));
         if let Ok(Mode::Cli(Command::Tag(TagCommand::List(opts)))) = result {
-            assert_eq!(format!("{:?}", opts.format), "Table");
+            assert_eq!(format!("{:?}", opts.format), "Raw");
         } else {
             panic!("expected Ok(Cli(Tag(List)))");
         }

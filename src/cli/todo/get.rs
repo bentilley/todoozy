@@ -12,7 +12,7 @@ Arguments:
     <ID>    The todo ID to display
 
 Options:
-    --format <FORMAT>  Output format: table, json (default: table)
+    --format <FORMAT>  Output format: raw, json (default: raw)
     --help             Print help
 "#;
 
@@ -25,7 +25,7 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     use lexopt::prelude::*;
 
     let mut id: Option<u32> = None;
-    let mut format = OutputFormat::Table;
+    let mut format = OutputFormat::Raw;
 
     while let Some(arg) = parser.next()? {
         match arg {
@@ -53,7 +53,7 @@ pub fn get(conf: &config::Config, opts: &TodoGetOptions) -> error::Result<()> {
 
     match todo {
         Some(todo) => match opts.format {
-            OutputFormat::Table => print_table(&todo),
+            OutputFormat::Raw => print_raw(&todo),
             OutputFormat::Json => print_json(&todo),
         },
         None => return Err(format!("Todo #{} not found", opts.id).into()),
@@ -62,18 +62,11 @@ pub fn get(conf: &config::Config, opts: &TodoGetOptions) -> error::Result<()> {
     Ok(())
 }
 
-// TODO #72 (E) 2026-03-27 Rename "table" to "raw" in OutputFormat +refactor
-//
-// Table came from the `todo list` command, but really it should be more generic since it can be
-// used for both `get` and `list`. The "table" format is really just a more human-friendly raw
-// output, so "raw" might be a better name. This would also make it clearer that the "table" format
-// doesn't necessarily have to be a literal table with columns, but can be any human-readable
-// format that isn't JSON.
-fn print_table(todo: &todoozy::todo::Todo) {
-    write_table(&mut std::io::stdout(), todo).unwrap();
+fn print_raw(todo: &todoozy::todo::Todo) {
+    write_raw(&mut std::io::stdout(), todo).unwrap();
 }
 
-fn write_table(w: &mut impl std::io::Write, todo: &todoozy::todo::Todo) -> std::io::Result<()> {
+fn write_raw(w: &mut impl std::io::Write, todo: &todoozy::todo::Todo) -> std::io::Result<()> {
     // ID and priority
     writeln!(w, "ID:          {}", todo.display_id())?;
     writeln!(w, "Priority:    {}", todo.display_priority())?;
@@ -235,7 +228,7 @@ mod tests {
     use todoozy::todo::{Location, Metadata, Todo, TodoIdentifier};
 
     #[test]
-    fn test_write_table_format() {
+    fn test_write_raw_format() {
         let mut metadata = Metadata::new();
         metadata.set("depends", "42");
         metadata.set("depends", "41");
@@ -255,7 +248,7 @@ mod tests {
         );
 
         let mut buf = Vec::new();
-        write_table(&mut buf, &todo).unwrap();
+        write_raw(&mut buf, &todo).unwrap();
         let output = String::from_utf8(buf).unwrap();
 
         // Check basic fields

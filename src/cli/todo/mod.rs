@@ -56,7 +56,7 @@ pub fn parse_cmd(mut parser: lexopt::Parser) -> error::Result<Mode> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OutputFormat {
     #[default]
-    Table,
+    Raw,
     Json,
 }
 
@@ -65,10 +65,10 @@ impl std::str::FromStr for OutputFormat {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "table" => Ok(OutputFormat::Table),
+            "raw" => Ok(OutputFormat::Raw),
             "json" => Ok(OutputFormat::Json),
             other => Err(format!(
-                "unknown format '{}', expected 'table' or 'json'",
+                "unknown format '{}', expected 'raw' or 'json'",
                 other
             )),
         }

@@ -11,7 +11,7 @@ Usage: tdz tag list [OPTIONS]
 Options:
     -n, --limit <N>       Limit number of results
     -s, --sort <SORT>     Sort order: name, count (default: name)
-    --format <FORMAT>     Output format: table, json (default: table)
+    --format <FORMAT>     Output format: raw, json (default: raw)
     --help                Print help
 "#;
 
@@ -25,7 +25,7 @@ impl Default for TagListOptions {
     fn default() -> Self {
         Self {
             limit: None,
-            format: OutputFormat::Table,
+            format: OutputFormat::Raw,
             sort: SortOrder::Name,
         }
     }
@@ -34,7 +34,7 @@ impl Default for TagListOptions {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OutputFormat {
     #[default]
-    Table,
+    Raw,
     Json,
 }
 
@@ -43,10 +43,10 @@ impl std::str::FromStr for OutputFormat {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "table" => Ok(OutputFormat::Table),
+            "raw" => Ok(OutputFormat::Raw),
             "json" => Ok(OutputFormat::Json),
             other => Err(format!(
-                "unknown format '{}', expected 'table' or 'json'",
+                "unknown format '{}', expected 'raw' or 'json'",
                 other
             )),
         }
@@ -126,7 +126,7 @@ pub fn list(conf: &config::Config, opts: &TagListOptions) -> error::Result<()> {
     };
 
     match opts.format {
-        OutputFormat::Table => {
+        OutputFormat::Raw => {
             let name_width = tags.iter().map(|(name, _)| name.len()).max().unwrap_or(0);
             let count_width = tags
                 .iter()
