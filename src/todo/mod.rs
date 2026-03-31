@@ -17,44 +17,47 @@ pub enum TodoIdentifier {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct Metadata(HashMap<String, String>);
+pub struct Metadata(HashMap<String, Vec<String>>);
 
-// TODO #20 (E) 2024-09-17 Vec metadata keys +improvement
-//
-// Currently, repeated metadata keys are not allowed. This means that if a todo is parsed with the
-// same metadata key multiple times, we error the parsing.
-//
-// There might be valid cases when a specific key lends itself to having multiple values associated
-// with the same key (i.e. a list/vector metadata type). This needs better understanding and
-// defining before implementation.
-//
-// Note: This would also enable DIY dependency tracking via metadata, e.g.:
-//   # TODO #43 Implement auth `depends:42` `depends:41`
-// Without first-class dependency support (deemed too complex for now), users who
-// want dependencies can use array metadata to roll their own.
 impl Metadata {
     pub fn new() -> Self {
         Metadata(HashMap::new())
     }
 
-    pub fn get(&self, key: &str) -> Option<&str> {
-        self.0.get(key).map(|s| s.as_str())
+    /// Returns all values for the given key.
+    pub fn get(&self, key: &str) -> Option<&[String]> {
+        self.0.get(key).map(|v| v.as_slice())
     }
 
-    pub fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
-        match self.get(key) {
-            Some(_) => {
-                return Err(format!("Key {} already exists", key));
-            }
-            None => {
-                self.0.insert(key.to_string(), value.to_string());
-            }
-        };
-        Ok(())
+    /// Appends a value for the given key. Multiple values can be set for the same key.
+    pub fn set(&mut self, key: &str, value: &str) {
+        self.0
+            .entry(key.to_string())
+            .or_default()
+            .push(value.to_string());
     }
 
-    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, String, String> {
-        self.0.iter()
+    /// Returns an iterator over all (key, value) pairs.
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &String)> {
+        self.0
+            .iter()
+            .flat_map(|(k, vs)| vs.iter().map(move |v| (k, v)))
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = &String> {
+        self.0.keys()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.0.contains_key(key)
     }
 }
 
@@ -79,10 +82,7 @@ impl FromIterator<(std::string::String, std::string::String)> for Metadata {
     ) -> Self {
         let mut metadata = Metadata::new();
         for (key, value) in iter {
-            match metadata.set(&key, &value) {
-                Err(e) => panic!("{}", e),
-                Ok(_) => {}
-            };
+            metadata.set(&key, &value);
         }
         metadata
     }
@@ -496,5 +496,82 @@ mod tests {
         ]
         .into();
         assert_eq!(todos.get_max_id(), 2);
+    }
+
+    #[test]
+    fn test_metadata_get_missing_key() {
+        let metadata = Metadata::new();
+        assert_eq!(metadata.get("nonexistent"), None);
+    }
+
+    #[test]
+    fn test_metadata_single_value() {
+        let mut metadata = Metadata::new();
+        metadata.set("key", "value");
+
+        assert_eq!(
+            metadata.get("key"),
+            Some(vec!["value".to_string()].as_slice())
+        );
+        assert!(metadata.contains_key("key"));
+        assert!(!metadata.is_empty());
+        assert_eq!(metadata.len(), 1);
+    }
+
+    #[test]
+    fn test_metadata_multi_value() {
+        let mut metadata = Metadata::new();
+        metadata.set("depends", "42");
+        metadata.set("depends", "41");
+        metadata.set("depends", "40");
+
+        assert_eq!(metadata.len(), 1);
+        assert_eq!(
+            metadata.keys().collect::<Vec<_>>(),
+            vec![&"depends".to_string()]
+        );
+
+        assert_eq!(
+            metadata.get("depends"), // get() returns values in insertion order
+            Some(vec!["42".to_string(), "41".to_string(), "40".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn test_metadata_iter_flattens() {
+        let mut metadata = Metadata::new();
+        metadata.set("depends", "42");
+        metadata.set("depends", "41");
+        metadata.set("owner", "alice");
+
+        assert_eq!(metadata.len(), 2);
+        let keys = metadata.keys().collect::<Vec<_>>();
+        assert_eq!(keys.contains(&&"depends".to_string()), true);
+        assert_eq!(keys.contains(&&"owner".to_string()), true);
+
+        let pairs: Vec<_> = metadata.iter().collect();
+        assert_eq!(pairs.len(), 3);
+    }
+
+    #[test]
+    fn test_metadata_from_iterator() {
+        let metadata: Metadata = vec![
+            ("key1".to_string(), "value1".to_string()),
+            ("key1".to_string(), "value2".to_string()),
+            ("key2".to_string(), "value3".to_string()),
+        ]
+        .into_iter()
+        .collect();
+
+        assert_eq!(metadata.len(), 2);
+        let keys = metadata.keys().collect::<Vec<_>>();
+        assert_eq!(keys.contains(&&"key1".to_string()), true);
+        assert_eq!(keys.contains(&&"key2".to_string()), true);
+
+        assert_eq!(
+            metadata.get("key1"),
+            Some(vec!["value1".to_string(), "value2".to_string()].as_slice())
+        );
+        assert_eq!(metadata.get("key2").unwrap()[0], "value3");
     }
 }

@@ -15,7 +15,6 @@ use nom::{
 
 #[derive(Debug, PartialEq)]
 pub enum Error<I> {
-    BadMetadata(String),
     InvalidDate(String),
     Nom(I, ErrorKind),
     Parser(String),
@@ -34,7 +33,6 @@ impl<I> ParseError<I> for Error<I> {
 impl<I: std::fmt::Debug> std::fmt::Display for Error<I> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::BadMetadata(msg) => write!(f, "bad metadata: {}", msg),
             Error::InvalidDate(msg) => write!(f, "invalid date: {}", msg),
             Error::Nom(input, kind) => write!(f, "parse error ({:?}): {:?}", kind, input),
             Error::Parser(msg) => write!(f, "parse error: {}", msg),
@@ -236,15 +234,8 @@ pub fn todo(s: &str) -> IResult<&str, TodoInfo, Error<&str>> {
             Word::Tag(t) => tags.push(t.to_owned()),
             Word::Metadata((k, v)) => {
                 // Metadata keys starting with an underscore are reserved for internal use.
-                if k.starts_with("_") {
-                    match k {
-                        _ => {}
-                    }
-                } else {
-                    match metadata.set(k, v) {
-                        Ok(_) => {}
-                        Err(e) => return Err(nom::Err::Error(Error::BadMetadata(e))),
-                    };
+                if !k.starts_with("_") {
+                    metadata.set(k, v);
                 }
             }
         }
@@ -264,15 +255,8 @@ pub fn todo(s: &str) -> IResult<&str, TodoInfo, Error<&str>> {
                         Word::Tag(t) => tags.push(t.to_owned()),
                         Word::Metadata((k, v)) => {
                             // Metadata keys starting with an underscore are reserved for internal use.
-                            if k.starts_with("_") {
-                                match k {
-                                    _ => {}
-                                }
-                            } else {
-                                match metadata.set(k, v) {
-                                    Ok(_) => {}
-                                    Err(e) => return Err(nom::Err::Error(Error::BadMetadata(e))),
-                                };
+                            if !k.starts_with("_") {
+                                metadata.set(k, v);
                             }
                         }
                     }
@@ -966,6 +950,49 @@ a case by case basis feels impossible."##
                     .build()
                     .unwrap()
             ))
+        );
+    }
+
+    #[test]
+    fn test_todo_duplicate_metadata_keys_in_title() {
+        // Multiple depends:X in title should collect into a list
+        let result = todo("#43 Implement auth depends:42 depends:41");
+        assert!(result.is_ok());
+        let (_, info) = result.unwrap();
+        assert_eq!(info.title, "Implement auth");
+        assert_eq!(
+            info.metadata.get("depends"),
+            Some(vec!["42".to_string(), "41".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn test_todo_duplicate_metadata_keys_across_title_and_description() {
+        // depends:X in title and another in description
+        let result = todo("#43 Implement auth depends:42\n\nNeed to also depends:41");
+        assert!(result.is_ok());
+        let (_, info) = result.unwrap();
+        assert_eq!(
+            info.metadata.get("depends"),
+            Some(vec!["42".to_string(), "41".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn test_todo_mixed_single_and_multi_value_metadata() {
+        // Mix of single-value and multi-value metadata
+        let result = todo("Test todo priority:high depends:1 depends:2 owner:alice");
+        assert!(result.is_ok());
+        let (_, info) = result.unwrap();
+
+        // Single-value keys
+        assert_eq!(info.metadata.get("priority").unwrap()[0], "high");
+        assert_eq!(info.metadata.get("owner").unwrap()[0], "alice");
+
+        // Multi-value key
+        assert_eq!(
+            info.metadata.get("depends"),
+            Some(vec!["1".to_string(), "2".to_string()].as_slice())
         );
     }
 }

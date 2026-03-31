@@ -70,97 +70,107 @@ pub fn get(conf: &config::Config, opts: &TodoGetOptions) -> error::Result<()> {
 // doesn't necessarily have to be a literal table with columns, but can be any human-readable
 // format that isn't JSON.
 fn print_table(todo: &todoozy::todo::Todo) {
+    write_table(&mut std::io::stdout(), todo).unwrap();
+}
+
+fn write_table(w: &mut impl std::io::Write, todo: &todoozy::todo::Todo) -> std::io::Result<()> {
     // ID and priority
-    println!("ID:          {}", todo.display_id());
-    println!("Priority:    {}", todo.display_priority());
+    writeln!(w, "ID:          {}", todo.display_id())?;
+    writeln!(w, "Priority:    {}", todo.display_priority())?;
 
     // Dates
     if let Some(date) = todo.creation_date {
-        println!("Created:     {}", date);
+        writeln!(w, "Created:     {}", date)?;
     }
     if let Some(date) = todo.completion_date {
-        println!("Completed:   {}", date);
+        writeln!(w, "Completed:   {}", date)?;
     }
 
     // Location(s) with line range
     if todo.references.is_empty() {
-        println!("Location:    {}", todo.location);
+        writeln!(w, "Location:    {}", todo.location)?;
     } else {
         // Multiple locations with markers
-        println!("Locations:");
+        writeln!(w, "Locations:")?;
         for location in &todo.display_locations_with_marker() {
-            println!("             {}", location);
+            writeln!(w, "             {}", location)?;
         }
     }
 
     // Tags (merged from primary + references)
     let merged_tags = todo.display_merged_tags();
     if !merged_tags.is_empty() {
-        println!(
+        writeln!(
+            w,
             "Tags:        {}",
             merged_tags
                 .iter()
                 .map(|t| format!("+{}", t))
                 .collect::<Vec<_>>()
                 .join(" ")
-        );
+        )?;
     }
 
     // Title
-    println!();
-    println!("Title:");
-    println!("  {}", todo.title);
+    writeln!(w)?;
+    writeln!(w, "Title:")?;
+    writeln!(w, "  {}", todo.title)?;
 
     // Description (merged with reference subtitles)
     if let Some(ref desc) = todo.display_merged_description() {
-        println!();
-        println!("Description:");
+        writeln!(w)?;
+        writeln!(w, "Description:")?;
         for line in desc.lines() {
-            println!("  {}", line);
+            writeln!(w, "  {}", line)?;
         }
     }
 
     // Metadata
-    let metadata: Vec<_> = todo.metadata.iter().collect();
-    if !metadata.is_empty() {
-        println!();
-        println!("Metadata:");
-        for (key, value) in metadata {
-            println!("  {}: {}", key, value);
+    if !todo.metadata.is_empty() {
+        writeln!(w)?;
+        writeln!(w, "Metadata:")?;
+        for (key, values) in todo.metadata.iter() {
+            writeln!(w, "  {}: {}", key, values)?;
         }
     }
+
+    Ok(())
 }
 
 fn print_json(todo: &todoozy::todo::Todo) {
-    #[derive(serde::Serialize)]
-    struct TodoRefOutput {
-        id: Option<u32>,
-        file: Option<String>,
-        line_number: Option<usize>,
-        end_line_number: Option<usize>,
-        title: String,
-        description: Option<String>,
-        tags: Vec<String>,
-        metadata: std::collections::HashMap<String, String>,
-    }
+    write_json(&mut std::io::stdout(), todo).unwrap();
+}
 
-    #[derive(serde::Serialize)]
-    struct TodoFullOutput {
-        id: Option<u32>,
-        id_type: Option<String>,
-        priority: Option<char>,
-        creation_date: Option<String>,
-        completion_date: Option<String>,
-        file: Option<String>,
-        line_number: Option<usize>,
-        end_line_number: Option<usize>,
-        title: String,
-        description: Option<String>,
-        tags: Vec<String>,
-        metadata: std::collections::HashMap<String, String>,
-        references: Vec<TodoRefOutput>,
-    }
+#[derive(serde::Serialize)]
+struct TodoRefOutput {
+    id: Option<u32>,
+    file: Option<String>,
+    line_number: Option<usize>,
+    end_line_number: Option<usize>,
+    title: String,
+    description: Option<String>,
+    tags: Vec<String>,
+    metadata: std::collections::HashMap<String, Vec<String>>,
+}
 
+#[derive(serde::Serialize)]
+struct TodoFullOutput {
+    id: Option<u32>,
+    id_type: Option<String>,
+    priority: Option<char>,
+    creation_date: Option<String>,
+    completion_date: Option<String>,
+    file: Option<String>,
+    line_number: Option<usize>,
+    end_line_number: Option<usize>,
+    title: String,
+    description: Option<String>,
+    tags: Vec<String>,
+    metadata: std::collections::HashMap<String, Vec<String>>,
+    references: Vec<TodoRefOutput>,
+}
+
+fn write_json(w: &mut impl std::io::Write, todo: &todoozy::todo::Todo) -> std::io::Result<()> {
     let (id, id_type) = match &todo.id {
         Some(TodoIdentifier::Primary(n)) => (Some(*n), Some("primary".to_string())),
         Some(TodoIdentifier::Reference(n)) => (Some(*n), Some("reference".to_string())),
@@ -186,8 +196,8 @@ fn print_json(todo: &todoozy::todo::Todo) {
                 tags: r.tags.clone(),
                 metadata: r
                     .metadata
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .keys()
+                    .map(|k| (k.clone(), r.metadata.get(k).unwrap().to_vec()))
                     .collect(),
             }
         })
@@ -207,14 +217,107 @@ fn print_json(todo: &todoozy::todo::Todo) {
         tags: todo.tags.clone(),
         metadata: todo
             .metadata
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .keys()
+            .map(|k| (k.clone(), todo.metadata.get(k).unwrap().to_vec()))
             .collect(),
         references,
     };
 
-    match serde_json::to_string_pretty(&output) {
-        Ok(json) => println!("{}", json),
-        Err(e) => eprintln!("Error serializing to JSON: {}", e),
+    serde_json::to_writer_pretty(&mut *w, &output)?;
+    writeln!(w)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use todoozy::todo::parser::TodoInfoBuilder;
+    use todoozy::todo::{Location, Metadata, Todo, TodoIdentifier};
+
+    #[test]
+    fn test_write_table_format() {
+        let mut metadata = Metadata::new();
+        metadata.set("depends", "42");
+        metadata.set("depends", "41");
+        metadata.set("owner", "alice");
+
+        let todo = Todo::new(
+            TodoInfoBuilder::default()
+                .id(Some(TodoIdentifier::Primary(99)))
+                .priority(Some('A'))
+                .title("Test todo title".to_string())
+                .description(Some("Test description".to_string()))
+                .tags(vec!["feature".to_string(), "urgent".to_string()])
+                .metadata(metadata)
+                .build()
+                .unwrap(),
+            Location::new(Some("src/main.rs".to_string()), 10, 15),
+        );
+
+        let mut buf = Vec::new();
+        write_table(&mut buf, &todo).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+
+        // Check basic fields
+        assert!(output.contains("ID:          #99"));
+        assert!(output.contains("Priority:    (A)"));
+        assert!(output.contains("Location:    src/main.rs:10-15"));
+        assert!(output.contains("Tags:        +feature +urgent"));
+        assert!(output.contains("Title:"));
+        assert!(output.contains("  Test todo title"));
+        assert!(output.contains("Description:"));
+        assert!(output.contains("  Test description"));
+
+        // Check multi-value metadata is displayed correctly
+        assert!(output.contains("Metadata:"));
+        assert!(output.contains("depends: 42"));
+        assert!(output.contains("depends: 41"));
+        assert!(output.contains("owner: alice"));
+    }
+
+    #[test]
+    fn test_write_json_format() {
+        let mut metadata = Metadata::new();
+        metadata.set("depends", "42");
+        metadata.set("depends", "41");
+        metadata.set("owner", "alice");
+
+        let todo = Todo::new(
+            TodoInfoBuilder::default()
+                .id(Some(TodoIdentifier::Primary(99)))
+                .priority(Some('A'))
+                .title("Test todo title".to_string())
+                .description(Some("Test description".to_string()))
+                .tags(vec!["feature".to_string(), "urgent".to_string()])
+                .metadata(metadata)
+                .build()
+                .unwrap(),
+            Location::new(Some("src/main.rs".to_string()), 10, 15),
+        );
+
+        let mut buf = Vec::new();
+        write_json(&mut buf, &todo).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+        // Check basic fields
+        assert_eq!(parsed["id"], 99);
+        assert_eq!(parsed["id_type"], "primary");
+        assert_eq!(parsed["priority"], "A");
+        assert_eq!(parsed["title"], "Test todo title");
+        assert_eq!(parsed["description"], "Test description");
+        assert_eq!(parsed["file"], "src/main.rs");
+        assert_eq!(parsed["line_number"], 10);
+        assert_eq!(parsed["end_line_number"], 15);
+
+        // Check tags array
+        assert_eq!(parsed["tags"], serde_json::json!(["feature", "urgent"]));
+
+        // Check multi-value metadata is serialized as arrays
+        assert_eq!(
+            parsed["metadata"]["depends"],
+            serde_json::json!(["42", "41"])
+        );
+        assert_eq!(parsed["metadata"]["owner"], serde_json::json!(["alice"]));
     }
 }

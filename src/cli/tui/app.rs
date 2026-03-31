@@ -587,16 +587,13 @@ impl App {
 
         text.push_line("\n");
 
-        let mut has_metadata = false;
-        for (key, value) in todo.borrow().metadata.iter() {
-            has_metadata = true;
-            text.push_line(Line::styled(
-                format!("{}: {}", key, value),
-                Style::new().fg(Color::Cyan),
-            ));
-        }
-
-        if has_metadata {
+        if !todo.borrow().metadata.is_empty() {
+            for (key, values) in todo.borrow().metadata.iter() {
+                text.push_line(Line::styled(
+                    format!("{}: {}", key, values),
+                    Style::new().fg(Color::Cyan),
+                ));
+            }
             text.push_line("\n");
         }
 
