@@ -46,7 +46,7 @@ impl Walk {
             let mut handler = factory();
             Box::new(move |result| {
                 if let Ok(entry) = result {
-                    if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                    if entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
                         handler(entry.path());
                     }
                 }
