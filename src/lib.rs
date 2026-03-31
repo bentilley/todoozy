@@ -49,26 +49,6 @@ pub fn get_todo(id: u32, exclude: &[String]) -> Result<Option<Todo>> {
         .find(|t| t.id == Some(TodoIdentifier::Primary(id))))
 }
 
-// TODO #61 (D) 2026-03-22 Link references to primaries and validate IDs +refs
-//
-// After parsing all files, link TodoRef instances to their primary Todo:
-// 1. Build a map of id -> Todo for all primaries
-// 2. For each TodoRef, find its primary and add to `references` vec
-// 3. Validation with warnings (don't block, just warn):
-//    - Orphan reference (no primary found): "Warning: TODO &43 references
-//      non-existent primary #43 at `file:line`"
-//    - Duplicate primary (same ID twice): "Warning: Duplicate TODO #43 found
-//      at `file:line`, ignoring (first occurrence at `file:line`)"
-//
-// For display, references roll up into the primary:
-// - Reference title becomes a `## Subtitle` in description
-// - Reference description appended after subtitle
-// - Tags/metadata merged for display (kept separate in model)
-// - Locations list shows all, with `*` marking the primary
-//
-// These warnings indicate ID assignment issues - see separate TODO for
-// improved branch-aware ID assignment system.
-
 fn parse_files(files: fs::Walk) -> Result<todo::Todos> {
     let todos: Arc<Mutex<Vec<Todo>>> = Arc::new(Mutex::new(Vec::new()));
 
