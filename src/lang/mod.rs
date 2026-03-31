@@ -42,8 +42,9 @@ pub enum SyntaxRule {
 }
 
 pub enum Comment<'a> {
-    Line(&'a str, usize),
-    Block(&'a str, usize, usize),
+    Inline(&'a str, usize, &'a str), // (text, line_number, line_prefix)
+    Line(&'a str, usize),            // (text, line_number)
+    Block(&'a str, usize, usize),    // (text, start_line_number, end_line_number)
 }
 
 struct CommentParser<'a> {
@@ -52,6 +53,7 @@ struct CommentParser<'a> {
     len: usize,
     position: usize,
     line_number: usize,
+    line_start_position: usize,
 }
 
 impl<'a> CommentParser<'a> {
@@ -62,6 +64,7 @@ impl<'a> CommentParser<'a> {
             len: text.as_bytes().len(),
             position: 0,
             line_number: 1,
+            line_start_position: 0,
         }
     }
 }
@@ -85,21 +88,33 @@ impl<'a> Iterator for CommentParser<'a> {
                     SyntaxRule::LineComment(token) => {
                         if current_byte == token[0] && self.text[self.position..].starts_with(token)
                         {
-                            let comment_line = self.line_number;
+                            let token_position = self.position;
+                            let line_number = self.line_number;
                             self.position += token.len();
                             let start = self.position;
                             while self.position < self.len && self.text[self.position] != b'\n' {
                                 self.position += 1;
                             }
-                            let line =
+                            let content =
                                 std::str::from_utf8(&self.text[start..self.position]).unwrap_or("");
+
+                            // inline comment check - non-whitespace before token on same line
+                            if self.line_start_position < token_position {
+                                let prefix = &self.text[self.line_start_position..token_position];
+                                if let Ok(prefix) = std::str::from_utf8(prefix) {
+                                    if !prefix.trim().is_empty() {
+                                        return Some(Comment::Inline(content, line_number, prefix));
+                                    }
+                                }
+                            }
 
                             if self.position < self.len {
                                 self.position += 1; // skip newline
                                 self.line_number += 1;
+                                self.line_start_position = self.position;
                             }
 
-                            return Some(Comment::Line(line, comment_line));
+                            return Some(Comment::Line(content, line_number));
                         }
                     }
 
@@ -122,6 +137,7 @@ impl<'a> Iterator for CommentParser<'a> {
                                 } else {
                                     if self.text[self.position] == b'\n' {
                                         self.line_number += 1;
+                                        self.line_start_position = self.position + 1;
                                     }
                                     self.position += 1;
                                 }
@@ -147,6 +163,7 @@ impl<'a> Iterator for CommentParser<'a> {
                             {
                                 if self.text[self.position] == b'\n' {
                                     self.line_number += 1;
+                                    self.line_start_position = self.position + 1;
                                 }
                                 self.position += 1;
                             }
@@ -172,6 +189,7 @@ impl<'a> Iterator for CommentParser<'a> {
                                     if self.position < self.len {
                                         if self.text[self.position] == b'\n' {
                                             self.line_number += 1;
+                                            self.line_start_position = self.position + 1;
                                         }
                                         self.position += 1;
                                     }
@@ -184,6 +202,7 @@ impl<'a> Iterator for CommentParser<'a> {
 
                                 if self.text[self.position] == b'\n' {
                                     self.line_number += 1;
+                                    self.line_start_position = self.position + 1;
                                 }
                                 self.position += 1;
                             }
@@ -216,6 +235,7 @@ impl<'a> Iterator for CommentParser<'a> {
             // No rule matched - advance by one byte
             if self.text[self.position] == b'\n' {
                 self.line_number += 1;
+                self.line_start_position = self.position + 1;
             }
             self.position += 1;
         }
@@ -260,6 +280,28 @@ impl<'a> Parser<'a> {
         while let Some(comment) = comments.next() {
             use Comment::*;
             match comment {
+                Inline(text, line_number, line_prefix) => {
+                    if !self.is_todo_start(text) {
+                        continue;
+                    }
+
+                    let mut todo_text = text
+                        .splitn(2, &self.todo_token)
+                        .nth(1)
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+
+                    // Append code block
+                    let trimmed = line_prefix.trim();
+                    if !trimmed.is_empty() {
+                        todo_text.push_str("\n\n`");
+                        todo_text.push_str(trimmed);
+                        todo_text.push('`');
+                    }
+
+                    todos.push((line_number, line_number, todo_text));
+                }
                 Line(text, line_number) => {
                     if !self.is_todo_start(text) {
                         continue;
@@ -280,7 +322,7 @@ impl<'a> Parser<'a> {
                                 !self.is_todo_start(next_text)
                                     && *next_line_number == end_line_number + 1
                             }
-                            Block(_, _, _) => false,
+                            _ => false,
                         };
                         if !is_continuation_line {
                             break;
@@ -480,10 +522,7 @@ let x = 1;"#;
         let text = "//    TODO with extra spaces\nlet x = 1;";
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
-        assert_eq!(
-            todos[0],
-            (1, 1, "with extra spaces".to_string())
-        );
+        assert_eq!(todos[0], (1, 1, "with extra spaces".to_string()));
     }
 
     #[test]
@@ -562,25 +601,20 @@ let x = 1;"#;
         let text = "let x = 1; // TODO change this\nlet y = 2;";
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
-        assert_eq!(todos[0], (1, 1, "change this".to_string()));
+        assert_eq!(todos[0], (1, 1, "change this\n\n`let x = 1;`".to_string()));
     }
 
     #[test]
-    fn line_comment_inline_todo_with_continuation() {
+    fn line_comment_inline_todo_no_aggregation() {
+        // Inline TODOs should NOT aggregate with following comment lines
         let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
-        let text = r#"let x = 1; // TODO inline with continuation
-// this continues the todo
+        let text = r#"let x = 1; // TODO inline todo
+// this is NOT a continuation
 let y = 2;"#;
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
-        assert_eq!(
-            todos[0],
-            (
-                1,
-                2,
-                "inline with continuation\nthis continues the todo".to_string()
-            )
-        );
+        // Only the inline comment, no aggregation
+        assert_eq!(todos[0], (1, 1, "inline todo\n\n`let x = 1;`".to_string()));
     }
 
     #[test]
@@ -591,8 +625,38 @@ let y = 2; // TODO second inline
 let z = 3;"#;
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 2);
-        assert_eq!(todos[0], (1, 1, "first inline".to_string()));
-        assert_eq!(todos[1], (2, 2, "second inline".to_string()));
+        assert_eq!(todos[0], (1, 1, "first inline\n\n`let x = 1;`".to_string()));
+        assert_eq!(
+            todos[1],
+            (2, 2, "second inline\n\n`let y = 2;`".to_string())
+        );
+    }
+
+    #[test]
+    fn line_comment_whitespace_only_prefix_aggregates() {
+        // Comments with only whitespace before // should aggregate normally
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
+        let text = r#"    // TODO indented todo
+    // with continuation
+let x = 1;"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (1, 2, "indented todo\nwith continuation".to_string())
+        );
+    }
+
+    #[test]
+    fn line_comment_consecutive_inline_todos() {
+        // Each inline TODO is independent
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
+        let text = r#"foo(); // TODO fix foo
+bar(); // TODO fix bar"#;
+        let todos = parser.parse_todos(text);
+        assert_eq!(todos.len(), 2);
+        assert_eq!(todos[0], (1, 1, "fix foo\n\n`foo();`".to_string()));
+        assert_eq!(todos[1], (2, 2, "fix bar\n\n`bar();`".to_string()));
     }
 
     // Block comment tests
@@ -647,10 +711,7 @@ let x = 1;"#;
  */"#;
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
-        assert_eq!(
-            todos[0],
-            (2, 4, "at end of file\nmore content".to_string())
-        );
+        assert_eq!(todos[0], (2, 4, "at end of file\nmore content".to_string()));
     }
 
     #[test]
@@ -785,10 +846,7 @@ let x = 1;"#;
         let text = "/* TODO with /**/ empty nested */\nlet x = 1;";
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
-        assert_eq!(
-            todos[0],
-            (1, 1, "with /**/ empty nested".to_string())
-        );
+        assert_eq!(todos[0], (1, 1, "with /**/ empty nested".to_string()));
     }
 
     // Multi-line string tests
@@ -807,10 +865,7 @@ let x = 1;"#;
 let y = 1;"#;
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 1);
-        assert_eq!(
-            todos[0],
-            (4, 4, "this should be found".to_string())
-        );
+        assert_eq!(todos[0], (4, 4, "this should be found".to_string()));
     }
 
     #[test]
@@ -844,10 +899,7 @@ let x = 1;
 let y = 1;"#;
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 2);
-        assert_eq!(
-            todos[0],
-            (1, 1, "mentions ` backtick".to_string())
-        );
+        assert_eq!(todos[0], (1, 1, "mentions ` backtick".to_string()));
         assert_eq!(todos[1], (3, 3, "second todo".to_string()));
     }
 
@@ -868,18 +920,9 @@ let y = 2;
 let z = 3;"#;
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 3);
-        assert_eq!(
-            todos[0],
-            (1, 1, "first in line comment".to_string())
-        );
-        assert_eq!(
-            todos[1],
-            (3, 3, "second in block comment".to_string())
-        );
-        assert_eq!(
-            todos[2],
-            (5, 5, "third back to line comment".to_string())
-        );
+        assert_eq!(todos[0], (1, 1, "first in line comment".to_string()));
+        assert_eq!(todos[1], (3, 3, "second in block comment".to_string()));
+        assert_eq!(todos[2], (5, 5, "third back to line comment".to_string()));
     }
 
     #[test]

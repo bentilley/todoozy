@@ -442,6 +442,7 @@ cat <<< "# TODO inside here-string"
     #[test]
     fn herestring_unquoted_with_comment() {
         // `cat <<< word # comment` - the # starts a real comment
+        // Inline comments capture preceding code as a code block
         let parser = crate::lang::Parser::new("TODO", &SH);
         let text = r##"
 cat <<< hello # TODO this is a comment after here-string
@@ -450,7 +451,10 @@ cat <<< hello # TODO this is a comment after here-string
 "##;
         let todos = parser.parse_todos(text);
         assert_eq!(todos.len(), 2);
-        assert_eq!(todos[0].2, "this is a comment after here-string".to_string());
+        assert_eq!(
+            todos[0].2,
+            "this is a comment after here-string\n\n`cat <<< hello`".to_string()
+        );
         assert_eq!(todos[1].2, "second todo".to_string());
     }
 }
