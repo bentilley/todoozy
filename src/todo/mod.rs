@@ -1,3 +1,4 @@
+pub mod editor;
 pub mod filter;
 pub mod parser;
 pub mod sort;
@@ -137,10 +138,6 @@ impl Location {
     }
 }
 
-// TODO #76 (A) 2026-03-30 Consolidate TUI logic with the new logic in the CLI
-//
-// We have duplicated logic the TUI code and the CLI code. Needs to be lifted up to here and just
-// called from both.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Todo {
     pub id: Option<TodoIdentifier>,
@@ -239,6 +236,55 @@ impl Todo {
         std::fs::copy(tmp_file.path(), &file_path)?;
 
         Ok(())
+    }
+
+    pub fn remove(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let file_path = self
+            .location
+            .file_path
+            .as_ref()
+            .ok_or("Cannot remove: No file path in location")?;
+
+        let file = File::open(&file_path)?;
+        let reader = BufReader::new(file);
+        let tmp_file = NamedTempFile::new()?;
+        let mut writer = BufWriter::new(tmp_file.as_file());
+
+        for (i, line) in reader.lines().enumerate() {
+            let line_num = i + 1;
+            let content = line?;
+            if line_num >= self.location.start_line_num && line_num <= self.location.end_line_num {
+                continue;
+            }
+            writeln!(writer, "{}", content)?;
+        }
+
+        writer.flush()?;
+        std::fs::copy(tmp_file.path(), &file_path)?;
+        Ok(())
+    }
+
+    pub fn import(&mut self, id: u32) -> Result<(), Box<dyn std::error::Error>> {
+        match &self.id {
+            Some(TodoIdentifier::Primary(existing)) => {
+                return Err(format!("Todo already has ID #{}", existing).into())
+            }
+            Some(TodoIdentifier::Reference(ref_id)) => {
+                return Err(format!("Cannot import reference todo &{}", ref_id).into())
+            }
+            None => {}
+        }
+        self.id = Some(TodoIdentifier::Primary(id));
+        self.write_id()
+    }
+
+    pub fn editor_command(&self) -> Result<editor::EditorCommand, Box<dyn std::error::Error>> {
+        let file_path = self
+            .location
+            .file_path
+            .as_ref()
+            .ok_or("Cannot edit: No file path in location")?;
+        Ok(editor::EditorCommand::from_env()?.with_location(file_path, self.location.start_line_num))
     }
 
     pub fn display_locations_with_marker(&self) -> Vec<String> {

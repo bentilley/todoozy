@@ -49,68 +49,13 @@ pub fn edit(conf: &config::Config, opts: &TodoEditOptions) -> error::Result<()> 
     let todo = todoozy::get_todo(opts.id, &conf.exclude)?
         .ok_or_else(|| error::Error::from(format!("Todo #{} not found", opts.id)))?;
 
-    let editor = std::env::var("EDITOR")
-        .or_else(|_| std::env::var("VISUAL"))
-        .unwrap_or_else(|_| "vi".to_string());
+    let editor_cmd = todo
+        .editor_command()
+        .map_err(|e| error::Error::from(format!("{}", e)))?;
 
-    let editor_name = std::path::Path::new(&editor)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(&editor);
-
-    let file_path = &todo
-        .location
-        .file_path
-        .ok_or("Todo does not have a file location")?;
-
-    let status = match editor_name {
-        // Vim-style editors: +<line> <file>
-        "vi" | "vim" | "nvim" | "neovim" | "gvim" | "mvim" => std::process::Command::new(&editor)
-            .arg(format!("+{}", todo.location.start_line_num))
-            .arg(file_path)
-            .status(),
-        // Emacs-style: +<line> <file>
-        "emacs" | "emacsclient" => std::process::Command::new(&editor)
-            .arg(format!("+{}", todo.location.start_line_num))
-            .arg(file_path)
-            .status(),
-        // VS Code style: --goto <file>:<line>
-        "code" | "code-insiders" => std::process::Command::new(&editor)
-            .arg("--goto")
-            .arg(format!("{}:{}", file_path, todo.location.start_line_num))
-            .arg("--wait")
-            .status(),
-        // Nano: +<line> <file>
-        "nano" => std::process::Command::new(&editor)
-            .arg(format!("+{}", todo.location.start_line_num))
-            .arg(file_path)
-            .status(),
-        // Sublime Text: <file>:<line>
-        "subl" | "sublime_text" => std::process::Command::new(&editor)
-            .arg(format!("{}:{}", file_path, todo.location.start_line_num))
-            .arg("--wait")
-            .status(),
-        // Default: try +<line> syntax (works for many editors)
-        _ => std::process::Command::new(&editor)
-            .arg(format!("+{}", todo.location.start_line_num))
-            .arg(file_path)
-            .status(),
-    };
-
-    match status {
-        Ok(exit_status) => {
-            if !exit_status.success() {
-                return Err(format!(
-                    "Editor exited with code {}",
-                    exit_status.code().unwrap_or(1)
-                )
-                .into());
-            }
-        }
-        Err(e) => {
-            return Err(format!("Failed to launch editor '{}': {}", editor, e).into());
-        }
-    }
+    editor_cmd
+        .execute()
+        .map_err(|e| error::Error::from(format!("{}", e)))?;
 
     Ok(())
 }

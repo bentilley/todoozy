@@ -2,7 +2,6 @@ use super::TodoCommand;
 use crate::cli::args::{Command, Mode};
 use crate::cli::config;
 use crate::cli::error;
-use todoozy::todo::TodoIdentifier;
 
 pub const USAGE: &str = r#"Import untracked todos (assign IDs)
 
@@ -104,18 +103,16 @@ pub fn import(conf: &mut config::Config, opts: &TodoImportOptions) -> error::Res
             }
         }
 
-        // Assign new ID
         conf.num_todos += 1;
         let id = conf.num_todos;
-        todo.id = Some(TodoIdentifier::Primary(id));
 
-        match todo.write_id() {
+        match todo.import(id) {
             Ok(_) => {
                 println!("Imported: #{} {}", id, todo.title);
                 imported_count += 1;
             }
             Err(e) => {
-                eprintln!("Error writing ID for '{}': {}", todo.title, e);
+                eprintln!("Error importing '{}': {}", todo.title, e);
                 conf.num_todos -= 1; // Roll back
             }
         }

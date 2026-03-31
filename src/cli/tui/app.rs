@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::io;
 use std::io::stdout;
-use std::process::Command;
 use std::rc::Rc;
 
 use ratatui::{
@@ -209,6 +208,7 @@ impl App {
                         self.should_exit = true
                     }
                 }
+                KeyCode::Char('d') => self.remove_selected(),
                 KeyCode::Char('e') => self.edit_selected(terminal).unwrap(),
                 KeyCode::Char('h') | KeyCode::Left => self.select_none(),
                 KeyCode::Char('i') => self.import_selected(),
@@ -263,34 +263,17 @@ impl App {
         self.todo_list.state.select_last();
     }
 
-    // TODO &76 Consolidate edit logic with the edit logic in the CLI
-    //
-    // This should be moved up to the todo module and then reused both here and in
-    // src/cli/todo/edit.rs. +refactor
     fn edit_selected(&mut self, terminal: &mut Terminal<impl Backend>) -> io::Result<()> {
-        let editor = std::env::var("EDITOR").unwrap_or("vi".to_string());
-
         if let Some(item) = self.todo_list.selected() {
-            let file_path =
-                &item
-                    .todo
-                    .borrow()
-                    .location
-                    .file_path
-                    .clone()
-                    .ok_or(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Selected todo does not have a file path",
-                    ))?;
+            let editor_cmd = item
+                .todo
+                .borrow()
+                .editor_command()
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+
             stdout().execute(LeaveAlternateScreen)?;
             disable_raw_mode()?;
-            let _ = Command::new(editor)
-                .arg(file_path)
-                .arg(format!(
-                    "+{}",
-                    item.todo.borrow().location.start_line_num.to_string()
-                ))
-                .status();
+            let _ = editor_cmd.execute();
             stdout().execute(EnterAlternateScreen)?;
             enable_raw_mode()?;
             terminal.clear()?;
@@ -363,32 +346,22 @@ impl App {
         self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
     }
 
-    // TODO &76 Consolidate import logic with the import logic in the CLI
-    //
-    // This should be moved up to the todo module and then reused both here and in
-    // src/cli/todo/import.rs. +refactor
     fn import_selected(&mut self) {
-        match self.todo_list.selected() {
-            Some(todo_item) => {
-                let mut todo = todo_item.todo.borrow_mut();
-                match &todo.id {
-                    Some(TodoIdentifier::Primary(id)) => {
-                        self.message = Some(format!("Todo already imported with ID {}", id))
-                    }
-                    Some(TodoIdentifier::Reference(id)) => {
-                        self.message = Some(format!("Cannot import reference todo &{}", id))
-                    }
-                    None => {
-                        self.config.num_todos += 1;
-                        let id = self.config.num_todos;
-                        todo.id = Some(TodoIdentifier::Primary(id));
-                        todo.write_id().unwrap();
-                        self.config.save().unwrap();
-                        self.message = Some(format!("Todo imported with ID {}", id));
-                    }
+        if let Some(todo_item) = self.todo_list.selected() {
+            let mut todo = todo_item.todo.borrow_mut();
+            self.config.num_todos += 1;
+            let id = self.config.num_todos;
+
+            match todo.import(id) {
+                Ok(_) => {
+                    self.config.save().unwrap();
+                    self.message = Some(format!("Todo imported with ID {}", id));
+                }
+                Err(e) => {
+                    self.config.num_todos -= 1; // Roll back
+                    self.message = Some(format!("{}", e));
                 }
             }
-            None => {}
         }
     }
 
@@ -396,20 +369,45 @@ impl App {
         let mut num_imported = 0;
         for todo in &self.todo_view {
             let mut todo = todo.borrow_mut();
-            match &todo.id {
-                Some(_) => {}
-                None => {
+            if todo.id.is_some() {
+                continue;
+            }
+
+            self.config.num_todos += 1;
+            let id = self.config.num_todos;
+
+            match todo.import(id) {
+                Ok(_) => {
                     num_imported += 1;
-                    self.config.num_todos += 1;
-                    todo.id = Some(TodoIdentifier::Primary(self.config.num_todos));
-                    todo.write_id().unwrap();
                     self.config.save().unwrap();
+                }
+                Err(_) => {
+                    self.config.num_todos -= 1; // Roll back
                 }
             }
         }
         match num_imported {
             0 => self.message = Some("No todos to import".to_string()),
             n => self.message = Some(format!("{} todos imported", n)),
+        }
+    }
+
+    fn remove_selected(&mut self) {
+        if let Some(todo_item) = self.todo_list.selected() {
+            let todo = todo_item.todo.borrow();
+            let title = todo.title.clone();
+            let id_display = todo.display_id();
+
+            match todo.remove() {
+                Ok(_) => {
+                    drop(todo); // Release borrow before refresh
+                    self.message = Some(format!("Removed: {} {}", id_display, title));
+                    self.refresh_todos();
+                }
+                Err(e) => {
+                    self.message = Some(format!("Error removing todo: {}", e));
+                }
+            }
         }
     }
 }
