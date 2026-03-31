@@ -5,6 +5,12 @@ help:  ## show this help
 	@printf "Usage:\n\tmake [target]\n\nTargets:\n"
 	@grep -h "##" $(MAKEFILE_LIST) | sed -E -n 's/^([^:[:space:]]+):[^#]+## (.*)/\t\1:- \2/p' | column -t -s ':'
 
+.PHONY: build
+build: target/debug/tdz ## build tdz binary
+
+target/debug/tdz: $(shell find src -name '*.rs')
+	cargo build
+
 .PHONY: test
 test: ## run tests
 	cargo test
