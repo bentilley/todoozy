@@ -122,4 +122,35 @@ mod tests {
         assert!(visited.contains(&"keep.rs".to_string()));
         assert!(!visited.contains(&"exclude.txt".to_string()));
     }
+
+    #[test]
+    fn test_walk_skips_non_regular_files() {
+        use std::os::unix::net::UnixListener;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        File::create(root.join("regular.txt")).unwrap();
+
+        // Create a Unix socket (not a regular file, not a directory)
+        let socket_path = root.join("test.sock");
+        let _socket = UnixListener::bind(&socket_path).unwrap();
+
+        let config = WalkConfig::new(root.to_str().unwrap(), None);
+        let walk = Walk::new(&config);
+
+        let visited: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+
+        walk.run(|| {
+            let visited = Arc::clone(&visited);
+            move |path: &std::path::Path| {
+                let filename = path.file_name().unwrap().to_str().unwrap().to_string();
+                visited.lock().unwrap().insert(filename);
+            }
+        });
+
+        let visited = visited.lock().unwrap();
+        assert!(visited.contains("regular.txt"), "should visit regular files");
+        assert!(!visited.contains("test.sock"), "should skip socket files");
+    }
 }
