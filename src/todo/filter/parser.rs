@@ -120,7 +120,7 @@ pub fn parse_expression(filter_def: &str) -> Result<Box<dyn Filter>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::todo::{Location, Todo, parser::TodoInfoBuilder};
+    use crate::todo::{TodoInfoBuilder, Location, Todo};
 
     #[test]
     fn test_property() {
@@ -390,8 +390,8 @@ mod tests {
         );
         assert!(!f.filter(&todo));
 
-        let (i, f) = conjunction("(tag=A and tag=B) and (tag=C and tag=D)")
-            .expect("Failed to parse");
+        let (i, f) =
+            conjunction("(tag=A and tag=B) and (tag=C and tag=D)").expect("Failed to parse");
         assert_eq!(i, "");
         let todo = Todo::new(
             TodoInfoBuilder::default()
@@ -450,8 +450,8 @@ mod tests {
         );
         assert!(!f.filter(&todo));
 
-        let (i, f) = conjunction("(tag=p1 and (tag=p2 or tag=p3)) or tag=p4")
-            .expect("Failed to parse");
+        let (i, f) =
+            conjunction("(tag=p1 and (tag=p2 or tag=p3)) or tag=p4").expect("Failed to parse");
         assert_eq!(i, "");
         let todo = Todo::new(
             TodoInfoBuilder::default()

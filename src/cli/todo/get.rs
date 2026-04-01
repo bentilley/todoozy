@@ -224,8 +224,7 @@ fn write_json(w: &mut impl std::io::Write, todo: &todoozy::todo::Todo) -> std::i
 #[cfg(test)]
 mod tests {
     use super::*;
-    use todoozy::todo::parser::TodoInfoBuilder;
-    use todoozy::todo::{Location, Metadata, Todo, TodoIdentifier};
+    use todoozy::todo::{TodoInfoBuilder, Location, Metadata, Todo, TodoIdentifier};
 
     #[test]
     fn test_write_raw_format() {

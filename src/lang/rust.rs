@@ -13,6 +13,7 @@ pub const RUST: [SyntaxRule; 7] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lang::RawParser;
 
     #[test]
     fn test_parser() {

@@ -7,7 +7,7 @@ pub mod todo;
 pub mod testutils;
 
 pub use fs::FileType;
-pub use todo::{Todo, TodoIdentifier, Todos};
+pub use todo::{parser::TodoParser, Todo, TodoIdentifier, Todos};
 
 use error::Result;
 use std::sync::{Arc, Mutex};
@@ -56,7 +56,7 @@ fn parse_files(files: fs::Walk) -> Result<todo::Todos> {
         let todos = Arc::clone(&todos);
         move |path: &std::path::Path| {
             if let Some(file_path) = path.to_str() {
-                if let Some(ref mut tdz) = parse_file(file_path) {
+                if let Ok(ref mut tdz) = parse_file(file_path) {
                     todos.lock().unwrap().append(tdz);
                 }
             }
@@ -70,61 +70,25 @@ fn parse_files(files: fs::Walk) -> Result<todo::Todos> {
     Ok(todos.into())
 }
 
-pub fn parse_file(file_path: &str) -> Option<Vec<todo::Todo>> {
-    let text = match std::fs::read_to_string(file_path) {
-        Ok(text) => text,
-        Err(err) => match err.kind() {
-            std::io::ErrorKind::InvalidData => return None,
-            _ => panic!("Unable to read file ({}): {}", file_path, err),
-        },
-    };
-
-    Some(
-        parse_text(&text, crate::fs::get_filetype(file_path)?)?
-            .into_iter()
-            .map(|mut todo| {
-                todo.location.file_path = Some(file_path.to_string());
-                todo
-            })
-            .collect(),
-    )
-}
-
 pub const TODO_TOKEN: &'static str = "TODO";
 
-pub fn parse_text(text: &str, file_type: crate::fs::FileType) -> Option<Vec<Todo>> {
-    use crate::fs::FileType;
-    let syntax_rules: &[lang::SyntaxRule] = match file_type {
-        FileType::Bash | FileType::Ksh | FileType::Sh | FileType::Zsh => &lang::sh::SH,
-        FileType::Dockerfile => &lang::dockerfile::DOCKERFILE,
-        FileType::Go => &lang::go::GO,
-        FileType::Makefile => &lang::makefile::MAKEFILE,
-        FileType::Markdown => &lang::markdown::MARKDOWN,
-        FileType::Protobuf => &lang::protobuf::PROTOBUF,
-        FileType::Python => &lang::python::PYTHON,
-        FileType::Rust => &lang::rust::RUST,
-        FileType::Terraform => &lang::terraform::TERRAFORM,
-        FileType::Todoozy => return None, // see src/lang/tdz.rs for implementation TODO
-        FileType::Typescript => &lang::typescript::TYPESCRIPT,
-        FileType::YAML => &lang::yaml::YAML,
+pub fn parse_file(file_path: &str) -> Result<Vec<todo::Todo>> {
+    let file_type = crate::fs::get_filetype(file_path).ok_or("Invalid file type")?;
+
+    let text = match std::fs::read_to_string(file_path) {
+        Ok(text) => text,
+        Err(_) => return Err(format!("Failed to read file: {}", file_path).into()),
     };
-    let parser = lang::Parser::new(TODO_TOKEN, &syntax_rules);
 
-    let raw_todos = parser.parse_todos(&text);
-    if raw_todos.len() == 0 {
-        return None;
-    }
+    Ok(parse_text(&text, file_type)
+        .into_iter()
+        .map(|mut todo| {
+            todo.location.file_path = Some(file_path.to_string());
+            todo
+        })
+        .collect())
+}
 
-    Some(
-        raw_todos
-            .into_iter()
-            .filter_map(|raw| match Todo::try_from(raw) {
-                Ok(todo) => Some(todo),
-                Err(err) => {
-                    eprintln!("Error: {}", err);
-                    None
-                }
-            })
-            .collect(),
-    )
+pub fn parse_text(text: &str, file_type: crate::fs::FileType) -> Vec<Todo> {
+    TodoParser::new(TODO_TOKEN).parse_text(text, file_type)
 }

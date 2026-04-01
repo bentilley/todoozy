@@ -1,7 +1,8 @@
 pub mod editor;
 pub mod filter;
-pub mod parser;
+pub mod syntax;
 pub mod sort;
+pub mod parser;
 
 use std::fmt;
 use std::fs::File;
@@ -10,6 +11,8 @@ use std::io::{self, prelude::*, BufReader, BufWriter};
 use tempfile::NamedTempFile;
 
 use std::collections::HashMap;
+
+pub use syntax::{TodoInfo, TodoInfoBuilder};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TodoIdentifier {
@@ -162,13 +165,13 @@ impl TryFrom<crate::lang::RawTodo> for Todo {
     fn try_from(raw_todo: crate::lang::RawTodo) -> Result<Self, Self::Error> {
         let (start, end, text) = raw_todo;
         let location = Location::new(None, start, end);
-        let info = parser::TodoInfo::try_from(text.as_str()).map_err(|e| format!("{}", e))?;
+        let info = syntax::TodoInfo::try_from(text.as_str()).map_err(|e| format!("{}", e))?;
         Ok(Todo::new(info, location))
     }
 }
 
 impl Todo {
-    pub fn new(info: parser::TodoInfo, location: Location) -> Self {
+    pub fn new(info: syntax::TodoInfo, location: Location) -> Self {
         Todo {
             id: info.id,
             priority: info.priority,
@@ -520,7 +523,7 @@ impl IntoIterator for Todos {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parser::TodoInfoBuilder;
+    use syntax::TodoInfoBuilder;
 
     #[test]
     fn test_todos() {

@@ -1,0 +1,5 @@
+# TODO #78 (B) 2026-03-31 Add javascript language support
+
+In fact, I think all the JS family of languages, e.g. typescript (also maybe
+.jsx and .tsx) have the same comment rules, so we just need one set of syntax
+rules and map all the relevant file types to them in src/lib.rs.

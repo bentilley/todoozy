@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use todoozy::todo::parser::todo;
+use todoozy::todo::syntax::todo;
 
 fn bench_todo_parser(c: &mut Criterion) {
     let mut group = c.benchmark_group("todo_parser");

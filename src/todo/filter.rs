@@ -275,7 +275,7 @@ impl FromStr for Box<dyn Filter> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::todo::{parser::TodoInfoBuilder, Location, Todo};
+    use crate::todo::{TodoInfoBuilder, Location, Todo};
 
     #[test]
     fn test_serialize_json_filter() {

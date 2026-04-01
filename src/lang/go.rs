@@ -10,6 +10,7 @@ pub const GO: [SyntaxRule; 4] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lang::RawParser;
 
     #[test]
     fn test_parse_todos() {

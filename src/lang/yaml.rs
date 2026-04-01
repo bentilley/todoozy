@@ -9,6 +9,7 @@ pub const YAML: [SyntaxRule; 3] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lang::RawParser;
 
     #[test]
     fn test_parse_todos() {

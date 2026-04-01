@@ -142,6 +142,7 @@ pub const SH: [SyntaxRule; 5] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lang::RawParser;
 
     #[test]
     fn test_parse_todos() {

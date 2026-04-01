@@ -188,7 +188,7 @@ impl FromStr for Box<dyn Sorter> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::todo::{Location, Todo, parser::TodoInfoBuilder};
+    use crate::todo::{Location, Todo, TodoInfoBuilder};
 
     #[test]
     fn test_serialize_json_sorter() {

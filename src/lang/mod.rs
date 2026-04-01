@@ -222,12 +222,16 @@ impl<'a> Iterator for CommentParser<'a> {
     }
 }
 
+pub type RawTodo = (usize, usize, String);
+
+pub trait RawParser {
+    fn parse_todos(&self, text: &str) -> Vec<RawTodo>;
+}
+
 pub struct Parser<'a> {
     todo_token: &'a str,
     syntax_rules: &'static [SyntaxRule],
 }
-
-pub type RawTodo = (usize, usize, String);
 
 impl<'a> Parser<'a> {
     pub fn new(todo_token: &'a str, syntax_rules: &'static [SyntaxRule]) -> Self {
@@ -250,8 +254,10 @@ impl<'a> Parser<'a> {
             || after_token.starts_with(char::is_whitespace)
             || !after_token.chars().next().unwrap().is_alphanumeric()
     }
+}
 
-    pub fn parse_todos(&self, text: &str) -> Vec<RawTodo> {
+impl RawParser for Parser<'_> {
+    fn parse_todos(&self, text: &str) -> Vec<RawTodo> {
         let mut todos = Vec::new();
 
         let mut comments = CommentParser::new(self.syntax_rules, text).peekable();

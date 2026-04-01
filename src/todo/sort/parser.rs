@@ -83,7 +83,7 @@ pub fn parse_expression(sort_def: &str) -> Result<Box<dyn Sorter>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::todo::{parser::TodoInfoBuilder, Location, Todo};
+    use crate::todo::{TodoInfoBuilder, Location, Todo};
 
     #[test]
     fn test_property() {
