@@ -330,7 +330,7 @@ impl App {
     }
 
     fn set_sort(&mut self, sort: String) {
-        match sort::parse_str(&sort) {
+        match sort.parse() {
             Ok(s) => {
                 self.sorter = s;
                 self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);

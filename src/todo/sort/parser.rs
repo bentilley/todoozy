@@ -1,89 +1,98 @@
-use super::{Direction, Property, PropertySorter, SortPipeline, Sorter};
+use super::{error::Result, Direction, Property, PropertySorter, SortPipeline, Sorter, TagSorter};
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::space0,
-    combinator::opt,
+    character::complete::{alphanumeric1, space0},
+    combinator::{all_consuming, cut, map, opt, value},
+    error::{context, VerboseError},
     multi::many0,
-    sequence::{delimited, preceded, tuple},
-    IResult,
+    sequence::{delimited, preceded},
 };
 
-fn property(i: &str) -> IResult<&str, Property> {
-    let (i, p) = alt((
-        tag("title"),
-        tag("file"),
-        tag("line_number"),
-        tag("priority"),
-        tag("creation_date"),
-        tag("completion_date"),
-    ))(i)?;
-    match p {
-        "title" => Ok((i, Property::Title)),
-        "file" => Ok((i, Property::File)),
-        "line_number" => Ok((i, Property::LineNumber)),
-        "priority" => Ok((i, Property::Priority)),
-        "creation_date" => Ok((i, Property::CreationDate)),
-        "completion_date" => Ok((i, Property::CompletionDate)),
-        _ => unreachable!(),
-    }
+type IResult<'a, O> = nom::IResult<&'a str, O, VerboseError<&'a str>>;
+
+fn property(i: &str) -> IResult<'_, Property> {
+    context(
+        "property (title, file, line_number, priority, creation_date, completion_date)",
+        alt((
+            value(Property::Title, tag("title")),
+            value(Property::File, tag("file")),
+            value(Property::LineNumber, tag("line_number")),
+            value(Property::Priority, tag("priority")),
+            value(Property::CreationDate, tag("creation_date")),
+            value(Property::CompletionDate, tag("completion_date")),
+        )),
+    )(i)
 }
 
-fn direction(i: &str) -> IResult<&str, Direction> {
-    let (i, d) = alt((tag("asc"), tag("desc")))(i)?;
-    match d {
-        "asc" => Ok((i, Direction::Ascending)),
-        "desc" => Ok((i, Direction::Descending)),
-        _ => unreachable!(),
-    }
+fn direction(i: &str) -> IResult<'_, Direction> {
+    context(
+        "direction (asc, desc)",
+        alt((
+            value(Direction::Ascending, tag("asc")),
+            value(Direction::Descending, tag("desc")),
+        )),
+    )(i)
 }
 
-fn property_sort(i: &str) -> IResult<&str, PropertySorter> {
-    let (i, p) = property(i)?;
-    let (i, d) = opt(preceded(tag(":"), direction))(i)?;
-    let direction = match d {
-        Some(v) => v,
-        None => Direction::Ascending,
-    };
+fn property_sort(i: &str) -> IResult<'_, PropertySorter> {
+    let (i, property) = property(i)?;
+    let (i, dir) = opt(preceded(tag(":"), cut(direction)))(i)?;
     Ok((
         i,
         PropertySorter {
-            property: p,
+            property,
+            direction: dir.unwrap_or(Direction::Ascending),
+        },
+    ))
+}
+
+fn tag_sort(i: &str) -> IResult<'_, TagSorter> {
+    let (i, _) = tag("tag")(i)?;
+    let (i, tag_name) = cut(context("tag name", preceded(tag(":"), alphanumeric1)))(i)?;
+    let (i, d) = opt(preceded(tag(":"), cut(direction)))(i)?;
+    let direction = d.unwrap_or(Direction::Ascending);
+    Ok((
+        i,
+        TagSorter {
+            tag_name: tag_name.to_string(),
             direction,
         },
     ))
 }
 
-fn term(i: &str) -> IResult<&str, Box<dyn Sorter>> {
-    let (i, f) = property_sort(i)?;
-    Ok((i, Box::new(f)))
+fn term(i: &str) -> IResult<'_, Box<dyn Sorter>> {
+    context(
+        "sort term (property or tag:name)",
+        alt((
+            map(property_sort, |s| Box::new(s) as Box<dyn Sorter>),
+            map(tag_sort, |s| Box::new(s) as Box<dyn Sorter>),
+        )),
+    )(i)
 }
 
-fn pipe(i: &str) -> IResult<&str, &str> {
+fn pipe(i: &str) -> IResult<'_, &str> {
     delimited(space0, tag(">"), space0)(i)
 }
 
-fn pipeline(i: &str) -> IResult<&str, Box<dyn Sorter>> {
-    let (i, s) = term(i)?;
-    let (i, exprs) = many0(tuple((pipe, term)))(i)?;
-    let mut sorter = SortPipeline::new(vec![s]);
-    for (_, s) in exprs {
-        sorter.add_sorter(s);
-    }
-    Ok((i, Box::new(sorter)))
+fn pipeline(i: &str) -> IResult<'_, Box<dyn Sorter>> {
+    let (i, first) = term(i)?;
+    let (i, rest) = many0(preceded(pipe, cut(term)))(i)?;
+    let sorters = std::iter::once(first).chain(rest).collect();
+    Ok((i, Box::new(SortPipeline::new(sorters))))
 }
 
-pub fn parse_expression(sort_def: &str) -> Result<Box<dyn Sorter>, String> {
-    match pipeline(sort_def) {
+pub fn parse_expression(sort_def: &str) -> Result<Box<dyn Sorter>> {
+    match all_consuming(pipeline)(sort_def) {
         Ok((_, sorter)) => Ok(sorter),
-        Err(e) => Err(format!("{:?}", e)),
+        Err(e) => Err(e.into()),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::todo::{TodoInfoBuilder, Location, Todo};
+    use crate::todo::{Location, Todo, TodoInfoBuilder};
 
     #[test]
     fn test_property() {
@@ -210,5 +219,270 @@ mod tests {
         assert_eq!(todos[0].title, "c".to_string());
         assert_eq!(todos[1].title, "b".to_string());
         assert_eq!(todos[2].title, "a".to_string());
+    }
+
+    #[test]
+    fn test_parse_expression_invalid() {
+        // Invalid property names
+        assert_eq!(
+            parse_expression("non").unwrap_err().to_string(),
+            "expected sort term (property or tag:name) at 'non'"
+        );
+        assert_eq!(
+            parse_expression("file > non").unwrap_err().to_string(),
+            "expected sort term (property or tag:name) at 'non'"
+        );
+        assert_eq!(
+            parse_expression("file > non > priority")
+                .unwrap_err()
+                .to_string(),
+            "expected sort term (property or tag:name) at 'non > priority'"
+        );
+
+        // Empty or whitespace-only expressions
+        assert_eq!(
+            parse_expression("").unwrap_err().to_string(),
+            "expected sort term (property or tag:name)"
+        );
+        assert_eq!(
+            parse_expression("  ").unwrap_err().to_string(),
+            "expected sort term (property or tag:name)"
+        );
+
+        // Malformed pipe syntax
+        assert_eq!(
+            parse_expression(">").unwrap_err().to_string(),
+            "expected sort term (property or tag:name) at '>'"
+        );
+        assert_eq!(
+            parse_expression("> file").unwrap_err().to_string(),
+            "expected sort term (property or tag:name) at '> file'"
+        );
+        assert_eq!(
+            parse_expression("file >").unwrap_err().to_string(),
+            "expected sort term (property or tag:name)"
+        );
+        assert_eq!(
+            parse_expression("file >>").unwrap_err().to_string(),
+            "expected sort term (property or tag:name) at '>'"
+        );
+
+        // Invalid direction specifiers
+        assert_eq!(
+            parse_expression("file:up").unwrap_err().to_string(),
+            "expected direction (asc, desc) at 'up'"
+        );
+        assert_eq!(
+            parse_expression("file:").unwrap_err().to_string(),
+            "expected direction (asc, desc)"
+        );
+
+        // Invalid tag syntax
+        assert_eq!(
+            parse_expression("tag").unwrap_err().to_string(),
+            // "expected sort term (property or tag:name) at 'tag'"
+            "expected tag name"
+        );
+        assert_eq!(
+            parse_expression("tag:").unwrap_err().to_string(),
+            "expected tag name"
+        );
+        assert_eq!(
+            parse_expression("tag:feat:up").unwrap_err().to_string(),
+            "expected direction (asc, desc) at 'up'"
+        );
+    }
+
+    #[test]
+    fn test_tag_sort_parser() {
+        assert_eq!(
+            tag_sort("tag:feature"),
+            Ok((
+                "",
+                TagSorter {
+                    tag_name: "feature".to_string(),
+                    direction: Direction::Ascending
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn test_tag_sort_with_direction() {
+        assert_eq!(
+            tag_sort("tag:feature:desc"),
+            Ok((
+                "",
+                TagSorter {
+                    tag_name: "feature".to_string(),
+                    direction: Direction::Descending
+                }
+            ))
+        );
+        assert_eq!(
+            tag_sort("tag:fix:asc"),
+            Ok((
+                "",
+                TagSorter {
+                    tag_name: "fix".to_string(),
+                    direction: Direction::Ascending
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn test_tag_sort_comparison() {
+        let sorter = TagSorter {
+            tag_name: "feature".to_string(),
+            direction: Direction::Ascending,
+        };
+        let a = Todo::new(
+            TodoInfoBuilder::default()
+                .title("A".to_string())
+                .tags(vec!["feature".to_string()])
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        let b = Todo::new(
+            TodoInfoBuilder::default()
+                .title("B".to_string())
+                .tags(vec![])
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        assert_eq!(sorter.compare(&a, &b), std::cmp::Ordering::Less);
+        assert_eq!(sorter.compare(&b, &a), std::cmp::Ordering::Greater);
+    }
+
+    #[test]
+    fn test_tag_sort_both_have() {
+        let sorter = TagSorter {
+            tag_name: "feature".to_string(),
+            direction: Direction::Ascending,
+        };
+        let a = Todo::new(
+            TodoInfoBuilder::default()
+                .title("A".to_string())
+                .tags(vec!["feature".to_string()])
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        let b = Todo::new(
+            TodoInfoBuilder::default()
+                .title("B".to_string())
+                .tags(vec!["feature".to_string()])
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        assert_eq!(sorter.compare(&a, &b), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn test_tag_sort_neither_have() {
+        let sorter = TagSorter {
+            tag_name: "feature".to_string(),
+            direction: Direction::Ascending,
+        };
+        let a = Todo::new(
+            TodoInfoBuilder::default()
+                .title("A".to_string())
+                .tags(vec![])
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        let b = Todo::new(
+            TodoInfoBuilder::default()
+                .title("B".to_string())
+                .tags(vec![])
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        assert_eq!(sorter.compare(&a, &b), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn test_tag_sort_descending() {
+        let sorter = TagSorter {
+            tag_name: "feature".to_string(),
+            direction: Direction::Descending,
+        };
+        let a = Todo::new(
+            TodoInfoBuilder::default()
+                .title("A".to_string())
+                .tags(vec!["feature".to_string()])
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        let b = Todo::new(
+            TodoInfoBuilder::default()
+                .title("B".to_string())
+                .tags(vec![])
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        assert_eq!(sorter.compare(&a, &b), std::cmp::Ordering::Greater);
+        assert_eq!(sorter.compare(&b, &a), std::cmp::Ordering::Less);
+    }
+
+    #[test]
+    fn test_tag_sort_in_pipeline() {
+        let (i, s) = pipeline("tag:project1 > tag:fix > priority").expect("Failed to parse");
+        assert_eq!(i, "");
+
+        let a = Todo::new(
+            TodoInfoBuilder::default()
+                .title("A".to_string())
+                .tags(vec!["project1".to_string(), "fix".to_string()])
+                .priority(Some('A'))
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        let b = Todo::new(
+            TodoInfoBuilder::default()
+                .title("B".to_string())
+                .tags(vec!["project2".to_string(), "fix".to_string()])
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        let c = Todo::new(
+            TodoInfoBuilder::default()
+                .title("C".to_string())
+                .tags(vec!["project1".to_string()])
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        let d = Todo::new(
+            TodoInfoBuilder::default()
+                .title("D".to_string())
+                .tags(vec![])
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+
+        let mut todos = vec![d.clone(), c.clone(), b.clone(), a.clone()];
+        todos.sort_by(|x, y| s.compare(x, y));
+
+        // Expected order: A, C, B, D
+        // - project1 todos first (A, C), then non-project1 (B, D)
+        // - Within project1: fix-tagged A before non-fix C
+        // - Within non-project1: B has project2 but that doesn't matter for this sort,
+        //   but B has fix tag and D doesn't, so B comes before D
+        assert_eq!(todos[0].title, "A");
+        assert_eq!(todos[1].title, "C");
+        assert_eq!(todos[2].title, "B");
+        assert_eq!(todos[3].title, "D");
     }
 }

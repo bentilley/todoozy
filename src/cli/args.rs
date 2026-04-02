@@ -202,7 +202,7 @@ fn parse_tui_args(mut parser: lexopt::Parser) -> error::Result<Mode> {
                 if value.is_empty() {
                     args.sorter = Override::Unset;
                 } else {
-                    args.sorter = match sort::parse_str(&value) {
+                    args.sorter = match value.parse() {
                         Ok(s) => Override::Value(s),
                         Err(e) => return Err(format!("invalid sort '{}': {}", value, e).into()),
                     };
