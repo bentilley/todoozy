@@ -4,6 +4,7 @@ use crate::cli::config;
 use crate::cli::error;
 use todoozy::todo::filter;
 use todoozy::todo::sort;
+use todoozy::provider::{FileSystemProvider, Provider};
 
 pub const USAGE: &str = r#"List todos in compact table format
 
@@ -84,7 +85,7 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
 }
 
 pub fn list(conf: &config::Config, opts: &TodoListOptions) -> error::Result<()> {
-    let mut todos = todoozy::get_todos(&conf.exclude)?;
+    let mut todos = FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone()).get_todos()?;
 
     // Use opts.filter if present, otherwise fall back to conf.filter
     if let Some(ref f) = opts.filter {
@@ -94,13 +95,13 @@ pub fn list(conf: &config::Config, opts: &TodoListOptions) -> error::Result<()> 
     }
 
     // Use opts.sorter if present, otherwise fall back to conf.sorter
-    if let Some(ref s) = opts.sorter {
-        todos.apply_sort(|a, b| s.compare(a, b));
-    } else if let Some(ref s) = conf.sorter {
-        todos.apply_sort(|a, b| s.compare(a, b));
-    }
+    let sorter = opts.sorter.as_ref().or(conf.sorter.as_ref());
 
-    let all_todos: Vec<_> = todos.into();
+    // Convert to Vec, applying sort if specified
+    let all_todos: Vec<_> = match sorter {
+        Some(s) => todos.into_sorted(|a, b| s.compare(a, b)),
+        None => todos.into(),
+    };
 
     // Apply limit if specified
     let all_todos: Vec<_> = match opts.limit {

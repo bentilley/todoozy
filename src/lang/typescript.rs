@@ -27,7 +27,7 @@ mod tests {
     const more = "code";
 "#;
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 4 as usize,
                 6 as usize,
@@ -49,7 +49,7 @@ This is the description."#
     const more = "code";
 "#;
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 4 as usize,
                 7 as usize,
@@ -70,7 +70,7 @@ This is the description."#
     const more = "code";
 "#;
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 4 as usize,
                 6 as usize,
@@ -94,7 +94,7 @@ This is the description."#
     const more = "code";
 "#;
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 4 as usize,
                 8 as usize,
@@ -123,9 +123,9 @@ This is a test todo with some indented lines:
 
     const more = "code";
 "##;
-        assert_eq!(parser.parse_todos(text).len(), 1);
+        assert_eq!(parser.parse_str(text).len(), 1);
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 10 as usize,
                 13 as usize,
@@ -147,7 +147,7 @@ world`;
 
 // TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }
@@ -161,7 +161,7 @@ const msg = `hello \\`;
 
 // TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }
@@ -177,7 +177,7 @@ world`;
 
 // TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }
@@ -190,7 +190,7 @@ const msg = `\`hello\` \`world\``;
 
 // TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }
@@ -203,7 +203,7 @@ const msg = `hello \``;
 
 // TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }
@@ -217,7 +217,7 @@ const msg = `\n \t \r \' \" \$ \0 \x41 \u0041`;
 
 // TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }
@@ -231,7 +231,7 @@ const msg = `line1\nline2\t\`quoted\`\\done`;
 
 // TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }
@@ -246,7 +246,7 @@ const msg = "// TODO this is inside a string";
 // TODO this is a real todo
 const more = "code";
 "#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "this is a real todo".to_string());
     }
@@ -261,7 +261,7 @@ const msg = '// TODO this is inside a string';
 // TODO this is a real todo
 const more = 'code';
 "#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "this is a real todo".to_string());
     }
@@ -276,7 +276,7 @@ world";
 
 // TODO real todo
 "#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }
@@ -291,7 +291,7 @@ world';
 
 // TODO real todo
 "#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }

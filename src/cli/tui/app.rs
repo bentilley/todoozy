@@ -23,6 +23,7 @@ use ratatui::{
 };
 
 use super::input::{Input, InputFor};
+use todoozy::provider::Provider;
 use todoozy::todo::filter;
 use todoozy::todo::sort;
 use todoozy::todo::TodoIdentifier;
@@ -123,12 +124,19 @@ pub struct App {
     input: Option<Input>,
     input_for: Option<InputFor>,
     message: Option<String>,
+
+    fs_provider: todoozy::provider::FileSystemProvider,
 }
 
 impl App {
     pub fn new(mut config: Config) -> Result<Self, Box<dyn std::error::Error>> {
         // Start up admin
-        let todos = todoozy::get_todos(&config.exclude).unwrap();
+        let fs_provider = todoozy::provider::FileSystemProvider::new(
+            &config.get_todo_token(),
+            config.exclude.clone(),
+        );
+
+        let todos = fs_provider.get_todos().unwrap();
         let max_id = std::cmp::max(todos.get_max_id(), config.num_todos);
         if max_id > config.num_todos {
             config.num_todos = max_id;
@@ -160,6 +168,7 @@ impl App {
             input: None,
             input_for: None,
             message: None,
+            fs_provider,
         };
 
         app.todo_list = TodoList::new(app.todo_view.clone(), &app.filter, &app.sorter);
@@ -345,7 +354,7 @@ impl App {
     }
 
     fn refresh_todos(&mut self) {
-        let todo_data = todoozy::get_todos(&self.config.exclude).unwrap();
+        let todo_data = self.fs_provider.get_todos().unwrap();
         self.todo_view = todo_data
             .into_iter()
             .map(|t| Rc::new(RefCell::new(t)))

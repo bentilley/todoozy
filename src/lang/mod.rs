@@ -35,11 +35,11 @@ struct CommentParser<'a> {
 }
 
 impl<'a> CommentParser<'a> {
-    fn new(syntax_rules: &'static [SyntaxRule], text: &'a str) -> Self {
+    fn new(syntax_rules: &'static [SyntaxRule], text: &'a [u8]) -> Self {
         Self {
             syntax_rules,
-            text: text.as_bytes(),
-            len: text.as_bytes().len(),
+            text,
+            len: text.len(),
             position: 0,
             line_number: 1,
             line_start_position: 0,
@@ -225,7 +225,11 @@ impl<'a> Iterator for CommentParser<'a> {
 pub type RawTodo = (usize, usize, String);
 
 pub trait RawParser {
-    fn parse_todos(&self, text: &str) -> Vec<RawTodo>;
+    fn parse(&self, bytes: &[u8]) -> Vec<RawTodo>;
+
+    fn parse_str(&self, text: &str) -> Vec<RawTodo> {
+        self.parse(text.as_bytes())
+    }
 }
 
 pub struct Parser<'a> {
@@ -257,10 +261,10 @@ impl<'a> Parser<'a> {
 }
 
 impl RawParser for Parser<'_> {
-    fn parse_todos(&self, text: &str) -> Vec<RawTodo> {
+    fn parse(&self, bytes: &[u8]) -> Vec<RawTodo> {
         let mut todos = Vec::new();
 
-        let mut comments = CommentParser::new(self.syntax_rules, text).peekable();
+        let mut comments = CommentParser::new(self.syntax_rules, bytes).peekable();
         while let Some(comment) = comments.next() {
             use Comment::*;
             match comment {
@@ -390,7 +394,7 @@ mod tests {
     fn line_comment_basic_todo() {
         let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = "// TODO basic test\nlet x = 1;";
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0], (1, 1, "basic test".to_string()));
     }
@@ -402,7 +406,7 @@ mod tests {
 // This is the second line
 // This is the third line
 let x = 1;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
@@ -418,7 +422,7 @@ let x = 1;"#;
     fn line_comment_todo_at_end_of_file() {
         let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = "let x = 1;\n// TODO at end of file";
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0], (2, 2, "at end of file".to_string()));
     }
@@ -429,7 +433,7 @@ let x = 1;"#;
         let text = r#"let x = 1;
 // TODO at end of file
 // with continuation"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
@@ -442,7 +446,7 @@ let x = 1;"#;
         let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = r#"// TODO
 let x = 1;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0], (1, 1, "".to_string()));
     }
@@ -453,7 +457,7 @@ let x = 1;"#;
         let text = r#"// TODO first todo
 // TODO second todo
 let x = 1;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 2);
         assert_eq!(todos[0], (1, 1, "first todo".to_string()));
         assert_eq!(todos[1], (2, 2, "second todo".to_string()));
@@ -466,7 +470,7 @@ let x = 1;"#;
 let x = 1;
 // TODO second todo
 let y = 2;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 2);
         assert_eq!(todos[0], (1, 1, "first todo".to_string()));
         assert_eq!(todos[1], (3, 3, "second todo".to_string()));
@@ -477,7 +481,7 @@ let y = 2;"#;
         let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = r#"// TODO (B) Handle TODOs inside TODO title
 let x = 1;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
@@ -492,7 +496,7 @@ let x = 1;"#;
 //
 // TODOs should not start new TODO unless "TODO" followed by whitespace
 let x = 1;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
@@ -504,7 +508,7 @@ let x = 1;"#;
     fn line_comment_multiple_spaces_before_todo() {
         let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = "//    TODO with extra spaces\nlet x = 1;";
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0], (1, 1, "with extra spaces".to_string()));
     }
@@ -513,7 +517,7 @@ let x = 1;"#;
     fn line_comment_tab_before_todo() {
         let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = "//\tTODO with tab\nlet x = 1;";
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0], (1, 1, "with tab".to_string()));
     }
@@ -522,7 +526,7 @@ let x = 1;"#;
     fn line_comment_no_space_before_todo() {
         let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = "//TODO no space\nlet x = 1;";
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0], (1, 1, "no space".to_string()));
     }
@@ -532,7 +536,7 @@ let x = 1;"#;
         // Word boundary prevents matching "TODOLIST"
         let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = "// TODOLIST is not a todo\nlet x = 1;";
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 0);
     }
 
@@ -543,7 +547,7 @@ let x = 1;"#;
 //
 // continuation after empty line
 let x = 1;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
@@ -567,7 +571,7 @@ let x = 1;"#;
         }
     }
 }"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
@@ -583,7 +587,7 @@ let x = 1;"#;
     fn line_comment_inline_todo() {
         let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = "let x = 1; // TODO change this\nlet y = 2;";
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0], (1, 1, "change this\n\n`let x = 1;`".to_string()));
     }
@@ -595,7 +599,7 @@ let x = 1;"#;
         let text = r#"let x = 1; // TODO inline todo
 // this is NOT a continuation
 let y = 2;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         // Only the inline comment, no aggregation
         assert_eq!(todos[0], (1, 1, "inline todo\n\n`let x = 1;`".to_string()));
@@ -607,7 +611,7 @@ let y = 2;"#;
         let text = r#"let x = 1; // TODO first inline
 let y = 2; // TODO second inline
 let z = 3;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 2);
         assert_eq!(todos[0], (1, 1, "first inline\n\n`let x = 1;`".to_string()));
         assert_eq!(
@@ -623,7 +627,7 @@ let z = 3;"#;
         let text = r#"    // TODO indented todo
     // with continuation
 let x = 1;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
@@ -637,7 +641,7 @@ let x = 1;"#;
         let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
         let text = r#"foo(); // TODO fix foo
 bar(); // TODO fix bar"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 2);
         assert_eq!(todos[0], (1, 1, "fix foo\n\n`foo();`".to_string()));
         assert_eq!(todos[1], (2, 2, "fix bar\n\n`bar();`".to_string()));
@@ -650,7 +654,7 @@ bar(); // TODO fix bar"#;
     fn block_comment_single_line() {
         let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
         let text = "/* TODO single line */\nlet x = 1;";
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0], (1, 1, "single line".to_string()));
     }
@@ -663,7 +667,7 @@ bar(); // TODO fix bar"#;
    third line
  */
 let x = 1;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
@@ -678,7 +682,7 @@ let x = 1;"#;
    second line
    third line */
 let x = 1;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
@@ -693,7 +697,7 @@ let x = 1;"#;
 /* TODO at end of file
    more content
  */"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0], (2, 4, "at end of file\nmore content".to_string()));
     }
@@ -706,7 +710,7 @@ let x = 1;"#;
  * this line has asterisk
  * so does this
  */"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
@@ -724,7 +728,7 @@ let x = 1;"#;
         let text = r#"/* TODO (B) Handle TODOs inside TODO description
    This TODO should not start a new todo.
 */"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
@@ -746,7 +750,7 @@ let x = 1;"#;
 Content starts at the left edge.
   - indented item
 */"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
@@ -762,7 +766,7 @@ Content starts at the left edge.
     fn block_comment_nested_simple() {
         let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
         let text = "/* TODO outer /* inner */ still outer */\nlet x = 1;";
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
@@ -780,7 +784,7 @@ Content starts at the left edge.
    back to outer
 */
 let x = 1;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
@@ -797,7 +801,7 @@ let x = 1;"#;
     fn block_comment_nested_two_levels() {
         let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
         let text = "/* TODO /* level 1 /* level 2 */ back to 1 */ outer */\nlet x = 1;";
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
@@ -815,7 +819,7 @@ let x = 1;"#;
         let text = r#"/* TODO first with /* nested */ content */
 /* TODO second todo */
 let x = 1;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 2);
         assert_eq!(
             todos[0],
@@ -828,7 +832,7 @@ let x = 1;"#;
     fn block_comment_nested_empty_inner() {
         let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
         let text = "/* TODO with /**/ empty nested */\nlet x = 1;";
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0], (1, 1, "with /**/ empty nested".to_string()));
     }
@@ -847,7 +851,7 @@ let x = 1;"#;
 `;
 // TODO this should be found
 let y = 1;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0], (4, 4, "this should be found".to_string()));
     }
@@ -858,7 +862,7 @@ let y = 1;"#;
         let text = r#"let x = `// TODO fake`;
 // TODO real
 let y = 1;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0], (2, 2, "real".to_string()));
     }
@@ -869,7 +873,7 @@ let y = 1;"#;
         let text = r#"let x = `raw string content`;
 // TODO after raw string
 let y = 1;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0], (2, 2, "after raw string".to_string()));
     }
@@ -881,7 +885,7 @@ let y = 1;"#;
 let x = 1;
 // TODO second todo
 let y = 1;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 2);
         assert_eq!(todos[0], (1, 1, "mentions ` backtick".to_string()));
         assert_eq!(todos[1], (3, 3, "second todo".to_string()));
@@ -902,7 +906,7 @@ let x = 1;
 let y = 2;
 // TODO third back to line comment
 let z = 3;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 3);
         assert_eq!(todos[0], (1, 1, "first in line comment".to_string()));
         assert_eq!(todos[1], (3, 3, "second in block comment".to_string()));
@@ -920,7 +924,7 @@ let x = 1;
 with continuation
 */
 let y = 2;"#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 2);
         assert_eq!(
             todos[0],

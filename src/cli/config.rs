@@ -32,6 +32,8 @@ pub struct Config {
 
     pub filter: Option<Box<dyn Filter>>,
     pub sorter: Option<Box<dyn Sorter>>,
+
+    pub todo_token: Option<String>,
 }
 
 impl Config {
@@ -59,11 +61,18 @@ impl Config {
                     exclude: Vec::new(),
                     filter: None,
                     sorter: Some(Box::new(todoozy::todo::sort::SortPipeline::app_default())),
+                    todo_token: None,
                 };
                 config.save()?;
                 Ok(config)
             }
             Err(e) => Err(e.into()),
         }
+    }
+
+    pub fn get_todo_token(&self) -> String {
+        self.todo_token
+            .clone()
+            .unwrap_or_else(|| "TODO".to_string())
     }
 }

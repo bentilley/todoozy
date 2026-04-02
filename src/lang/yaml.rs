@@ -12,7 +12,7 @@ mod tests {
     use crate::lang::RawParser;
 
     #[test]
-    fn test_parse_todos() {
+    fn test_parse_str() {
         let parser = crate::lang::Parser::new("TODO", &YAML);
 
         // Todo as line comments
@@ -28,7 +28,7 @@ services:
     image: nginx
 "#;
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 5 as usize,
                 7 as usize,
@@ -54,7 +54,7 @@ services:
     image: nginx
 "#;
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 5 as usize,
                 8 as usize,
@@ -74,9 +74,9 @@ name: example
 # TODO 2020-08-06 Second todo +Testing
 version: 1.0.0
 "#;
-        assert_eq!(parser.parse_todos(text).len(), 2);
+        assert_eq!(parser.parse_str(text).len(), 2);
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 2 as usize,
                 2 as usize,
@@ -84,7 +84,7 @@ version: 1.0.0
             )
         );
         assert_eq!(
-            parser.parse_todos(text)[1],
+            parser.parse_str(text)[1],
             (
                 5 as usize,
                 5 as usize,
@@ -103,7 +103,7 @@ message: "# TODO this is inside a string"
 # TODO this is a real todo
 version: 1.0.0
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "this is a real todo".to_string());
     }
@@ -118,7 +118,7 @@ message: '# TODO this is inside a string'
 # TODO this is a real todo
 version: 1.0.0
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "this is a real todo".to_string());
     }
@@ -133,7 +133,7 @@ world"
 
 # TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }

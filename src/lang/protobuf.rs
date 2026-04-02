@@ -12,7 +12,7 @@ mod tests {
     use crate::lang::RawParser;
 
     #[test]
-    fn test_parse_todos() {
+    fn test_parse_str() {
         let parser = crate::lang::Parser::new("TODO", &PROTOBUF);
 
         // Todo as line comment
@@ -27,7 +27,7 @@ message User {
 }
 "#;
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 4 as usize,
                 6 as usize,
@@ -51,7 +51,7 @@ service OldService {
 }
 "#;
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 4 as usize,
                 7 as usize,
@@ -69,7 +69,7 @@ syntax = "proto3";
 message Request {}
 "#;
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 3 as usize,
                 3 as usize,
@@ -88,7 +88,7 @@ string msg = "// TODO this is inside a string";
 // TODO this is a real todo
 message Request {}
 "#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "this is a real todo".to_string());
     }
@@ -103,7 +103,7 @@ world";
 
 // TODO real todo
 "#;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }

@@ -3,6 +3,7 @@ use crate::cli::args::{Command, Mode};
 use crate::cli::config;
 use crate::cli::error;
 use todoozy::todo::TodoIdentifier;
+use todoozy::provider::{FileSystemProvider, Provider};
 
 pub const USAGE: &str = r#"Show full details for a specific todo
 
@@ -49,7 +50,8 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
 }
 
 pub fn get(conf: &config::Config, opts: &TodoGetOptions) -> error::Result<()> {
-    let todo = todoozy::get_todo(opts.id, &conf.exclude)?;
+    let todo = FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone())
+        .get_todo(opts.id)?;
 
     match todo {
         Some(todo) => match opts.format {

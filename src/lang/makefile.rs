@@ -14,7 +14,7 @@ mod tests {
     use crate::lang::RawParser;
 
     #[test]
-    fn test_parse_todos() {
+    fn test_parse_str() {
         let parser = crate::lang::Parser::new("TODO", &MAKEFILE);
 
         // Todo as line comments
@@ -28,7 +28,7 @@ build:
 	go build -o bin/app
 "#;
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 4 as usize,
                 6 as usize,
@@ -52,7 +52,7 @@ build:
 	go build -o bin/app
 "#;
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 4 as usize,
                 7 as usize,
@@ -73,9 +73,9 @@ This is a test todo with some indented lines:
 build:
 	go build -o bin/app
 "#;
-        assert_eq!(parser.parse_todos(text).len(), 2);
+        assert_eq!(parser.parse_str(text).len(), 2);
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 2 as usize,
                 2 as usize,
@@ -83,7 +83,7 @@ build:
             )
         );
         assert_eq!(
-            parser.parse_todos(text)[1],
+            parser.parse_str(text)[1],
             (
                 5 as usize,
                 5 as usize,
@@ -104,7 +104,7 @@ build:
 
 # TODO this is a real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "this is a real todo".to_string());
     }
@@ -119,7 +119,7 @@ build:
 
 # TODO this is a real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "this is a real todo".to_string());
     }
@@ -136,7 +136,7 @@ world"
 
 # TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }
@@ -152,7 +152,7 @@ build:
 
 # TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }
@@ -170,7 +170,7 @@ world"
 
 # TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }
@@ -185,7 +185,7 @@ build:
 
 # TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }
@@ -200,7 +200,7 @@ build:
 
 # TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }
@@ -215,7 +215,7 @@ build:
 
 # TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }
@@ -230,7 +230,7 @@ build:
 
 # TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }
@@ -248,7 +248,7 @@ world'
 
 # TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }
@@ -263,7 +263,7 @@ build:
 
 # TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }
@@ -278,7 +278,7 @@ build:
 
 # TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }

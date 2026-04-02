@@ -1,10 +1,9 @@
 pub mod editor;
 pub mod filter;
-pub mod syntax;
-pub mod sort;
 pub mod parser;
+pub mod sort;
+pub mod syntax;
 
-use std::fmt;
 use std::fs::File;
 use std::io::{self, prelude::*, BufReader, BufWriter};
 
@@ -18,6 +17,17 @@ pub use syntax::{TodoInfo, TodoInfoBuilder};
 pub enum TodoIdentifier {
     Primary(u32),
     Reference(u32),
+}
+
+impl std::ops::Deref for TodoIdentifier {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            TodoIdentifier::Primary(id) => id,
+            TodoIdentifier::Reference(id) => id,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -99,7 +109,7 @@ pub struct Location {
     pub end_line_num: usize,
 }
 
-impl fmt::Display for Location {
+impl std::fmt::Display for Location {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let file_display = self.file_location_prefix();
         if self.start_line_num == self.end_line_num {
@@ -287,7 +297,8 @@ impl Todo {
             .file_path
             .as_ref()
             .ok_or("Cannot edit: No file path in location")?;
-        Ok(editor::EditorCommand::from_env()?.with_location(file_path, self.location.start_line_num))
+        Ok(editor::EditorCommand::from_env()?
+            .with_location(file_path, self.location.start_line_num))
     }
 
     pub fn display_locations_with_marker(&self) -> Vec<String> {
@@ -370,7 +381,30 @@ impl Todo {
     }
 }
 
-#[derive(Debug, PartialEq)]
+impl std::fmt::Display for Todo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let completed_marker = if self.completion_date.is_some() {
+            "[x]"
+        } else {
+            "[ ]"
+        };
+        let created_date_str = self
+            .creation_date
+            .map_or("          ".to_string(), |d| format!("{}", d));
+        write!(
+            f,
+            "{} ({}) {} {} {} {}",
+            completed_marker,
+            created_date_str,
+            self.display_id(),
+            self.display_priority(),
+            self.title,
+            self.display_tags()
+        )
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum LinkingWarning {
     OrphanReference {
         id: u32,
@@ -383,8 +417,8 @@ pub enum LinkingWarning {
     },
 }
 
-impl fmt::Display for LinkingWarning {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Display for LinkingWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             LinkingWarning::OrphanReference { id, location } => {
                 write!(
@@ -408,106 +442,160 @@ impl fmt::Display for LinkingWarning {
     }
 }
 
-pub struct Todos(Vec<Todo>);
+#[derive(Clone)]
+pub struct Todos {
+    imported: HashMap<u32, Todo>,
+    unimported: Vec<Todo>,
+    warnings: Vec<LinkingWarning>,
+}
 
 impl Todos {
+    fn new() -> Self {
+        Self {
+            imported: HashMap::new(),
+            unimported: Vec::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    pub fn warnings(&self) -> &[LinkingWarning] {
+        &self.warnings
+    }
+
+    pub fn len(&self) -> usize {
+        self.imported.len() + self.unimported.len()
+    }
+
+    pub fn ids(&self) -> impl Iterator<Item = u32> + '_ {
+        self.imported.keys().copied()
+    }
+
     pub fn get_max_id(&self) -> u32 {
-        self.0
-            .iter()
-            .filter_map(|t| match &t.id {
-                Some(TodoIdentifier::Primary(id)) => Some(*id),
-                _ => None, // Don't count references or None
-            })
-            .max()
-            .unwrap_or(0)
+        self.ids().max().unwrap_or(0)
+    }
+
+    pub fn get(&self, id: &u32) -> Option<&Todo> {
+        self.imported.get(id)
+    }
+
+    pub fn insert(&mut self, id: u32, todo: Todo) {
+        self.imported.insert(id, todo);
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&u32, &mut Todo)> {
+        self.imported.iter_mut()
+    }
+
+    /// Returns an iterator over all todos (primaries + unimported, excluding unlinked references)
+    pub fn iter(&self) -> impl Iterator<Item = &Todo> {
+        self.imported.values().chain(self.unimported.iter())
+    }
+
+    // /// Returns a sorted Vec of all todos (primaries + unimported)
+    // pub fn sorted<F>(&self, sorter: F) -> Vec<&Todo>
+    // where
+    //     F: Fn(&Todo, &Todo) -> std::cmp::Ordering,
+    // {
+    //     let mut todos: Vec<&Todo> = self.iter().collect();
+    //     todos.sort_by(|a, b| sorter(a, b));
+    //     todos
+    // }
+
+    /// Consumes self and returns a sorted Vec of all todos
+    pub fn into_sorted<F>(self, sorter: F) -> Vec<Todo>
+    where
+        F: Fn(&Todo, &Todo) -> std::cmp::Ordering,
+    {
+        let mut all: Vec<Todo> = self.into();
+        all.sort_by(sorter);
+        all
     }
 
     pub fn apply_filter<F>(&mut self, filter: F)
     where
         F: Fn(&Todo) -> bool,
     {
-        self.0.retain(filter);
+        self.imported.retain(|_, todo| filter(todo));
+        self.unimported.retain(filter);
     }
+}
 
-    pub fn apply_sort<F>(&mut self, sorter: F)
-    where
-        F: Fn(&Todo, &Todo) -> std::cmp::Ordering,
-    {
-        self.0.sort_by(sorter);
-    }
+impl From<Vec<Todo>> for Todos {
+    fn from(todos: Vec<Todo>) -> Self {
+        let mut result = Todos::new();
+        let mut references: HashMap<u32, Vec<Todo>> = HashMap::new();
 
-    pub fn link_references(self) -> Self {
-        let mut warnings = Vec::new();
-        let mut primaries: Vec<Todo> = Vec::new();
-        let mut primary_index: HashMap<u32, usize> = HashMap::new();
-        let mut references: Vec<Todo> = Vec::new();
-
-        // Separate primaries (including todos with no ID) and references
-        for todo in self.0 {
+        for todo in todos {
             match &todo.id {
-                Some(TodoIdentifier::Reference(_)) => {
-                    references.push(todo);
-                }
                 Some(TodoIdentifier::Primary(id)) => {
-                    if let Some(&existing_idx) = primary_index.get(id) {
-                        // Duplicate primary - warn and ignore
-                        let existing = &primaries[existing_idx];
-                        warnings.push(LinkingWarning::DuplicatePrimary {
+                    if let Some(existing) = result.imported.get(id) {
+                        result.warnings.push(LinkingWarning::DuplicatePrimary {
                             id: *id,
                             duplicate_location: todo.location.clone(),
                             first_location: existing.location.clone(),
                         });
                     } else {
-                        primary_index.insert(*id, primaries.len());
-                        primaries.push(todo);
+                        result.imported.insert(*id, todo);
                     }
                 }
+                Some(TodoIdentifier::Reference(id)) => {
+                    references.entry(*id).or_default().push(todo);
+                }
                 None => {
-                    // Todos without IDs are treated as primaries
-                    primaries.push(todo);
+                    result.unimported.push(todo);
                 }
             }
         }
 
-        // Link references to their primaries
-        for reference in references {
-            if let Some(TodoIdentifier::Reference(ref_id)) = &reference.id {
-                if let Some(&primary_idx) = primary_index.get(ref_id) {
-                    primaries[primary_idx].references.push(reference);
-                } else {
-                    // Orphan reference - warn and discard
-                    warnings.push(LinkingWarning::OrphanReference {
-                        id: *ref_id,
+        // Move references into their corresponding primaries
+        for (ref_id, refs) in std::mem::take(&mut references) {
+            if let Some(primary) = result.imported.get_mut(&ref_id) {
+                primary.references.extend(refs);
+            } else {
+                // Orphan references - warn and discard
+                for reference in refs {
+                    result.warnings.push(LinkingWarning::OrphanReference {
+                        id: ref_id,
                         location: reference.location.clone(),
                     });
                 }
             }
         }
 
-        for warning in warnings {
-            eprintln!("{}", warning);
-        }
-        Todos(primaries)
-    }
-}
-
-impl std::ops::Deref for Todos {
-    type Target = Vec<Todo>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl From<Vec<Todo>> for Todos {
-    fn from(todos: Vec<Todo>) -> Self {
-        Todos(todos)
+        result
     }
 }
 
 impl From<Todos> for Vec<Todo> {
     fn from(todos: Todos) -> Self {
-        todos.0
+        let mut result: Vec<Todo> = todos
+            .imported
+            .into_values()
+            .map(|t| {
+                let mut all = t.references.to_vec();
+                all.push(t);
+                all
+            })
+            .flatten()
+            .collect();
+        result.extend(todos.unimported);
+        result
+    }
+}
+
+impl From<HashMap<u32, Todo>> for Todos {
+    fn from(map: HashMap<u32, Todo>) -> Self {
+        Todos {
+            imported: map,
+            unimported: Vec::new(),
+            warnings: Vec::new(),
+        }
+    }
+}
+
+impl From<Todos> for HashMap<u32, Todo> {
+    fn from(todos: Todos) -> Self {
+        todos.imported
     }
 }
 
@@ -516,7 +604,8 @@ impl IntoIterator for Todos {
     type IntoIter = std::vec::IntoIter<Todo>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
+        let all: Vec<Todo> = self.into();
+        all.into_iter()
     }
 }
 
@@ -622,5 +711,327 @@ mod tests {
             Some(vec!["value1".to_string(), "value2".to_string()].as_slice())
         );
         assert_eq!(metadata.get("key2").unwrap()[0], "value3");
+    }
+
+    #[test]
+    fn test_todos_iter() {
+        let todos: Todos = vec![
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Primary(1)))
+                    .title("Primary 1".to_string())
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(None)
+                    .title("Unimported".to_string())
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+        ]
+        .into();
+
+        let titles: Vec<_> = todos.iter().map(|t| t.title.as_str()).collect();
+        assert_eq!(titles.len(), 2);
+        assert!(titles.contains(&"Primary 1"));
+        assert!(titles.contains(&"Unimported"));
+    }
+
+    #[test]
+    fn test_todos_into_sorted() {
+        let todos: Todos = vec![
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Primary(3)))
+                    .title("C".to_string())
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Primary(1)))
+                    .title("A".to_string())
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Primary(2)))
+                    .title("B".to_string())
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+        ]
+        .into();
+
+        let sorted = todos.into_sorted(|a, b| a.title.cmp(&b.title));
+        assert_eq!(sorted.len(), 3);
+        assert_eq!(sorted[0].title, "A");
+        assert_eq!(sorted[1].title, "B");
+        assert_eq!(sorted[2].title, "C");
+    }
+
+    #[test]
+    fn test_todos_apply_filter() {
+        let mut todos: Todos = vec![
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Primary(1)))
+                    .priority(Some('A'))
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Primary(2)))
+                    .priority(Some('C'))
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(None)
+                    .priority(Some('A'))
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+        ]
+        .into();
+
+        todos.apply_filter(|t| t.priority == Some('A'));
+        let remaining: Vec<_> = todos.iter().collect();
+        assert_eq!(remaining.len(), 2);
+        assert!(remaining.iter().all(|t| t.priority == Some('A')));
+    }
+
+    #[test]
+    fn test_todos_reference_linking() {
+        let todos: Todos = vec![
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Primary(1)))
+                    .title("Primary".to_string())
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Reference(1)))
+                    .title("Reference to 1".to_string())
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+        ]
+        .into();
+
+        // Reference should be linked to primary, not in iter directly
+        let primaries: Vec<_> = todos.iter().collect();
+        assert_eq!(primaries.len(), 1);
+        assert_eq!(primaries[0].title, "Primary");
+        assert_eq!(primaries[0].references.len(), 1);
+        assert_eq!(primaries[0].references[0].title, "Reference to 1");
+    }
+
+    #[test]
+    fn test_todos_orphan_reference_warning() {
+        let todos: Todos = vec![Todo::new(
+            TodoInfoBuilder::default()
+                .id(Some(TodoIdentifier::Reference(999)))
+                .title("Orphan reference".to_string())
+                .build()
+                .unwrap(),
+            Location::new(Some("test.rs".to_string()), 10, 10),
+        )]
+        .into();
+
+        assert_eq!(todos.warnings.len(), 1);
+        match &todos.warnings[0] {
+            LinkingWarning::OrphanReference { id, location } => {
+                assert_eq!(*id, 999);
+                assert_eq!(location.start_line_num, 10);
+            }
+            _ => panic!("Expected OrphanReference warning"),
+        }
+    }
+
+    #[test]
+    fn test_todos_duplicate_primary_warning() {
+        let todos: Todos = vec![
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Primary(1)))
+                    .title("First".to_string())
+                    .build()
+                    .unwrap(),
+                Location::new(Some("a.rs".to_string()), 5, 5),
+            ),
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Primary(1)))
+                    .title("Duplicate".to_string())
+                    .build()
+                    .unwrap(),
+                Location::new(Some("b.rs".to_string()), 10, 10),
+            ),
+        ]
+        .into();
+
+        assert_eq!(todos.warnings.len(), 1);
+        match &todos.warnings[0] {
+            LinkingWarning::DuplicatePrimary {
+                id,
+                duplicate_location,
+                first_location,
+            } => {
+                assert_eq!(*id, 1);
+                assert_eq!(first_location.start_line_num, 5);
+                assert_eq!(duplicate_location.start_line_num, 10);
+            }
+            _ => panic!("Expected DuplicatePrimary warning"),
+        }
+
+        // Only the first occurrence should be kept
+        assert_eq!(todos.iter().count(), 1);
+        assert_eq!(todos.iter().next().unwrap().title, "First");
+    }
+
+    #[test]
+    fn test_todos_from_hashmap() {
+        let mut map: HashMap<u32, Todo> = HashMap::new();
+        map.insert(
+            1,
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Primary(1)))
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+        );
+        map.insert(
+            2,
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Primary(2)))
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+        );
+
+        let todos: Todos = map.into();
+        assert_eq!(todos.get_max_id(), 2);
+        assert_eq!(todos.iter().count(), 2);
+    }
+
+    #[test]
+    fn test_todos_into_hashmap() {
+        let todos: Todos = vec![
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Primary(1)))
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Primary(2)))
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+            Todo::new(
+                TodoInfoBuilder::default().id(None).build().unwrap(),
+                Location::default(),
+            ),
+        ]
+        .into();
+
+        let map: HashMap<u32, Todo> = todos.into();
+        // HashMap conversion only includes primaries, not unimported
+        assert_eq!(map.len(), 2);
+        assert!(map.contains_key(&1));
+        assert!(map.contains_key(&2));
+    }
+
+    #[test]
+    fn test_todos_into_vec() {
+        let todos: Todos = vec![
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Primary(1)))
+                    .title("Primary".to_string())
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Reference(1)))
+                    .title("Ref".to_string())
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(None)
+                    .title("Unimported".to_string())
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+        ]
+        .into();
+
+        let vec: Vec<Todo> = todos.into();
+        // Vec includes primary, its references, and unimported
+        assert_eq!(vec.len(), 3);
+        let titles: Vec<_> = vec.iter().map(|t| t.title.as_str()).collect();
+        assert!(titles.contains(&"Primary"));
+        assert!(titles.contains(&"Ref"));
+        assert!(titles.contains(&"Unimported"));
+    }
+
+    #[test]
+    fn test_todos_into_iterator() {
+        let todos: Todos = vec![
+            Todo::new(
+                TodoInfoBuilder::default()
+                    .id(Some(TodoIdentifier::Primary(1)))
+                    .build()
+                    .unwrap(),
+                Location::default(),
+            ),
+            Todo::new(
+                TodoInfoBuilder::default().id(None).build().unwrap(),
+                Location::default(),
+            ),
+        ]
+        .into();
+
+        let collected: Vec<Todo> = todos.into_iter().collect();
+        assert_eq!(collected.len(), 2);
+    }
+
+    #[test]
+    fn test_todos_empty() {
+        let todos: Todos = Vec::new().into();
+        assert_eq!(todos.get_max_id(), 0);
+        assert_eq!(todos.iter().count(), 0);
+        assert!(todos.warnings.is_empty());
     }
 }

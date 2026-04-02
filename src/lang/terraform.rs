@@ -13,7 +13,7 @@ mod tests {
     use crate::lang::RawParser;
 
     #[test]
-    fn test_parse_todos() {
+    fn test_parse_str() {
         let parser = crate::lang::Parser::new("TODO", &TERRAFORM);
 
         // Todo as hash line comments
@@ -30,7 +30,7 @@ mod tests {
     }
 "#;
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 6 as usize,
                 8 as usize,
@@ -55,7 +55,7 @@ This is the description."#
     }
 "#;
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 6 as usize,
                 8 as usize,
@@ -81,7 +81,7 @@ This is the description."#
     }
 "#;
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 6 as usize,
                 9 as usize,
@@ -106,7 +106,7 @@ This is the description."#
     }
 "#;
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 6 as usize,
                 8 as usize,
@@ -134,7 +134,7 @@ This is the description."#
     }
 "#;
         assert_eq!(
-            parser.parse_todos(text)[0],
+            parser.parse_str(text)[0],
             (
                 6 as usize,
                 10 as usize,
@@ -158,7 +158,7 @@ variable "example" {
 # TODO this is a real todo
 resource "aws_instance" "example" {}
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "this is a real todo".to_string());
     }
@@ -175,7 +175,7 @@ world"
 
 # TODO real todo
 "##;
-        let todos = parser.parse_todos(text);
+        let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].2, "real todo".to_string());
     }

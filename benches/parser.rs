@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use todoozy::{parse_text, testutils::generate_large_file, FileType};
+use todoozy::{testutils::generate_large_file, FileType, TodoParser};
 
 fn bench_typescript_parser(c: &mut Criterion) {
     let mut group = c.benchmark_group("typescript");
@@ -31,7 +31,10 @@ export default config;"#,
         group.bench_with_input(
             BenchmarkId::from_parameter(format!("{}_chunks", num_chunks)),
             &large,
-            |b, content| b.iter(|| parse_text(black_box(content), FileType::Typescript)),
+            |b, content| {
+                let parser = TodoParser::new("TODO");
+                b.iter(|| parser.parse_text(black_box(content), FileType::Typescript))
+            },
         );
     }
 
@@ -66,7 +69,10 @@ impl Config {
         group.bench_with_input(
             BenchmarkId::from_parameter(format!("{}_chunks", num_chunks)),
             &large,
-            |b, content| b.iter(|| parse_text(black_box(content), FileType::Rust)),
+            |b, content| {
+                let parser = TodoParser::new("TODO");
+                b.iter(|| parser.parse_text(black_box(content), FileType::Rust))
+            },
         );
     }
 
@@ -117,7 +123,10 @@ configure() {
         group.bench_with_input(
             BenchmarkId::from_parameter(format!("{}_chunks", num_chunks)),
             &large,
-            |b, content| b.iter(|| parse_text(black_box(content), FileType::Sh)),
+            |b, content| {
+                let parser = TodoParser::new("TODO");
+                b.iter(|| parser.parse_text(black_box(content), FileType::Sh))
+            },
         );
     }
 

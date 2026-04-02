@@ -21,97 +21,105 @@ pub enum FileType {
     Zsh,
 }
 
-pub fn get_filetype(filename: &str) -> Option<FileType> {
-    use FileType::*;
-
-    let path = std::path::Path::new(filename);
-
-    let ft = match path.extension().and_then(std::ffi::OsStr::to_str) {
-        Some("bash") => Some(Bash),
-        Some("dockerfile") => Some(Dockerfile),
-        Some("go") => Some(Go),
-        Some("ksh") => Some(Ksh),
-        Some("md") => Some(Markdown),
-        Some("mk") => Some(Makefile),
-        Some("proto") => Some(Protobuf),
-        Some("py") => Some(Python),
-        Some("rs") => Some(Rust),
-        Some("sh") => Some(Sh),
-        Some("tdz") => Some(Todoozy),
-        Some("tf") => Some(Terraform),
-        Some("ts") | Some("tsx") => Some(Typescript),
-        Some("yaml") | Some("yml") => Some(YAML),
-        Some("zsh") => Some(Zsh),
-        _ => None,
-    };
-
-    if ft.is_some() {
-        return ft;
+pub trait FileTypeAwarePath {
+    fn get_filetype(&self) -> Option<FileType> {
+        self.get_filetype_from_name()
+            .or_else(|| self.get_filetype_from_contents())
     }
-
-    match path.file_name().and_then(std::ffi::OsStr::to_str) {
-        Some(".tdz") => Some(Todoozy),
-        Some("Dockerfile") => Some(Dockerfile),
-        Some("Makefile") | Some("makefile") | Some("GNUmakefile") => Some(Makefile),
-        _ => get_filetype_from_shebang(filename),
-    }
+    fn get_filetype_from_name(&self) -> Option<FileType>;
+    fn get_filetype_from_contents(&self) -> Option<FileType>;
 }
 
-fn get_filetype_from_shebang(filename: &str) -> Option<FileType> {
-    use std::io::{BufRead, BufReader};
-    use FileType::*;
-
-    let file = std::fs::File::open(filename).ok()?;
-    let mut reader = BufReader::new(file);
-    let mut first_line = String::new();
-    reader.read_line(&mut first_line).ok()?;
-
-    if !first_line.starts_with("#!") {
-        return None;
+impl FileTypeAwarePath for std::path::Path {
+    fn get_filetype_from_name(&self) -> Option<FileType> {
+        use FileType::*;
+        match self.extension().and_then(std::ffi::OsStr::to_str) {
+            Some("bash") => Some(Bash),
+            Some("dockerfile") => Some(Dockerfile),
+            Some("go") => Some(Go),
+            Some("ksh") => Some(Ksh),
+            Some("md") => Some(Markdown),
+            Some("mk") => Some(Makefile),
+            Some("proto") => Some(Protobuf),
+            Some("py") => Some(Python),
+            Some("rs") => Some(Rust),
+            Some("sh") => Some(Sh),
+            Some("tdz") => Some(Todoozy),
+            Some("tf") => Some(Terraform),
+            Some("ts") | Some("tsx") => Some(Typescript),
+            Some("yaml") | Some("yml") => Some(YAML),
+            Some("zsh") => Some(Zsh),
+            _ => match self.file_name()?.to_str()? {
+                "Dockerfile" => Some(Dockerfile),
+                "Makefile" | "makefile" | "GNUmakefile" => Some(Makefile),
+                ".tdz" => Some(Todoozy),
+                _ => None,
+            },
+        }
     }
 
-    // Match shebangs like #!/bin/bash, #!/usr/bin/env bash, etc.
-    if first_line.contains("bash") {
-        Some(Bash)
-    } else if first_line.contains("zsh") {
-        Some(Zsh)
-    } else if first_line.contains("ksh") {
-        Some(Ksh)
-    } else if first_line.contains("/sh")
-        || first_line.ends_with(" sh\n")
-        || first_line.ends_with(" sh")
-    {
-        Some(Sh)
-    } else {
-        None
+    fn get_filetype_from_contents(&self) -> Option<FileType> {
+        use std::io::{BufRead, BufReader};
+        use FileType::*;
+
+        let file = std::fs::File::open(self).ok()?;
+        let mut reader = BufReader::new(file);
+        let mut first_line = String::new();
+        reader.read_line(&mut first_line).ok()?;
+
+        if !first_line.starts_with("#!") {
+            return None;
+        }
+
+        // Match shebangs like #!/bin/bash, #!/usr/bin/env bash, etc.
+        if first_line.contains("bash") {
+            Some(Bash)
+        } else if first_line.contains("zsh") {
+            Some(Zsh)
+        } else if first_line.contains("ksh") {
+            Some(Ksh)
+        } else if first_line.contains("/sh")
+            || first_line.ends_with(" sh\n")
+            || first_line.ends_with(" sh")
+        {
+            Some(Sh)
+        } else {
+            None
+        }
     }
 }
 
 #[test]
-fn test_get_extension_from_filename() {
+fn test_get_filetype_from_name() {
+    use std::path::Path;
     use FileType::*;
-    assert_eq!(get_filetype("dir/test.tdz"), Some(Todoozy));
-    assert_eq!(get_filetype("test.tdz"), Some(Todoozy));
-    assert_eq!(get_filetype("dir/.tdz"), Some(Todoozy));
-    assert_eq!(get_filetype("./.tdz"), Some(Todoozy));
-    assert_eq!(get_filetype(".tdz"), Some(Todoozy));
-    assert_eq!(get_filetype("test.rs"), Some(Rust));
-    assert_eq!(get_filetype("test.go"), Some(Go));
-    assert_eq!(get_filetype("test.md"), Some(Markdown));
-    assert_eq!(get_filetype("test.py"), Some(Python));
-    assert_eq!(get_filetype("test.tf"), Some(Terraform));
-    assert_eq!(get_filetype("test.yaml"), Some(YAML));
-    assert_eq!(get_filetype("test.yml"), Some(YAML));
-    assert_eq!(get_filetype("test.proto"), Some(Protobuf));
-    assert_eq!(get_filetype("test.mk"), Some(Makefile));
-    assert_eq!(get_filetype("Makefile"), Some(Makefile));
-    assert_eq!(get_filetype("makefile"), Some(Makefile));
-    assert_eq!(get_filetype("GNUmakefile"), Some(Makefile));
-    assert_eq!(get_filetype("Dockerfile"), Some(Dockerfile));
-    assert_eq!(get_filetype("test.dockerfile"), Some(Dockerfile));
-    assert_eq!(get_filetype("test.sh"), Some(Sh));
-    assert_eq!(get_filetype("test.bash"), Some(Bash));
-    assert_eq!(get_filetype("test.zsh"), Some(Zsh));
-    assert_eq!(get_filetype("test.ksh"), Some(Ksh));
-    assert_eq!(get_filetype("test"), None);
+    assert_eq!(Path::new("dir/test.tdz").get_filetype_from_name(), Some(Todoozy));
+    assert_eq!(Path::new("test.tdz").get_filetype_from_name(), Some(Todoozy));
+    assert_eq!(Path::new("dir/.tdz").get_filetype_from_name(), Some(Todoozy));
+    assert_eq!(Path::new("./.tdz").get_filetype_from_name(), Some(Todoozy));
+    assert_eq!(Path::new(".tdz").get_filetype_from_name(), Some(Todoozy));
+    assert_eq!(Path::new("test.rs").get_filetype_from_name(), Some(Rust));
+    assert_eq!(Path::new("test.go").get_filetype_from_name(), Some(Go));
+    assert_eq!(Path::new("test.md").get_filetype_from_name(), Some(Markdown));
+    assert_eq!(Path::new("test.py").get_filetype_from_name(), Some(Python));
+    assert_eq!(Path::new("test.tf").get_filetype_from_name(), Some(Terraform));
+    assert_eq!(Path::new("test.yaml").get_filetype_from_name(), Some(YAML));
+    assert_eq!(Path::new("test.yml").get_filetype_from_name(), Some(YAML));
+    assert_eq!(Path::new("test.proto").get_filetype_from_name(), Some(Protobuf));
+    assert_eq!(Path::new("test.mk").get_filetype_from_name(), Some(Makefile));
+    assert_eq!(Path::new("Makefile").get_filetype_from_name(), Some(Makefile));
+    assert_eq!(Path::new("makefile").get_filetype_from_name(), Some(Makefile));
+    assert_eq!(Path::new("GNUmakefile").get_filetype_from_name(), Some(Makefile));
+    assert_eq!(Path::new("Dockerfile").get_filetype_from_name(), Some(Dockerfile));
+    assert_eq!(Path::new("test.dockerfile").get_filetype_from_name(), Some(Dockerfile));
+    assert_eq!(Path::new("test.sh").get_filetype_from_name(), Some(Sh));
+    assert_eq!(Path::new("test.bash").get_filetype_from_name(), Some(Bash));
+    assert_eq!(Path::new("test.zsh").get_filetype_from_name(), Some(Zsh));
+    assert_eq!(Path::new("test.ksh").get_filetype_from_name(), Some(Ksh));
+    assert_eq!(Path::new("test.ts").get_filetype_from_name(), Some(Typescript));
+    assert_eq!(Path::new("test.tsx").get_filetype_from_name(), Some(Typescript));
+    // Unknown extension returns None (no shebang fallback)
+    assert_eq!(Path::new("test").get_filetype_from_name(), None);
+    assert_eq!(Path::new("script").get_filetype_from_name(), None);
+    assert_eq!(Path::new("test.unknown").get_filetype_from_name(), None);
 }

@@ -1,4 +1,5 @@
 use super::Todo;
+use crate::lang::RawParser;
 
 pub struct TodoParser {
     todo_token: String,
@@ -11,11 +12,10 @@ impl TodoParser {
         }
     }
 
-    pub fn parse_text(&self, text: &str, file_type: crate::fs::FileType) -> Vec<Todo> {
+    fn get_parser_for_file_type(&self, file_type: crate::fs::FileType) -> Box<dyn RawParser + '_> {
         use crate::fs::FileType::*;
         use crate::lang::*;
-
-        let parser: Box<dyn RawParser> = match file_type {
+        match file_type {
             Bash | Ksh | Sh | Zsh => Box::new(Parser::new(&self.todo_token, &sh::SH)),
             Dockerfile => Box::new(Parser::new(&self.todo_token, &dockerfile::DOCKERFILE)),
             Go => Box::new(Parser::new(&self.todo_token, &go::GO)),
@@ -28,10 +28,13 @@ impl TodoParser {
             Todoozy => Box::new(tdz::Parser::new(&self.todo_token)),
             Typescript => Box::new(Parser::new(&self.todo_token, &typescript::TYPESCRIPT)),
             YAML => Box::new(Parser::new(&self.todo_token, &yaml::YAML)),
-        };
+        }
+    }
 
-
-        parser.parse_todos(&text)
+    pub fn parse_text(&self, text: &str, file_type: crate::fs::FileType) -> Vec<Todo> {
+        let parser = self.get_parser_for_file_type(file_type);
+        parser
+            .parse_str(&text)
             .into_iter()
             .filter_map(|raw| match Todo::try_from(raw) {
                 Ok(todo) => Some(todo),
@@ -41,5 +44,20 @@ impl TodoParser {
                 }
             })
             .collect()
+    }
+
+    pub fn parse_bytes(&self, bytes: &[u8], file_type: crate::fs::FileType) -> Vec<Todo> {
+        let parser = self.get_parser_for_file_type(file_type);
+        parser
+            .parse(&bytes)
+            .into_iter()
+            .filter_map(|raw| match Todo::try_from(raw) {
+                Ok(todo) => Some(todo),
+                Err(err) => {
+                    eprintln!("Error: {}", err);
+                    None
+                }
+            })
+                .collect()
     }
 }

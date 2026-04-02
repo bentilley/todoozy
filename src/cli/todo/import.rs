@@ -2,6 +2,7 @@ use super::TodoCommand;
 use crate::cli::args::{Command, Mode};
 use crate::cli::config;
 use crate::cli::error;
+use todoozy::provider::{FileSystemProvider, Provider};
 
 pub const USAGE: &str = r#"Import untracked todos (assign IDs)
 
@@ -75,7 +76,7 @@ fn parse_location(value: &str) -> error::Result<LocationSpec> {
 }
 
 pub fn import(conf: &mut config::Config, opts: &TodoImportOptions) -> error::Result<()> {
-    let todos = todoozy::get_todos(&conf.exclude)?;
+    let todos = FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone()).get_todos()?;
 
     let mut imported_count = 0;
 

@@ -3,6 +3,7 @@ use crate::cli::args::{Command, Mode};
 use crate::cli::config;
 use crate::cli::error;
 use std::collections::HashMap;
+use todoozy::provider::{FileSystemProvider, Provider};
 
 pub const USAGE: &str = r#"List all tags with counts
 
@@ -100,7 +101,8 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
 }
 
 pub fn list(conf: &config::Config, opts: &TagListOptions) -> error::Result<()> {
-    let todos = todoozy::get_todos(&conf.exclude)?;
+    let todos = FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone())
+        .get_todos()?;
 
     // Collect tags with counts
     let mut tags: HashMap<String, usize> = HashMap::new();
