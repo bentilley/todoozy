@@ -4,6 +4,11 @@ use std::str::FromStr;
 
 mod parser;
 
+// TODO #79 (C) 2026-04-03 Refactor Filter along same lines as Sorter
+//
+// see the recent changes to src/todo/sort
+//
+// notably, remove parse_str, module specific error type, better parser error messages
 pub trait Filter: Display + std::fmt::Debug {
     fn filter(&self, todo: &crate::todo::Todo) -> bool;
     fn box_clone(&self) -> Box<dyn Filter>;
