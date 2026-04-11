@@ -221,21 +221,23 @@ pub fn todo(s: &str) -> IResult<&str, TodoInfo, Error<&str>> {
         (date1, date2)
     };
 
-    let (i, text) = text(i)?;
+    let (i, text) = opt(text)(i)?;
 
     let mut title = String::new();
     let mut tags: Vec<String> = Vec::new();
     let mut metadata = Metadata::new();
 
-    for word in text {
-        match word {
-            Word::Plain(p) => title.push_str(p),
-            Word::Raw(r) => title.push_str(r),
-            Word::Tag(t) => tags.push(t.to_owned()),
-            Word::Metadata((k, v)) => {
-                // Metadata keys starting with an underscore are reserved for internal use.
-                if !k.starts_with("_") {
-                    metadata.set(k, v);
+    if let Some(text) = text {
+        for word in text {
+            match word {
+                Word::Plain(p) => title.push_str(p),
+                Word::Raw(r) => title.push_str(r),
+                Word::Tag(t) => tags.push(t.to_owned()),
+                Word::Metadata((k, v)) => {
+                    // Metadata keys starting with an underscore are reserved for internal use.
+                    if !k.starts_with("_") {
+                        metadata.set(k, v);
+                    }
                 }
             }
         }
@@ -860,6 +862,22 @@ a case by case basis feels impossible.
 Not sure what the solution is yet, as lots of languages use `:` in their syntax so taking it on
 a case by case basis feels impossible."##
                             .to_string()
+                    ))
+                    .build()
+                    .unwrap()
+            ))
+        );
+        assert_eq!(
+            todo(
+                r#"
+This is a description with no title, it will just look like TODO\n\nblah blah blah."#
+            ),
+            Ok((
+                "",
+                TodoInfoBuilder::default()
+                    .title(String::new())
+                    .description(Some(
+                        "This is a description with no title, it will just look like TODO\\n\\nblah blah blah.".to_string()
                     ))
                     .build()
                     .unwrap()

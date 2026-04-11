@@ -138,7 +138,7 @@ impl GitBackend {
         let blob = self.repo.find_blob(oid)?;
         let file_type = match Path::new(file_path).get_filetype_from_name() {
             Some(ft) => ft,
-            // TODO (C) 2026-04-08 Error/warning here on missing file type so we can catch more +fix
+            // TODO #80 (C) 2026-04-08 Error/warning here on missing file type so we can catch more +fix
             None => return Ok(HashMap::new()), // If we can't determine the file type, just return no TODOs
         };
 

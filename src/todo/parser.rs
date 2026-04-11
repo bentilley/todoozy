@@ -58,6 +58,6 @@ impl TodoParser {
                     None
                 }
             })
-                .collect()
+            .collect()
     }
 }
