@@ -4,6 +4,7 @@
 
 use std::env;
 use todoozy::provider::vcs::git::GitBackend;
+use todoozy::provider::vcs::VcsBackend;
 
 fn main() {
     let path = env::current_dir().expect("failed to get current dir");
@@ -19,7 +20,7 @@ fn main() {
 
     println!("Scanning git history for TODOs");
 
-    let todos = match provider.walk_commits_for_todos() {
+    let todos = match provider.get_all_todos() {
         Ok(t) => t,
         Err(e) => {
             eprintln!("Error scanning TODOs: {}", e);

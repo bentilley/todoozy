@@ -7,7 +7,6 @@
 use std::fmt;
 use std::path::Path;
 
-pub mod cache;
 pub mod error;
 pub mod git;
 

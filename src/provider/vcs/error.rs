@@ -49,6 +49,18 @@ impl From<git2::Error> for Error {
     }
 }
 
+impl From<rusqlite::Error> for Error {
+    fn from(err: rusqlite::Error) -> Self {
+        Error::CacheError(err.to_string())
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::CacheError(err.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
