@@ -1,8 +1,4 @@
 // Git backend for VCS TODO history extraction
-//
-// This module implements the VcsBackend trait for git repositories using git2.
-// It walks the commit history, retrieves full file contents from blobs, and
-// compares TODOs between versions to detect creation/removal events.
 
 use super::{
     error::{Error, Result},
@@ -61,25 +57,23 @@ pub struct TodoLifecycle {
 }
 
 /// SQLite-based persistent cache for TODO history tracking.
-pub struct TodoCache {
+struct Cache {
     conn: Connection,
 }
 
-impl TodoCache {
+impl Cache {
     /// Open (or create) the cache database for the given repository.
     pub fn open(repo: &Repository) -> Result<Self> {
         let db_path = Self::get_db_path(repo)?;
         let conn = Connection::open(&db_path)?;
-        let cache = TodoCache { conn };
+        let cache = Cache { conn };
         cache.init_schema()?;
         Ok(cache)
     }
 
     /// Get the path to the cache database.
-    /// Uses commondir() to share cache across worktrees.
     fn get_db_path(repo: &Repository) -> Result<PathBuf> {
-        // commondir() returns the shared .git directory across all worktrees
-        let git_dir = repo.commondir();
+        let git_dir = repo.commondir(); // shared .git directory across all worktrees
         let todoozy_dir = git_dir.join("todoozy");
         std::fs::create_dir_all(&todoozy_dir)?;
         Ok(todoozy_dir.join("cache.db"))
@@ -124,45 +118,8 @@ impl TodoCache {
         Ok(commits)
     }
 
-    /// Insert a commit and its TODO locations into the cache.
-    pub fn insert_commit(&mut self, meta: &CommitMetadata, todos: &[Todo]) -> Result<()> {
-        let tx = self.conn.transaction()?;
-
-        // Insert commit record
-        tx.execute(
-            "INSERT OR IGNORE INTO commits (sha, timestamp, author_name, author_email) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![
-                &meta.sha,
-                meta.timestamp.timestamp(),
-                &meta.author_name,
-                &meta.author_email
-            ],
-        )?;
-
-        // Insert location records for each TODO
-        {
-            let mut stmt = tx.prepare(
-                "INSERT OR IGNORE INTO todo_locations (commit_sha, todo_id, file_path, start_line, end_line) VALUES (?1, ?2, ?3, ?4, ?5)"
-            )?;
-
-            for todo in todos {
-                if let Some(TodoIdentifier::Primary(id)) = &todo.id {
-                    let file_path = todo.location.file_path.as_deref().unwrap_or("");
-                    let start_line = todo.location.start_line_num as u32;
-                    let end_line = todo.location.end_line_num as u32;
-                    stmt.execute(rusqlite::params![
-                        &meta.sha, id, file_path, start_line, end_line
-                    ])?;
-                }
-            }
-        }
-
-        tx.commit()?;
-        Ok(())
-    }
-
     /// Insert multiple commits and their TODO locations in a single transaction.
-    pub fn insert_commits_batch(&mut self, commits: &[(CommitMetadata, Vec<Todo>)]) -> Result<()> {
+    pub fn insert_commits(&mut self, commits: &[(CommitMetadata, Vec<Todo>)]) -> Result<()> {
         if commits.is_empty() {
             return Ok(());
         }
@@ -301,7 +258,7 @@ pub struct GitBackend {
     repo: Repository,
     repo_path: PathBuf,
     parser: TodoParser,
-    cache: RefCell<TodoCache>,
+    cache: RefCell<Cache>,
 }
 
 impl GitBackend {
@@ -317,7 +274,7 @@ impl GitBackend {
         // Store the repo path for parallel workers to open their own connections
         let repo_path = repo.workdir().unwrap_or_else(|| repo.path()).to_path_buf();
 
-        let cache = RefCell::new(TodoCache::open(&repo)?);
+        let cache = RefCell::new(Cache::open(&repo)?);
 
         Ok(GitBackend {
             repo,
@@ -381,9 +338,7 @@ impl GitBackend {
 
             // Phase 4: Batch insert to cache
             eprintln!("Caching {} new commits", parsed_commits.len());
-            self.cache
-                .borrow_mut()
-                .insert_commits_batch(&parsed_commits)?;
+            self.cache.borrow_mut().insert_commits(&parsed_commits)?;
         }
 
         // Build todos with lifecycle data from cache
@@ -443,7 +398,6 @@ impl GitBackend {
             }
             git2::TreeWalkResult::Ok
         })?;
-
         Ok(ParsedCommit { meta, todos })
     }
 
@@ -728,7 +682,7 @@ mod tests {
     #[test]
     fn test_todo_cache_schema_creation() {
         let (dir, repo) = create_test_repo();
-        let cache = TodoCache::open(&repo).expect("failed to open cache");
+        let cache = Cache::open(&repo).expect("failed to open cache");
 
         // Check that cache.db was created in .git/todoozy/
         let db_path = dir.path().join(".git/todoozy/cache.db");
@@ -745,7 +699,7 @@ mod tests {
     #[test]
     fn test_todo_cache_insert_and_query_commits() {
         let (_dir, repo) = create_test_repo();
-        let mut cache = TodoCache::open(&repo).expect("failed to open cache");
+        let mut cache = Cache::open(&repo).expect("failed to open cache");
 
         // Create test commit metadata
         let meta = CommitMetadata {
@@ -756,7 +710,9 @@ mod tests {
         };
 
         // Insert commit with no todos
-        cache.insert_commit(&meta, &[]).expect("failed to insert");
+        cache
+            .insert_commits(&[(meta, vec![])])
+            .expect("failed to insert");
 
         let parsed = cache.get_parsed_commits().expect("failed to query");
         assert!(parsed.contains("abc123"));
@@ -765,7 +721,7 @@ mod tests {
     #[test]
     fn test_todo_cache_insert_commit_with_todos() {
         let (_dir, repo) = create_test_repo();
-        let mut cache = TodoCache::open(&repo).expect("failed to open cache");
+        let mut cache = Cache::open(&repo).expect("failed to open cache");
 
         let meta = CommitMetadata {
             sha: "def456".to_string(),
@@ -781,7 +737,7 @@ mod tests {
         todo.location.end_line_num = 12;
 
         cache
-            .insert_commit(&meta, &[todo])
+            .insert_commits(&[(meta, vec![todo])])
             .expect("failed to insert");
 
         // Verify todo ID was recorded
@@ -802,7 +758,7 @@ mod tests {
     #[test]
     fn test_todo_cache_lifecycle_active_todo() {
         let (_dir, repo) = create_test_repo();
-        let mut cache = TodoCache::open(&repo).expect("failed to open cache");
+        let mut cache = Cache::open(&repo).expect("failed to open cache");
 
         let meta = CommitMetadata {
             sha: "head123".to_string(),
@@ -816,7 +772,7 @@ mod tests {
         todo.location.file_path = Some("test.rs".to_string());
 
         cache
-            .insert_commit(&meta, &[todo])
+            .insert_commits(&[(meta, vec![todo])])
             .expect("failed to insert");
 
         // Query lifecycle - todo exists in "HEAD" (head123)
@@ -831,7 +787,7 @@ mod tests {
     #[test]
     fn test_todo_cache_lifecycle_completed_todo() {
         let (_dir, repo) = create_test_repo();
-        let mut cache = TodoCache::open(&repo).expect("failed to open cache");
+        let mut cache = Cache::open(&repo).expect("failed to open cache");
 
         // First commit: add todo
         let meta1 = CommitMetadata {
@@ -846,7 +802,7 @@ mod tests {
         todo.location.file_path = Some("test.rs".to_string());
 
         cache
-            .insert_commit(&meta1, &[todo])
+            .insert_commits(&[(meta1, vec![todo])])
             .expect("failed to insert");
 
         // Second commit: todo removed (empty list)
@@ -857,7 +813,9 @@ mod tests {
             author_email: "test@test.com".to_string(),
         };
 
-        cache.insert_commit(&meta2, &[]).expect("failed to insert");
+        cache
+            .insert_commits(&[(meta2, vec![])])
+            .expect("failed to insert");
 
         // Query lifecycle - todo NOT in HEAD (head456)
         let lifecycle = cache
@@ -922,7 +880,7 @@ mod tests {
     #[test]
     fn test_todo_cache_database_path() {
         let (dir, repo) = create_test_repo();
-        let _cache = TodoCache::open(&repo).expect("failed to open cache");
+        let _cache = Cache::open(&repo).expect("failed to open cache");
 
         // Verify .git/todoozy/cache.db exists
         let expected_path = dir.path().join(".git/todoozy/cache.db");

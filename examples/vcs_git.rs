@@ -7,7 +7,14 @@ use todoozy::provider::vcs::git::GitBackend;
 use todoozy::provider::vcs::VcsBackend;
 
 fn main() {
-    let path = env::current_dir().expect("failed to get current dir");
+    let args: Vec<String> = env::args().collect();
+    dbg!(&args);
+
+    let path = if args.len() == 2 {
+        std::path::PathBuf::from(args[1].clone())
+    } else {
+        env::current_dir().expect("failed to get current dir")
+    };
 
     println!("Creating Git backend for path: {}", path.display());
     let provider = match GitBackend::new(&path, "TODO") {
