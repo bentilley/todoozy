@@ -2,7 +2,7 @@
 
 use super::{
     error::{Error, Result},
-    VcsBackend, Version,
+    VcsBackend,
 };
 use crate::fs::FileTypeAwarePath;
 use crate::todo::{parser::TodoParser, Location, Todo, TodoIdentifier, Todos};
@@ -522,16 +522,10 @@ impl GitBackend {
     }
 
     fn get_todo_for_oid(&self, id: u32, oid: Oid) -> Result<Todo> {
-        self.get_todos_for_oid(&[id], oid)?
-            .into_iter()
-            .next()
-            .ok_or_else(|| {
-                Error::DataError(format!(
-                    "TODO with ID {} not found in cache for commit {}",
-                    id,
-                    oid.to_string()
-                ))
-            })
+        let sha = oid.to_string();
+        let cache_todo = self.cache.borrow().get_todo(id, &sha)?;
+        self.load_cache_todos(&[cache_todo])
+            .map(|todos| todos.into_iter().next().unwrap_or_default())
     }
 
     /// Build the final Todos collection using lifecycle data from the cache.
@@ -547,22 +541,13 @@ impl GitBackend {
         let lifecycle_todos = self.cache.borrow().get_all_todos(&sha)?;
         self.load_cache_todos(&lifecycle_todos)
     }
-
-    fn check_version(&self, version: Version) -> Result<String> {
-        match version {
-            Version::String(s) => Ok(s),
-            _ => Err(Error::VersionError(
-                "Git backend only supports string versions (commit SHAs or refs)".to_string(),
-            )),
-        }
-    }
 }
 
 impl VcsBackend for GitBackend {
-    fn get_most_recent_version(&self) -> Result<Version> {
+    fn get_most_recent_version(&self) -> Result<String> {
         let head = self.repo.head()?;
         let commit = head.peel_to_commit()?;
-        Ok(Version::String(commit.id().to_string()))
+        Ok(commit.id().to_string())
     }
 
     fn get_all_todos(&self) -> Result<Todos> {
@@ -570,24 +555,21 @@ impl VcsBackend for GitBackend {
         self.get_all_todos_for_oid(self.repo.head()?.peel_to_commit()?.id())
     }
 
-    fn get_todo_for_version(&self, id: u32, version: Version) -> Result<Todo> {
-        let version_str = self.check_version(version)?;
+    fn get_todo_for_version(&self, id: u32, version: String) -> Result<Todo> {
         self.cache_todo_history()?;
-        let oid = self.repo.revparse_single(&version_str)?.id();
+        let oid = self.repo.revparse_single(&version)?.id();
         self.get_todo_for_oid(id, oid)
     }
 
-    fn get_todos_for_version(&self, ids: &[u32], version: Version) -> Result<Todos> {
-        let version_str = self.check_version(version)?;
+    fn get_todos_for_version(&self, ids: &[u32], version: String) -> Result<Todos> {
         self.cache_todo_history()?;
-        let oid = self.repo.revparse_single(&version_str)?.id();
+        let oid = self.repo.revparse_single(&version)?.id();
         self.get_todos_for_oid(ids, oid)
     }
 
-    fn get_all_todos_for_version(&self, version: Version) -> Result<Todos> {
-        let version_str = self.check_version(version)?;
+    fn get_all_todos_for_version(&self, version: String) -> Result<Todos> {
         self.cache_todo_history()?;
-        let oid = self.repo.revparse_single(&version_str)?.id();
+        let oid = self.repo.revparse_single(&version)?.id();
         self.get_all_todos_for_oid(oid)
     }
 
@@ -596,10 +578,9 @@ impl VcsBackend for GitBackend {
         self.cache.borrow().get_all_todo_ids()
     }
 
-    fn get_ids_for_version(&self, version: Version) -> Result<HashSet<u32>> {
-        let version_str = self.check_version(version)?;
+    fn get_ids_for_version(&self, version: String) -> Result<HashSet<u32>> {
         self.cache_todo_history()?;
-        let oid = self.repo.revparse_single(&version_str)?.id();
+        let oid = self.repo.revparse_single(&version)?.id();
         let todos = self.get_all_todos_for_oid(oid)?;
         Ok(todos
             .iter()
