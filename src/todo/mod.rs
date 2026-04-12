@@ -1,4 +1,5 @@
 pub mod editor;
+pub mod error;
 pub mod filter;
 pub mod parser;
 pub mod sort;
@@ -14,6 +15,7 @@ use tempfile::NamedTempFile;
 
 use std::collections::HashMap;
 
+pub use error::Result;
 pub use syntax::{TodoInfo, TodoInfoBuilder};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -152,6 +154,47 @@ impl Location {
     pub fn display_start(&self) -> String {
         format!("{}{}", self.file_location_prefix(), self.start_line_num)
     }
+
+    pub fn load(&self, parser: &parser::TodoParser) -> Result<Todo> {
+        let file_path = self
+            .file_path
+            .as_ref()
+            .ok_or("Cannot load: No file path in location")?;
+
+        let path = Path::new(&file_path);
+        let file_type = path
+            .get_filetype_from_name()
+            .ok_or_else(|| format!("Cannot load: Unknown file type for {}", file_path))?;
+
+        let file = File::open(path)
+            .map_err(|e| format!("Cannot load: Failed to open file {}: {}", file_path, e))?;
+        let reader = BufReader::new(file);
+
+        // Extract lines from start to end (1-indexed)
+        let lines: Vec<String> = reader
+            .lines()
+            .enumerate()
+            .filter_map(|(i, line)| {
+                let line_num = i + 1;
+                if line_num >= self.start_line_num && line_num <= self.end_line_num {
+                    line.ok()
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let text = lines.join("\n");
+
+        match parser.parse_text(&text, file_type).pop() {
+            Some(todo) => Ok(todo),
+            None => Err(format!(
+                "Cannot load: No TODO found at {}:{}",
+                file_path, self.start_line_num
+            )
+            .into()),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -175,7 +218,7 @@ pub struct Todo {
 impl TryFrom<crate::lang::RawTodo> for Todo {
     type Error = String;
 
-    fn try_from(raw_todo: crate::lang::RawTodo) -> Result<Self, Self::Error> {
+    fn try_from(raw_todo: crate::lang::RawTodo) -> std::result::Result<Self, Self::Error> {
         let (start, end, text) = raw_todo;
         let location = Location::new(None, start, end);
         let info = syntax::TodoInfo::try_from(text.as_str()).map_err(|e| format!("{}", e))?;
@@ -199,7 +242,7 @@ impl Todo {
         }
     }
 
-    pub fn write_id(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn write_id(&self) -> Result<()> {
         let id = match &self.id {
             Some(TodoIdentifier::Primary(id)) => *id,
             Some(TodoIdentifier::Reference(_)) => {
@@ -254,7 +297,7 @@ impl Todo {
         Ok(())
     }
 
-    pub fn remove(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn remove(&self) -> Result<()> {
         let file_path = self
             .location
             .file_path
@@ -280,7 +323,7 @@ impl Todo {
         Ok(())
     }
 
-    pub fn import(&mut self, id: u32) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn import(&mut self, id: u32) -> Result<()> {
         match &self.id {
             Some(TodoIdentifier::Primary(existing)) => {
                 return Err(format!("Todo already has ID #{}", existing).into())
@@ -294,7 +337,7 @@ impl Todo {
         self.write_id()
     }
 
-    pub fn editor_command(&self) -> Result<editor::EditorCommand, Box<dyn std::error::Error>> {
+    pub fn editor_command(&self) -> Result<editor::EditorCommand> {
         let file_path = self
             .location
             .file_path
@@ -390,70 +433,15 @@ impl Todo {
     /// TODO content, and updates this Todo's fields (title, priority, tags, etc.).
     ///
     /// Lifecycle data (creation_date, completion_date) is preserved.
-    pub fn load(&mut self, todo_token: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let file_path = self
-            .location
-            .file_path
-            .as_ref()
-            .ok_or("Cannot load: No file path in location")?;
-
-        let path = Path::new(file_path);
-        let file_type = path
-            .get_filetype_from_name()
-            .ok_or_else(|| format!("Cannot load: Unknown file type for {}", file_path))?;
-
-        let file = File::open(path)
-            .map_err(|e| format!("Cannot load: Failed to open file {}: {}", file_path, e))?;
-        let reader = BufReader::new(file);
-
-        // Extract lines from start to end (1-indexed)
-        let lines: Vec<String> = reader
-            .lines()
-            .enumerate()
-            .filter_map(|(i, line)| {
-                let line_num = i + 1;
-                if line_num >= self.location.start_line_num
-                    && line_num <= self.location.end_line_num
-                {
-                    line.ok()
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        let text = lines.join("\n");
-
-        let parser = parser::TodoParser::new(todo_token);
-        let mut parsed = parser.parse_text(&text, file_type);
-
-        if let Some(loaded) = parsed.pop() {
-            // Preserve lifecycle data
-            let creation_date = self.creation_date;
-            let completion_date = self.completion_date;
-            let location = self.location.clone();
-
-            // Update fields from parsed TODO
-            self.id = loaded.id;
-            self.priority = loaded.priority;
-            self.title = loaded.title;
-            self.description = loaded.description;
-            self.tags = loaded.tags;
-            self.metadata = loaded.metadata;
-
-            // Restore preserved data
-            self.creation_date = creation_date;
-            self.completion_date = completion_date;
-            self.location = location;
-
-            Ok(())
-        } else {
-            Err(format!(
-                "Cannot load: No TODO found at {}:{}",
-                file_path, self.location.start_line_num
-            )
-            .into())
-        }
+    pub fn load(&mut self, parser: &parser::TodoParser) -> Result<()> {
+        let loaded = self.location.load(parser)?;
+        self.id = loaded.id;
+        self.priority = loaded.priority;
+        self.title = loaded.title;
+        self.description = loaded.description;
+        self.tags = loaded.tags;
+        self.metadata = loaded.metadata;
+        Ok(())
     }
 }
 

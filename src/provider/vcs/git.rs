@@ -4,8 +4,8 @@ use super::{
     error::{Error, Result},
     VcsBackend,
 };
-use crate::todo::{parser::TodoParser, Todo, TodoIdentifier, Todos};
 use crate::fs::FileTypeAwarePath;
+use crate::todo::{parser::TodoParser, Location, Todo, TodoIdentifier, Todos};
 use chrono::{DateTime, TimeZone, Utc};
 use git2::{Commit, Oid, Repository};
 use rayon::prelude::*;
@@ -39,17 +39,86 @@ impl From<&Commit<'_>> for CommitMetadata {
     }
 }
 
-/// Location of a TODO in a specific file at a specific commit.
-#[derive(Debug, Clone)]
-pub struct TodoLocation {
-    pub todo_id: u32,
-    pub file_path: String,
-    pub start_line: u32,
-    pub end_line: u32,
-}
 /// SQLite-based persistent cache for TODO history tracking.
 struct Cache {
     conn: Connection,
+}
+
+type CacheRow = (u32, i64, i64, i32, Option<String>, Option<u32>, Option<u32>);
+
+#[derive(Debug, Clone)]
+struct CacheTodo {
+    pub id: TodoIdentifier,
+    pub completion_date: Option<DateTime<Utc>>,
+    pub creation_date: DateTime<Utc>,
+    pub location: Location,
+}
+
+impl CacheTodo {
+    fn new(
+        id: TodoIdentifier,
+        creation_date: DateTime<Utc>,
+        completion_date: Option<DateTime<Utc>>,
+        location: Location,
+    ) -> Self {
+        Self {
+            id,
+            creation_date,
+            completion_date,
+            location,
+        }
+    }
+
+    fn from_cache_row(row: CacheRow, repo_path: &Path) -> Self {
+        let (todo_id, creation_ts, last_seen_ts, exists_in_sha, file_path, start_line, end_line) =
+            row;
+
+        let creation_date = Utc.timestamp_opt(creation_ts, 0).single().unwrap();
+
+        let completion_date = if exists_in_sha == 0 {
+            Utc.timestamp_opt(last_seen_ts, 0).single()
+        } else {
+            None
+        };
+
+        let abs_path = file_path.map(|p| repo_path.join(&p).to_string_lossy().into_owned());
+
+        Self::new(
+            TodoIdentifier::Primary(todo_id),
+            creation_date,
+            completion_date,
+            Location::new(
+                abs_path,
+                start_line.unwrap_or(0) as usize,
+                end_line.unwrap_or(0) as usize,
+            ),
+        )
+    }
+
+    /// Load TODO content from its source file location.
+    ///
+    /// This reads the file at `self.location.file_path`, extracts the lines
+    /// from `start_line_num` to `end_line_num`, parses that text to get the
+    /// TODO content, and updates this Todo's fields (title, priority, tags, etc.).
+    ///
+    /// Lifecycle data (creation_date, completion_date) is preserved.
+    fn load(&mut self, parser: &TodoParser) -> Result<Todo> {
+        let mut loaded = self.location.load(parser)?;
+        loaded.creation_date = Some(self.creation_date.date_naive());
+        loaded.completion_date = self.completion_date.map(|dt| dt.date_naive());
+        Ok(loaded)
+    }
+}
+
+impl Into<Todo> for CacheTodo {
+    fn into(self) -> Todo {
+        let mut todo = Todo::default();
+        todo.id = Some(self.id);
+        todo.creation_date = Some(self.creation_date.date_naive());
+        todo.completion_date = self.completion_date.map(|dt| dt.date_naive());
+        todo.location = self.location;
+        todo
+    }
 }
 
 impl Cache {
@@ -151,53 +220,26 @@ impl Cache {
     }
 
     /// Get lifecycle data for a specific TODO, including location at the given SHA.
-    pub fn get_todo_lifecycle(&self, todo_id: u32, sha: &str, repo_path: &Path) -> Result<Todo> {
-        let row: (Option<i64>, Option<i64>, i32, Option<String>, Option<u32>, Option<u32>) = self
-            .conn
-            .query_row(
-                "SELECT
-                    MIN(c.timestamp) as creation_ts,
-                    MAX(c.timestamp) as last_seen_ts,
-                    MAX(CASE WHEN l.commit_sha = ?2 THEN 1 ELSE 0 END) as exists_in_sha,
-                    MAX(CASE WHEN l.commit_sha = ?2 THEN l.file_path END) as file_path,
-                    MAX(CASE WHEN l.commit_sha = ?2 THEN l.start_line END) as start_line,
-                    MAX(CASE WHEN l.commit_sha = ?2 THEN l.end_line END) as end_line
-                FROM todo_locations l
-                JOIN commits c ON l.commit_sha = c.sha
-                WHERE l.todo_id = ?1",
-                rusqlite::params![todo_id, sha],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
-            )?;
-
-        let (creation_ts, last_seen_ts, exists_in_sha, file_path, start_line, end_line) = row;
-
-        let creation_date = creation_ts.and_then(|ts| Utc.timestamp_opt(ts, 0).single());
-        let completion_date = if exists_in_sha == 0 {
-            last_seen_ts.and_then(|ts| Utc.timestamp_opt(ts, 0).single())
-        } else {
-            None
-        };
-
-        // Make path absolute by joining with repo_path
-        let abs_path = file_path.map(|p| repo_path.join(&p).to_string_lossy().into_owned());
-
-        let mut todo = Todo::default();
-        todo.id = Some(TodoIdentifier::Primary(todo_id));
-        todo.creation_date = creation_date.map(|d| d.date_naive());
-        todo.completion_date = completion_date.map(|d| d.date_naive());
-        todo.location.file_path = abs_path;
-        todo.location.start_line_num = start_line.unwrap_or(0) as usize;
-        todo.location.end_line_num = end_line.unwrap_or(0) as usize;
-        Ok(todo)
+    pub fn get_todo(&self, todo_id: u32, sha: &str, repo_path: &Path) -> Result<CacheTodo> {
+        self.get_todos(&[todo_id], sha, repo_path)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| Error::DataError(format!("TODO with ID {} not found in cache", todo_id)))
     }
 
     /// Get lifecycle data for multiple TODOs, including location at the given SHA.
-    pub fn get_todo_lifecycles(&self, todo_ids: &[u32], sha: &str, repo_path: &Path) -> Result<Vec<Todo>> {
+    pub fn get_todos(
+        &self,
+        todo_ids: &[u32],
+        sha: &str,
+        repo_path: &Path,
+    ) -> Result<Vec<CacheTodo>> {
         if todo_ids.is_empty() {
             return Ok(Vec::new());
         }
 
-        let placeholders: Vec<String> = (0..todo_ids.len()).map(|i| format!("?{}", i + 1)).collect();
+        let placeholders: Vec<String> =
+            (0..todo_ids.len()).map(|i| format!("?{}", i + 1)).collect();
         let sha_param = todo_ids.len() + 1;
         let query = format!(
             "SELECT
@@ -227,8 +269,8 @@ impl Cache {
         let rows = stmt.query_map(params_refs.as_slice(), |row| {
             Ok((
                 row.get::<_, u32>(0)?,
-                row.get::<_, Option<i64>>(1)?,
-                row.get::<_, Option<i64>>(2)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
                 row.get::<_, i32>(3)?,
                 row.get::<_, Option<String>>(4)?,
                 row.get::<_, Option<u32>>(5)?,
@@ -238,31 +280,14 @@ impl Cache {
 
         let mut todos = Vec::new();
         for row in rows {
-            let (todo_id, creation_ts, last_seen_ts, exists_in_sha, file_path, start_line, end_line) = row?;
-            let creation_date = creation_ts.and_then(|ts| Utc.timestamp_opt(ts, 0).single());
-            let completion_date = if exists_in_sha == 0 {
-                last_seen_ts.and_then(|ts| Utc.timestamp_opt(ts, 0).single())
-            } else {
-                None
-            };
-            // Make path absolute by joining with repo_path
-            let abs_path = file_path.map(|p| repo_path.join(&p).to_string_lossy().into_owned());
-
-            let mut todo = Todo::default();
-            todo.id = Some(TodoIdentifier::Primary(todo_id));
-            todo.creation_date = creation_date.map(|d| d.date_naive());
-            todo.completion_date = completion_date.map(|d| d.date_naive());
-            todo.location.file_path = abs_path;
-            todo.location.start_line_num = start_line.unwrap_or(0) as usize;
-            todo.location.end_line_num = end_line.unwrap_or(0) as usize;
-            todos.push(todo);
+            todos.push(CacheTodo::from_cache_row(row?, repo_path));
         }
 
         Ok(todos)
     }
 
     /// Get lifecycle data for all TODOs that have ever existed, including location at the given SHA.
-    pub fn get_all_todo_lifecycles(&self, sha: &str, repo_path: &Path) -> Result<Vec<Todo>> {
+    pub fn get_all_todos(&self, sha: &str, repo_path: &Path) -> Result<Vec<CacheTodo>> {
         let mut stmt = self.conn.prepare(
             "SELECT
                 l.todo_id,
@@ -280,8 +305,8 @@ impl Cache {
         let rows = stmt.query_map([sha], |row| {
             Ok((
                 row.get::<_, u32>(0)?,
-                row.get::<_, Option<i64>>(1)?,
-                row.get::<_, Option<i64>>(2)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
                 row.get::<_, i32>(3)?,
                 row.get::<_, Option<String>>(4)?,
                 row.get::<_, Option<u32>>(5)?,
@@ -291,48 +316,11 @@ impl Cache {
 
         let mut todos = Vec::new();
         for row in rows {
-            let (todo_id, creation_ts, last_seen_ts, exists_in_sha, file_path, start_line, end_line) = row?;
-            let creation_date = creation_ts.and_then(|ts| Utc.timestamp_opt(ts, 0).single());
-            let completion_date = if exists_in_sha == 0 {
-                last_seen_ts.and_then(|ts| Utc.timestamp_opt(ts, 0).single())
-            } else {
-                None
-            };
-            // Make path absolute by joining with repo_path
-            let abs_path = file_path.map(|p| repo_path.join(&p).to_string_lossy().into_owned());
-
-            let mut todo = Todo::default();
-            todo.id = Some(TodoIdentifier::Primary(todo_id));
-            todo.creation_date = creation_date.map(|d| d.date_naive());
-            todo.completion_date = completion_date.map(|d| d.date_naive());
-            todo.location.file_path = abs_path;
-            todo.location.start_line_num = start_line.unwrap_or(0) as usize;
-            todo.location.end_line_num = end_line.unwrap_or(0) as usize;
-            todos.push(todo);
+            todos.push(CacheTodo::from_cache_row(row?, repo_path));
         }
 
         Ok(todos)
     }
-
-    // /// Get all TODO IDs and locations for a specific commit.
-    // pub fn get_todos_at_commit(&self, commit_sha: &str) -> Result<Vec<TodoLocation>> {
-    //     let mut stmt = self.conn.prepare(
-    //         "SELECT todo_id, file_path, start_line, end_line FROM todo_locations WHERE commit_sha = ?1",
-    //     )?;
-    //     let rows = stmt.query_map([commit_sha], |row| {
-    //         Ok(TodoLocation {
-    //             todo_id: row.get(0)?,
-    //             file_path: row.get(1)?,
-    //             start_line: row.get(2)?,
-    //             end_line: row.get(3)?,
-    //         })
-    //     })?;
-    //     let mut locations = Vec::new();
-    //     for loc in rows {
-    //         locations.push(loc?);
-    //     }
-    //     Ok(locations)
-    // }
 
     /// Get all unique TODO IDs that have ever existed in the repository.
     pub fn get_all_todo_ids(&self) -> Result<HashSet<u32>> {
@@ -381,7 +369,7 @@ impl GitBackend {
         })
     }
 
-    pub fn merge_batches(mut old: Todos, mut new: Todos, batch_timestamp: &DateTime<Utc>) -> Todos {
+    fn merge_batches(mut old: Todos, mut new: Todos, batch_timestamp: &DateTime<Utc>) -> Todos {
         // Track which IDs exist in new (for detecting completed todos)
         let other_ids: std::collections::HashSet<u32> = new.ids().collect();
 
@@ -545,22 +533,26 @@ impl GitBackend {
         let head_commit = head.peel_to_commit()?;
         let head_sha = head_commit.id().to_string();
 
-        let lifecycle_todos = self.cache.borrow().get_all_todo_lifecycles(&head_sha, &self.repo_path)?;
+        let lifecycle_todos = self
+            .cache
+            .borrow()
+            .get_all_todos(&head_sha, &self.repo_path)?;
         let mut todos = Todos::from(Vec::new());
 
-        for mut todo in lifecycle_todos {
-            if let Some(TodoIdentifier::Primary(id)) = todo.id {
-                // If the todo has a location (exists in HEAD), load its content
-                if todo.location.file_path.is_some() {
-                    if let Err(e) = todo.load(self.parser.todo_token()) {
-                        eprintln!("Warning: Failed to load TODO #{}: {}", id, e);
-                        todo.title = format!("[Failed to load TODO #{}]", id);
-                    }
-                } else {
-                    // Todo was removed - use placeholder title
-                    todo.title = format!("[Removed TODO #{}]", id);
+        for mut cache_todo in lifecycle_todos {
+            match cache_todo.load(&self.parser) {
+                Ok(todo) => todos.insert(*cache_todo.id, todo),
+                Err(_) => {
+                    let mut todo: Todo = cache_todo.clone().into();
+                    todo.title = format!(
+                        "[Failed to load TODO #{}]",
+                        match cache_todo.id {
+                            TodoIdentifier::Primary(id) => id.to_string(),
+                            _ => "unknown".to_string(),
+                        }
+                    );
+                    todos.insert(*cache_todo.id, todo);
                 }
-                todos.insert(id, todo);
             }
         }
 
@@ -846,43 +838,6 @@ mod tests {
         assert!(parsed.contains("abc123"));
     }
 
-    // #[test]
-    // fn test_todo_cache_insert_commit_with_todos() {
-    //     let (_dir, repo) = create_test_repo();
-    //     let mut cache = Cache::open(&repo).expect("failed to open cache");
-    //
-    //     let meta = CommitMetadata {
-    //         sha: "def456".to_string(),
-    //         timestamp: Utc::now(),
-    //         author_name: "Test".to_string(),
-    //         author_email: "test@test.com".to_string(),
-    //     };
-    //
-    //     let mut todo = Todo::default();
-    //     todo.id = Some(TodoIdentifier::Primary(42));
-    //     todo.location.file_path = Some("test.rs".to_string());
-    //     todo.location.start_line_num = 10;
-    //     todo.location.end_line_num = 12;
-    //
-    //     cache
-    //         .insert_commits(&[(meta, vec![todo])])
-    //         .expect("failed to insert");
-    //
-    //     // Verify todo ID was recorded
-    //     let ids = cache.get_all_todo_ids().expect("failed to query");
-    //     assert!(ids.contains(&42));
-    //
-    //     // Verify location was recorded
-    //     let locations = cache
-    //         .get_todos_at_commit("def456")
-    //         .expect("failed to query");
-    //     assert_eq!(locations.len(), 1);
-    //     assert_eq!(locations[0].todo_id, 42);
-    //     assert_eq!(locations[0].file_path, "test.rs");
-    //     assert_eq!(locations[0].start_line, 10);
-    //     assert_eq!(locations[0].end_line, 12);
-    // }
-
     #[test]
     fn test_todo_cache_lifecycle_active_todo() {
         let (dir, repo) = create_test_repo();
@@ -898,6 +853,8 @@ mod tests {
         let mut todo = Todo::default();
         todo.id = Some(TodoIdentifier::Primary(1));
         todo.location.file_path = Some("test.rs".to_string());
+        todo.location.start_line_num = 10;
+        todo.location.end_line_num = 12;
 
         cache
             .insert_commits(&[(meta, vec![todo])])
@@ -905,11 +862,20 @@ mod tests {
 
         // Query lifecycle - todo exists in "HEAD" (head123)
         let todo = cache
-            .get_todo_lifecycle(1, "head123", dir.path())
+            .get_todo(1, "head123", dir.path())
             .expect("failed to query");
 
-        assert!(todo.creation_date.is_some());
+        assert_eq!(
+            todo.creation_date,
+            Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap()
+        );
         assert!(todo.completion_date.is_none()); // Still active in HEAD
+        assert_eq!(
+            todo.location.file_path,
+            Some(dir.path().join("test.rs").to_string_lossy().into_owned())
+        );
+        assert_eq!(todo.location.start_line_num, 10);
+        assert_eq!(todo.location.end_line_num, 12);
     }
 
     #[test]
@@ -927,7 +893,9 @@ mod tests {
 
         let mut todo = Todo::default();
         todo.id = Some(TodoIdentifier::Primary(1));
-        todo.location.file_path = Some("test.rs".to_string());
+        todo.location.file_path = Some("before.rs".to_string());
+        todo.location.start_line_num = 4;
+        todo.location.end_line_num = 6;
 
         cache
             .insert_commits(&[(meta1, vec![todo])])
@@ -947,13 +915,36 @@ mod tests {
 
         // Query lifecycle - todo NOT in HEAD (head456)
         let todo = cache
-            .get_todo_lifecycle(1, "head456", dir.path())
+            .get_todo(1, "head456", dir.path())
             .expect("failed to query");
 
-        assert!(todo.creation_date.is_some());
+        assert_eq!(
+            todo.creation_date,
+            Utc.with_ymd_and_hms(2024, 1, 10, 12, 0, 0).unwrap()
+        );
         assert!(todo.completion_date.is_some()); // Completed since not in HEAD
-        assert_eq!(todo.creation_date.unwrap().to_string(), "2024-01-10");
-        assert_eq!(todo.completion_date.unwrap().to_string(), "2024-01-10");
+        assert_eq!(
+            todo.completion_date.unwrap(),
+            Utc.with_ymd_and_hms(2024, 1, 10, 12, 0, 0).unwrap()
+        );
+        assert_eq!(todo.location.file_path, None);
+        assert_eq!(todo.location.start_line_num, 0);
+        assert_eq!(todo.location.end_line_num, 0);
+    }
+
+    #[test]
+    fn test_todo_cache_lifecycle_not_found() {
+        let (dir, repo) = create_test_repo();
+        let cache = Cache::open(&repo).expect("failed to open cache");
+
+        let err = cache
+            .get_todo(999, "head123", dir.path())
+            .expect_err("missing todo should return an error");
+
+        assert!(matches!(
+            err,
+            Error::DataError(ref msg) if msg == "TODO with ID 999 not found in cache"
+        ));
     }
 
     #[test]
@@ -970,11 +961,15 @@ mod tests {
 
         let mut todo1 = Todo::default();
         todo1.id = Some(TodoIdentifier::Primary(1));
-        todo1.location.file_path = Some("test.rs".to_string());
+        todo1.location.file_path = Some("src/main.rs".to_string());
+        todo1.location.start_line_num = 10;
+        todo1.location.end_line_num = 12;
 
         let mut todo2 = Todo::default();
         todo2.id = Some(TodoIdentifier::Primary(2));
-        todo2.location.file_path = Some("test.rs".to_string());
+        todo2.location.file_path = Some("src/lib.rs".to_string());
+        todo2.location.start_line_num = 20;
+        todo2.location.end_line_num = 25;
 
         cache
             .insert_commits(&[(meta, vec![todo1, todo2])])
@@ -982,18 +977,50 @@ mod tests {
 
         // Query batch
         let todos = cache
-            .get_todo_lifecycles(&[1, 2], "head123", dir.path())
+            .get_todos(&[1, 2], "head123", dir.path())
             .expect("failed to query");
 
         assert_eq!(todos.len(), 2);
-        for todo in &todos {
-            assert!(todo.creation_date.is_some());
-            assert!(todo.completion_date.is_none());
-        }
+        let todo1 = todos
+            .iter()
+            .find(|todo| todo.id == TodoIdentifier::Primary(1))
+            .expect("todo 1 should be returned");
+        assert_eq!(
+            todo1.creation_date,
+            Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap()
+        );
+        assert!(todo1.completion_date.is_none());
+        assert_eq!(
+            todo1.location.file_path,
+            Some(
+                dir.path()
+                    .join("src/main.rs")
+                    .to_string_lossy()
+                    .into_owned()
+            )
+        );
+        assert_eq!(todo1.location.start_line_num, 10);
+        assert_eq!(todo1.location.end_line_num, 12);
+
+        let todo2 = todos
+            .iter()
+            .find(|todo| todo.id == TodoIdentifier::Primary(2))
+            .expect("todo 2 should be returned");
+        assert_eq!(
+            todo2.creation_date,
+            Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap()
+        );
+        assert!(todo2.completion_date.is_none());
+        assert_eq!(
+            todo2.location.file_path,
+            Some(dir.path().join("src/lib.rs").to_string_lossy().into_owned())
+        );
+        assert_eq!(todo2.location.start_line_num, 20);
+        assert_eq!(todo2.location.end_line_num, 25);
 
         // Empty batch should return empty vec
         let empty = cache
-            .get_todo_lifecycles(&[], "head123", dir.path())
+            .get_todos(&[], "head123", dir.path())
             .expect("failed to query");
         assert!(empty.is_empty());
     }
@@ -1013,11 +1040,15 @@ mod tests {
 
         let mut todo1 = Todo::default();
         todo1.id = Some(TodoIdentifier::Primary(1));
-        todo1.location.file_path = Some("test.rs".to_string());
+        todo1.location.file_path = Some("src/old.rs".to_string());
+        todo1.location.start_line_num = 3;
+        todo1.location.end_line_num = 5;
 
         let mut todo2 = Todo::default();
         todo2.id = Some(TodoIdentifier::Primary(2));
-        todo2.location.file_path = Some("test.rs".to_string());
+        todo2.location.file_path = Some("src/todo.rs".to_string());
+        todo2.location.start_line_num = 8;
+        todo2.location.end_line_num = 9;
 
         cache
             .insert_commits(&[(meta1, vec![todo1, todo2])])
@@ -1033,7 +1064,9 @@ mod tests {
 
         let mut todo2_still = Todo::default();
         todo2_still.id = Some(TodoIdentifier::Primary(2));
-        todo2_still.location.file_path = Some("test.rs".to_string());
+        todo2_still.location.file_path = Some("src/todo.rs".to_string());
+        todo2_still.location.start_line_num = 30;
+        todo2_still.location.end_line_num = 35;
 
         cache
             .insert_commits(&[(meta2, vec![todo2_still])])
@@ -1041,21 +1074,47 @@ mod tests {
 
         // Get all lifecycles relative to head456
         let todos = cache
-            .get_all_todo_lifecycles("head456", dir.path())
+            .get_all_todos("head456", dir.path())
             .expect("failed to query");
 
         assert_eq!(todos.len(), 2);
 
-        let todo1 = todos.iter().find(|t| t.id == Some(TodoIdentifier::Primary(1))).unwrap();
-        let todo2 = todos.iter().find(|t| t.id == Some(TodoIdentifier::Primary(2))).unwrap();
+        let todo1 = todos
+            .iter()
+            .find(|t| t.id == TodoIdentifier::Primary(1))
+            .unwrap();
+        let todo2 = todos
+            .iter()
+            .find(|t| t.id == TodoIdentifier::Primary(2))
+            .unwrap();
 
         // Todo 1 was removed - should have completion_date
-        assert!(todo1.creation_date.is_some());
+        assert_eq!(
+            todo1.creation_date,
+            Utc.with_ymd_and_hms(2024, 1, 10, 12, 0, 0).unwrap()
+        );
         assert!(todo1.completion_date.is_some());
+        assert_eq!(todo1.location.file_path, None);
+        assert_eq!(todo1.location.start_line_num, 0);
+        assert_eq!(todo1.location.end_line_num, 0);
 
         // Todo 2 still exists - no completion_date
-        assert!(todo2.creation_date.is_some());
+        assert_eq!(
+            todo2.creation_date,
+            Utc.with_ymd_and_hms(2024, 1, 10, 12, 0, 0).unwrap()
+        );
         assert!(todo2.completion_date.is_none());
+        assert_eq!(
+            todo2.location.file_path,
+            Some(
+                dir.path()
+                    .join("src/todo.rs")
+                    .to_string_lossy()
+                    .into_owned()
+            )
+        );
+        assert_eq!(todo2.location.start_line_num, 30);
+        assert_eq!(todo2.location.end_line_num, 35);
     }
 
     #[test]
