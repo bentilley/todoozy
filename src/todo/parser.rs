@@ -12,6 +12,10 @@ impl TodoParser {
         }
     }
 
+    pub fn todo_token(&self) -> &str {
+        &self.todo_token
+    }
+
     fn get_parser_for_file_type(&self, file_type: crate::fs::FileType) -> Box<dyn RawParser + '_> {
         use crate::fs::FileType::*;
         use crate::lang::*;

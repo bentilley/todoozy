@@ -10,14 +10,20 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     dbg!(&args);
 
-    let path = if args.len() == 2 {
+    let path = if args.len() >= 2 {
         std::path::PathBuf::from(args[1].clone())
     } else {
         env::current_dir().expect("failed to get current dir")
     };
 
+    let history_start = if args.len() >= 3 {
+        Some(args[2].clone())
+    } else {
+        None
+    };
+
     println!("Creating Git backend for path: {}", path.display());
-    let provider = match GitBackend::new(&path, "TODO") {
+    let provider = match GitBackend::new(&path, "TODO", history_start) {
         Ok(b) => b,
         Err(e) => {
             eprintln!("Error: {}", e);

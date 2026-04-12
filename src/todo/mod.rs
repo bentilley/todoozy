@@ -6,6 +6,9 @@ pub mod syntax;
 
 use std::fs::File;
 use std::io::{self, prelude::*, BufReader, BufWriter};
+use std::path::Path;
+
+use crate::fs::FileTypeAwarePath;
 
 use tempfile::NamedTempFile;
 
@@ -378,6 +381,79 @@ impl Todo {
 
     pub fn has_tag(&self, tag: &str) -> bool {
         self.tags.iter().any(|t| t == tag)
+    }
+
+    /// Load TODO content from its source file location.
+    ///
+    /// This reads the file at `self.location.file_path`, extracts the lines
+    /// from `start_line_num` to `end_line_num`, parses that text to get the
+    /// TODO content, and updates this Todo's fields (title, priority, tags, etc.).
+    ///
+    /// Lifecycle data (creation_date, completion_date) is preserved.
+    pub fn load(&mut self, todo_token: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let file_path = self
+            .location
+            .file_path
+            .as_ref()
+            .ok_or("Cannot load: No file path in location")?;
+
+        let path = Path::new(file_path);
+        let file_type = path
+            .get_filetype_from_name()
+            .ok_or_else(|| format!("Cannot load: Unknown file type for {}", file_path))?;
+
+        let file = File::open(path)
+            .map_err(|e| format!("Cannot load: Failed to open file {}: {}", file_path, e))?;
+        let reader = BufReader::new(file);
+
+        // Extract lines from start to end (1-indexed)
+        let lines: Vec<String> = reader
+            .lines()
+            .enumerate()
+            .filter_map(|(i, line)| {
+                let line_num = i + 1;
+                if line_num >= self.location.start_line_num
+                    && line_num <= self.location.end_line_num
+                {
+                    line.ok()
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let text = lines.join("\n");
+
+        let parser = parser::TodoParser::new(todo_token);
+        let mut parsed = parser.parse_text(&text, file_type);
+
+        if let Some(loaded) = parsed.pop() {
+            // Preserve lifecycle data
+            let creation_date = self.creation_date;
+            let completion_date = self.completion_date;
+            let location = self.location.clone();
+
+            // Update fields from parsed TODO
+            self.id = loaded.id;
+            self.priority = loaded.priority;
+            self.title = loaded.title;
+            self.description = loaded.description;
+            self.tags = loaded.tags;
+            self.metadata = loaded.metadata;
+
+            // Restore preserved data
+            self.creation_date = creation_date;
+            self.completion_date = completion_date;
+            self.location = location;
+
+            Ok(())
+        } else {
+            Err(format!(
+                "Cannot load: No TODO found at {}:{}",
+                file_path, self.location.start_line_num
+            )
+            .into())
+        }
     }
 }
 

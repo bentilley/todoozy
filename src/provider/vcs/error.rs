@@ -14,6 +14,8 @@ pub enum Error {
     CacheError(String),
     /// An error occurred while parsing VCS data.
     ParseError(String),
+    /// An error occurred while constructing data.
+    DataError(String),
 }
 
 impl Error {
@@ -37,6 +39,7 @@ impl std::fmt::Display for Error {
             GitError(msg) => write!(f, "git error: {}", msg),
             CacheError(msg) => write!(f, "cache error: {}", msg),
             ParseError(msg) => write!(f, "parse error: {}", msg),
+            DataError(msg) => write!(f, "data error: {}", msg),
         }
     }
 }
@@ -61,6 +64,12 @@ impl From<std::io::Error> for Error {
     }
 }
 
+impl From<crate::todo::syntax::TodoInfoBuilderError> for Error {
+    fn from(err: crate::todo::syntax::TodoInfoBuilderError) -> Self {
+        Error::DataError(err.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -79,6 +88,10 @@ mod tests {
         assert_eq!(
             format!("{}", Error::ParseError("test".to_string())),
             "parse error: test"
+        );
+        assert_eq!(
+            format!("{}", Error::DataError("test".to_string())),
+            "data error: test"
         );
     }
 

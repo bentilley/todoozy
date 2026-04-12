@@ -4,7 +4,6 @@
 // (creation/completion dates, authors) from git history. The VCS becomes the source
 // of truth for dates rather than in-comment fields.
 
-use std::fmt;
 use std::path::Path;
 
 pub mod error;
@@ -15,34 +14,6 @@ use crate::todo::{Todo, Todos};
 use error::Result;
 
 pub use git::CommitMetadata;
-
-/// A single event in a TODO's lifecycle (creation or removal).
-#[derive(Debug, Clone)]
-pub struct TodoEvent<M> {
-    pub event_type: EventType,
-    pub meta: M,
-    // pub commit_sha: String,
-    // pub timestamp: DateTime<Utc>,
-    // pub author_name: String,
-    // pub author_email: String,
-    pub todo: Todo,
-}
-
-/// The type of TODO event.
-#[derive(Debug, Clone, PartialEq)]
-pub enum EventType {
-    Created,
-    Removed,
-}
-
-impl fmt::Display for EventType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            EventType::Created => write!(f, "created"),
-            EventType::Removed => write!(f, "removed"),
-        }
-    }
-}
 
 /// Trait for VCS backends that can extract TODO lifecycle data.
 ///
@@ -82,8 +53,8 @@ impl<B: VcsBackend> VcsProvider<B> {
 }
 
 impl VcsProvider<git::GitBackend> {
-    pub fn from_repo_path(repo_path: &Path, todo_token: &str) -> Result<Self> {
-        Ok(Self::new(git::GitBackend::new(repo_path, todo_token)?))
+    pub fn from_repo_path(repo_path: &Path, todo_token: &str, history_start: Option<String>) -> Result<Self> {
+        Ok(Self::new(git::GitBackend::new(repo_path, todo_token, history_start)?))
     }
 }
 
@@ -94,16 +65,5 @@ impl<B: VcsBackend> Provider for VcsProvider<B> {
 
     fn get_todo(&self, id: u32) -> super::Result<Option<Todo>> {
         Ok(self.get_todos()?.get(&id).cloned())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_event_type_display() {
-        assert_eq!(format!("{}", EventType::Created), "created");
-        assert_eq!(format!("{}", EventType::Removed), "removed");
     }
 }
