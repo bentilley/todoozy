@@ -12,8 +12,13 @@ pub mod git;
 use super::Provider;
 use crate::todo::{Todo, Todos};
 use error::Result;
+use std::collections::HashSet;
 
 pub use git::CommitMetadata;
+
+enum Version {
+    String(String),
+}
 
 /// Trait for VCS backends that can extract TODO lifecycle data.
 ///
@@ -26,7 +31,19 @@ pub trait VcsBackend: Send {
     /// This is useful for building a complete cache of TODO history.
     fn get_all_todos(&self) -> Result<Todos>;
 
-    fn get_all_historical_ids(&self) -> Result<Vec<u32>> {
+    fn get_todo_for_version(&self, id: u32, version: Version) -> Result<Todo>;
+
+    fn get_todos_for_version(&self, id: &[u32], version: Version) -> Result<Todos>;
+
+    fn get_all_todos_for_version(&self, version: Version) -> Result<Todos>;
+
+    fn get_all_ids(&self) -> Result<HashSet<u32>>;
+
+    fn get_ids_for_version(&self, version: Version) -> Result<HashSet<u32>>;
+
+    fn get_most_recent_version(&self) -> Result<Version>;
+
+    fn get_all_historical_ids(&self) -> Result<HashSet<u32>> {
         Ok(self
             .get_all_todos()?
             .iter()
@@ -38,7 +55,11 @@ pub trait VcsBackend: Send {
     }
 
     fn get_max_historical_id(&self) -> Result<u32> {
-        Ok(self.get_all_historical_ids()?.into_iter().max().unwrap_or(0))
+        Ok(self
+            .get_all_historical_ids()?
+            .into_iter()
+            .max()
+            .unwrap_or(0))
     }
 }
 
@@ -53,8 +74,16 @@ impl<B: VcsBackend> VcsProvider<B> {
 }
 
 impl VcsProvider<git::GitBackend> {
-    pub fn from_repo_path(repo_path: &Path, todo_token: &str, history_start: Option<String>) -> Result<Self> {
-        Ok(Self::new(git::GitBackend::new(repo_path, todo_token, history_start)?))
+    pub fn from_repo_path(
+        repo_path: &Path,
+        todo_token: &str,
+        history_start: Option<String>,
+    ) -> Result<Self> {
+        Ok(Self::new(git::GitBackend::new(
+            repo_path,
+            todo_token,
+            history_start,
+        )?))
     }
 }
 

@@ -16,6 +16,7 @@ pub enum Error {
     ParseError(String),
     /// An error occurred while constructing data.
     DataError(String),
+    VersionError(String),
 }
 
 impl Error {
@@ -46,6 +47,7 @@ impl std::fmt::Display for Error {
             CacheError(msg) => write!(f, "cache error: {}", msg),
             ParseError(msg) => write!(f, "parse error: {}", msg),
             DataError(msg) => write!(f, "data error: {}", msg),
+            VersionError(msg) => write!(f, "version error: {}", msg),
         }
     }
 }
