@@ -92,9 +92,9 @@ impl CacheTodo {
 
     /// Load TODO content from its source file location.
     ///
-    /// This reads the file at `self.location.file_path`, extracts the lines
-    /// from `start_line_num` to `end_line_num`, parses that text to get the
-    /// TODO content, and updates this Todo's fields (title, priority, tags, etc.).
+    /// This reads the file at `self.location.file_path`, extracts the lines from `start_line_num`
+    /// to `end_line_num`, parses that text to get the TODO content, and updates this Todo's fields
+    /// (title, priority, tags, etc.).
     ///
     /// Lifecycle data (creation_date, completion_date) is preserved.
     fn load(&self, parser: &TodoParser) -> Result<Todo> {
@@ -538,8 +538,8 @@ impl GitBackend {
     /// Build the final Todos collection using lifecycle data from the cache.
     fn get_all_todos_for_oid(&self, oid: Oid) -> Result<Todos> {
         let sha = oid.to_string();
-        let lifecycle_todos = self.cache.borrow().get_all_todos(&sha)?;
-        self.load_cache_todos(&lifecycle_todos)
+        let cache_todos = self.cache.borrow().get_all_todos(&sha)?;
+        self.load_cache_todos(&cache_todos)
     }
 }
 
@@ -571,6 +571,22 @@ impl VcsBackend for GitBackend {
         self.cache_todo_history()?;
         let oid = self.repo.revparse_single(&version)?.id();
         self.get_all_todos_for_oid(oid)
+    }
+
+    fn hydrate_todos(&self, todos: &mut [&mut Todo]) -> Result<()> {
+        todos.iter_mut().try_for_each(|todo| match todo.id {
+            Some(TodoIdentifier::Primary(id)) => {
+                let oid = self.repo.head()?.peel_to_commit()?.id();
+                let cache_todo = self.cache.borrow().get_todo(id, &oid.to_string())?;
+                todo.location = cache_todo.location.clone();
+                todo.creation_date = Some(cache_todo.creation_date.date_naive());
+                todo.completion_date = cache_todo.completion_date.map(|dt| dt.date_naive());
+                Ok(())
+            }
+            _ => Err(Error::DataError(
+                "cannot hydrate TODO without a primary ID".to_string(),
+            )),
+        })
     }
 
     fn get_all_ids(&self) -> Result<HashSet<u32>> {
@@ -702,7 +718,7 @@ mod tests {
         );
 
         let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos = backend.cache_todo_history().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         assert_eq!(todos.len(), 1);
         let todo = todos.get(&1).expect("TODO #1 should exist");
@@ -726,7 +742,7 @@ mod tests {
         commit_file(dir.path(), "main.rs", "fn main() {}", "Remove TODO");
 
         let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos = backend.cache_todo_history().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         // The todo should still exist but with a completion_date set
         assert_eq!(todos.len(), 1);
@@ -747,7 +763,7 @@ mod tests {
         );
 
         let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos = backend.cache_todo_history().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         assert_eq!(todos.len(), 2);
         let ids: Vec<_> = todos.ids().collect();
@@ -767,7 +783,7 @@ mod tests {
         );
 
         let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos = backend.cache_todo_history().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         // Should only find the primary TODO, not the reference
         assert_eq!(todos.len(), 1);
@@ -787,7 +803,7 @@ mod tests {
         );
 
         let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos = backend.cache_todo_history().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         assert_eq!(todos.len(), 1);
         let todo = todos.get(&42).expect("TODO #42 should exist");
@@ -824,7 +840,7 @@ mod tests {
 
         let backend = GitBackend::new(dir.path(), "TODO", Some("tdz_history_start".to_string()))
             .expect("failed to create backend");
-        let todos = backend.cache_todo_history().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         assert!(
             todos.get(&1).is_none(),
@@ -860,7 +876,7 @@ mod tests {
 
         let backend = GitBackend::new(dir.path(), "TODO", Some("does-not-exist".to_string()))
             .expect("failed to create backend");
-        let todos = backend.cache_todo_history().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         assert_eq!(todos.len(), 2);
         assert!(
@@ -925,7 +941,7 @@ mod tests {
         );
 
         let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos = backend.cache_todo_history().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         assert_eq!(todos.len(), 1);
         let todo = todos.get(&7).expect("TODO #7 should exist");
@@ -956,7 +972,7 @@ mod tests {
         commit_file(dir.path(), "main.rs", "fn main() {}", "Remove TODO");
 
         let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos = backend.cache_todo_history().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         let todo = todos
             .get(&22)
@@ -1272,7 +1288,7 @@ mod tests {
 
         // First run - should cache the commit
         let backend1 = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos1 = backend1.cache_todo_history().expect("failed to scan");
+        let todos1 = backend1.get_all_todos().expect("failed to scan");
         assert_eq!(todos1.len(), 1);
 
         // Get cached commits count
@@ -1293,7 +1309,7 @@ mod tests {
 
         // Second run - should only cache new commit
         let backend2 = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos2 = backend2.cache_todo_history().expect("failed to scan");
+        let todos2 = backend2.get_all_todos().expect("failed to scan");
         assert_eq!(todos2.len(), 2);
 
         let parsed2 = backend2
@@ -1319,7 +1335,7 @@ mod tests {
         );
 
         let backend1 = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos1 = backend1.cache_todo_history().expect("failed to scan");
+        let todos1 = backend1.get_all_todos().expect("failed to scan");
         let parsed1 = backend1
             .cache
             .borrow()
@@ -1327,7 +1343,7 @@ mod tests {
             .expect("failed to query");
 
         let backend2 = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos2 = backend2.cache_todo_history().expect("failed to scan");
+        let todos2 = backend2.get_all_todos().expect("failed to scan");
         let parsed2 = backend2
             .cache
             .borrow()

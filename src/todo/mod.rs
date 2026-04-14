@@ -428,9 +428,9 @@ impl Todo {
 
     /// Load TODO content from its source file location.
     ///
-    /// This reads the file at `self.location.file_path`, extracts the lines
-    /// from `start_line_num` to `end_line_num`, parses that text to get the
-    /// TODO content, and updates this Todo's fields (title, priority, tags, etc.).
+    /// This reads the file at `self.location.file_path`, extracts the lines from `start_line_num`
+    /// to `end_line_num`, parses that text to get the TODO content, and updates this Todo's fields
+    /// (title, priority, tags, etc.).
     ///
     /// Lifecycle data (creation_date, completion_date) is preserved.
     pub fn load(&mut self, parser: &parser::TodoParser) -> Result<()> {

@@ -33,30 +33,21 @@ pub trait VcsBackend: Send {
 
     fn get_all_todos_for_version(&self, version: String) -> Result<Todos>;
 
+    fn hydrate_todo(&self, todo: &mut Todo) -> Result<()> {
+        self.hydrate_todos(&mut [todo])
+    }
+
+    fn hydrate_todos(&self, todos: &mut [&mut Todo]) -> Result<()>;
+
     fn get_all_ids(&self) -> Result<HashSet<u32>>;
 
     fn get_ids_for_version(&self, version: String) -> Result<HashSet<u32>>;
 
+    fn get_max_id(&self) -> Result<u32> {
+        Ok(self.get_all_ids()?.into_iter().max().unwrap_or(0))
+    }
+
     fn get_most_recent_version(&self) -> Result<String>;
-
-    fn get_all_historical_ids(&self) -> Result<HashSet<u32>> {
-        Ok(self
-            .get_all_todos()?
-            .iter()
-            .filter_map(|todo| match todo.id {
-                Some(crate::todo::TodoIdentifier::Primary(id)) => Some(id),
-                _ => None,
-            })
-            .collect())
-    }
-
-    fn get_max_historical_id(&self) -> Result<u32> {
-        Ok(self
-            .get_all_historical_ids()?
-            .into_iter()
-            .max()
-            .unwrap_or(0))
-    }
 }
 
 pub struct VcsProvider<B: VcsBackend> {
