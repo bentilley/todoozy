@@ -435,6 +435,12 @@ impl Cache {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Status {
+    Added,
+    Removed,
+}
+
 /// Git-based VCS backend for extracting TODO lifecycle data.
 pub struct GitBackend {
     repo: Repository,
@@ -644,6 +650,136 @@ impl GitBackend {
         let cache_todos = self.cache.borrow().get_all_todos(&sha)?;
         self.load_cache_todos(&cache_todos)
     }
+
+    fn revparse_todos(&self) -> Result<Todos> {
+        let mut revwalk = self.repo.revwalk()?;
+
+        revwalk.push_head().map_err(|e| {
+            if e.code() == git2::ErrorCode::UnbornBranch {
+                return Error::GitError("repository has no commits".to_string());
+            }
+            Error::from(e)
+        })?;
+
+        if let Some(history_start_commit) = self.get_history_start_commit()? {
+            println!(
+                "Using history start commit `{}` ({}), timestamp {:?}",
+                self.history_start.as_ref().unwrap(),
+                history_start_commit.id(),
+                history_start_commit.time()
+            );
+            for parent in history_start_commit.parents() {
+                revwalk.hide(parent.id())?;
+            }
+        }
+
+        revwalk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME | git2::Sort::REVERSE)?;
+
+        let mut todos: Vec<Todo> = Vec::new();
+
+        use std::collections::HashMap;
+        for oid_result in revwalk {
+            let mut valid_todos: Vec<Todo> = Vec::new();
+            let mut line_changes: HashMap<u32, Status> = HashMap::new();
+
+            let oid = oid_result?;
+            let commit = self.repo.find_commit(oid)?;
+            for parent in commit.parents() {
+                let diff = self.repo.diff_tree_to_tree(
+                    Some(&parent.tree()?),
+                    Some(&commit.tree()?),
+                    None,
+                )?;
+                diff.foreach(
+                    &mut |file: git2::DiffDelta<'_>, _| {
+                        use git2::Delta::*;
+                        let diff_file = match match file.status() {
+                            Added | Modified => Some(file.new_file()),
+                            Deleted => Some(file.old_file()),
+                            _ => None,
+                        } {
+                            Some(path) => path,
+                            None => return true,
+                        };
+                        let file_path = match diff_file.path() {
+                            Some(path) => path,
+                            None => return true,
+                        };
+                        let file_type = match file_path.get_filetype_from_name() {
+                            Some(ft) => ft,
+                            None => return true, // skip files with unknown type
+                        };
+                        let oid = diff_file.id();
+                        let blob = match self.repo.find_blob(oid) {
+                            Ok(blob) => blob,
+                            Err(_) => return true, // skip if blob can't be read
+                        };
+                        let res = self.parser.parse_bytes(blob.content(), file_type);
+                        valid_todos.extend(res);
+                        true
+                    },
+                    None,
+                    None,
+                    Some(&mut |file: git2::DiffDelta<'_>, _, line: git2::DiffLine| {
+                        let file_name = match match line.origin() {
+                            '+' => file.new_file().path(),
+                            '-' => file.old_file().path(),
+                            _ => None,
+                        } {
+                            Some(path) => path,
+                            None => return true,
+                        };
+                        let file_type = match file_name.get_filetype_from_name() {
+                            Some(ft) => ft,
+                            None => return true, // skip files with unknown type
+                        };
+                        let res = self.parser.parse_bytes(line.content(), file_type);
+                        let status = match line.origin() {
+                            '+' => Status::Added,
+                            '-' => Status::Removed,
+                            _ => return true,
+                        };
+                        let id = match res.iter().next() {
+                            Some(todo) => match todo.id {
+                                Some(TodoIdentifier::Primary(id)) => id,
+                                _ => return true, // skip if no primary ID
+                            },
+                            None => return true, // skip if no TODO parsed
+                        };
+                        line_changes.insert(id, status);
+                        true
+                    }),
+                )?
+            }
+
+            let valid_todos: Todos = valid_todos.into();
+
+            for (id, status) in line_changes {
+                match status {
+                    Status::Added => {
+                        if let Some(todo) = valid_todos.get(&id) {
+                            todos.push(todo.clone());
+                        }
+                    }
+                    Status::Removed => {
+                        for todo in todos.iter_mut() {
+                            if let Some(TodoIdentifier::Primary(todo_id)) = todo.id {
+                                let timestamp = Utc
+                                    .timestamp_opt(commit.time().seconds(), 0)
+                                    .single()
+                                    .unwrap_or_else(Utc::now);
+                                if todo_id == id {
+                                    todo.completion_date = Some(timestamp.date_naive());
+                                }
+                            }
+                        }
+                    }
+                };
+            }
+        }
+
+        Ok(todos.into())
+    }
 }
 
 impl VcsBackend for GitBackend {
@@ -654,8 +790,9 @@ impl VcsBackend for GitBackend {
     }
 
     fn get_all_todos(&self) -> Result<Todos> {
-        self.cache_todo_history()?;
-        self.get_all_todos_for_oid(self.repo.head()?.peel_to_commit()?.id())
+        self.revparse_todos()
+        // self.cache_todo_history()?;
+        // self.get_all_todos_for_oid(self.repo.head()?.peel_to_commit()?.id())
     }
 
     fn get_todo_for_version(&self, id: u32, version: String) -> Result<Todo> {
@@ -1486,6 +1623,263 @@ mod tests {
         assert!(
             expected_path.exists(),
             "cache.db should be created at .git/todoozy/cache.db"
+        );
+    }
+
+    // ====== revparse_todos tests ======
+
+    #[test]
+    fn test_revparse_detects_todo_in_initial_commit() {
+        let (dir, _repo) = create_test_repo();
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 First todo ever\nfn main() {}",
+            "Initial commit with TODO",
+        );
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        let todos = backend.revparse_todos().expect("failed to scan");
+
+        assert_eq!(todos.len(), 1, "should detect TODO in initial commit");
+        let todo = todos.get(&1).expect("TODO #1 should exist");
+        assert_eq!(todo.title, "First todo ever");
+    }
+
+    #[test]
+    fn test_revparse_detects_todo_added_in_subsequent_commit() {
+        let (dir, _repo) = create_test_repo();
+
+        commit_file(dir.path(), "main.rs", "fn main() {}", "Initial commit");
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 Added later\nfn main() {}",
+            "Add TODO",
+        );
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        let todos = backend.revparse_todos().expect("failed to scan");
+
+        assert_eq!(todos.len(), 1);
+        let todo = todos.get(&1).expect("TODO #1 should exist");
+        assert_eq!(todo.title, "Added later");
+        assert!(todo.creation_date.is_some());
+    }
+
+    #[test]
+    fn test_revparse_detects_todo_removal() {
+        let (dir, _repo) = create_test_repo();
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 Will be removed\nfn main() {}",
+            "Add TODO",
+        );
+
+        commit_file(dir.path(), "main.rs", "fn main() {}", "Remove TODO");
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        let todos = backend.revparse_todos().expect("failed to scan");
+
+        assert_eq!(todos.len(), 1);
+        let todo = todos.get(&1).expect("TODO #1 should exist");
+        assert!(
+            todo.completion_date.is_some(),
+            "removed TODO should have completion_date"
+        );
+    }
+
+    #[test]
+    fn test_revparse_modified_todo_not_duplicated() {
+        let (dir, _repo) = create_test_repo();
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 Original title\nfn main() {}",
+            "Add TODO",
+        );
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 (A) Modified title +urgent\nfn main() {}",
+            "Modify TODO",
+        );
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        let todos = backend.revparse_todos().expect("failed to scan");
+
+        // Should NOT have duplicate entries
+        assert_eq!(
+            todos.len(),
+            1,
+            "modified TODO should not create duplicates"
+        );
+        let todo = todos.get(&1).expect("TODO #1 should exist");
+        // The latest version should be used
+        assert_eq!(todo.title, "Modified title");
+        assert!(todo.completion_date.is_none(), "should still be open");
+    }
+
+    #[test]
+    fn test_revparse_sets_file_path_on_todo() {
+        let (dir, _repo) = create_test_repo();
+
+        commit_file(
+            dir.path(),
+            "src/lib.rs",
+            "// TODO #1 Has location\nfn foo() {}",
+            "Add TODO",
+        );
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        let todos = backend.revparse_todos().expect("failed to scan");
+
+        let todo = todos.get(&1).expect("TODO #1 should exist");
+        assert!(
+            todo.location.file_path.is_some(),
+            "TODO should have file_path set"
+        );
+        assert!(
+            Path::new(todo.location.file_path.as_deref().unwrap()).ends_with("src/lib.rs"),
+            "file_path should end with src/lib.rs"
+        );
+    }
+
+    #[test]
+    fn test_revparse_multiple_todos_in_single_commit() {
+        let (dir, _repo) = create_test_repo();
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 First\n// TODO #2 Second\n// TODO #3 Third\nfn main() {}",
+            "Add multiple TODOs",
+        );
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        let todos = backend.revparse_todos().expect("failed to scan");
+
+        assert_eq!(todos.len(), 3);
+        assert!(todos.get(&1).is_some());
+        assert!(todos.get(&2).is_some());
+        assert!(todos.get(&3).is_some());
+    }
+
+    #[test]
+    fn test_revparse_todo_in_deleted_file() {
+        let (dir, _repo) = create_test_repo();
+
+        commit_file(
+            dir.path(),
+            "temp.rs",
+            "// TODO #1 In temp file\nfn temp() {}",
+            "Add temp file with TODO",
+        );
+
+        // Delete the file
+        std::fs::remove_file(dir.path().join("temp.rs")).expect("failed to remove file");
+        Command::new("git")
+            .args(["add", "temp.rs"])
+            .current_dir(dir.path())
+            .output()
+            .expect("failed to stage deletion");
+        Command::new("git")
+            .args(["commit", "-m", "Delete temp file"])
+            .current_dir(dir.path())
+            .output()
+            .expect("failed to commit deletion");
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        let todos = backend.revparse_todos().expect("failed to scan");
+
+        assert_eq!(todos.len(), 1);
+        let todo = todos.get(&1).expect("TODO #1 should exist");
+        assert!(
+            todo.completion_date.is_some(),
+            "TODO in deleted file should be marked complete"
+        );
+    }
+
+    #[test]
+    fn test_revparse_todo_moved_between_files() {
+        let (dir, _repo) = create_test_repo();
+
+        commit_file(
+            dir.path(),
+            "old.rs",
+            "// TODO #1 Moving todo\nfn old() {}",
+            "Add TODO in old.rs",
+        );
+
+        commit_files(
+            dir.path(),
+            &[
+                ("old.rs", "fn old() {}"),
+                ("new.rs", "// TODO #1 Moving todo\nfn new() {}"),
+            ],
+            "Move TODO to new.rs",
+        );
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        let todos = backend.revparse_todos().expect("failed to scan");
+
+        // Moving a TODO (same ID) should result in a single TODO, not a completion + new
+        assert_eq!(todos.len(), 1, "moved TODO should not be duplicated");
+        let todo = todos.get(&1).expect("TODO #1 should exist");
+        assert!(
+            todo.completion_date.is_none(),
+            "moved TODO should not be marked complete"
+        );
+    }
+
+    #[test]
+    fn test_revparse_respects_history_start() {
+        let (dir, _repo) = create_test_repo();
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 Before history start\nfn main() {}",
+            "Pre-adoption commit",
+        );
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #2 At history start\nfn main() {}",
+            "History start commit",
+        );
+        tag_head(dir.path(), "history_start");
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #2 At history start\n// TODO #3 After history start\nfn main() {}",
+            "Post-adoption commit",
+        );
+
+        let backend =
+            GitBackend::new(dir.path(), "TODO", Some("history_start".to_string()))
+                .expect("failed to create backend");
+        let todos = backend.revparse_todos().expect("failed to scan");
+
+        assert!(
+            todos.get(&1).is_none(),
+            "TODO from before history_start should be excluded"
+        );
+        assert!(
+            todos.get(&2).is_some(),
+            "TODO from history_start commit should be included"
+        );
+        assert!(
+            todos.get(&3).is_some(),
+            "TODO after history_start should be included"
         );
     }
 }
