@@ -39,24 +39,36 @@ impl From<&Commit<'_>> for CommitMetadata {
     }
 }
 
-type CacheRow = (u32, i64, i64, i32, Option<String>, Option<u32>, Option<u32>);
+type CacheRow = (
+    u32,    // todo_id
+    i64,    // creation_ts
+    i64,    // last_seen_ts
+    String, // last_seen_sha (always populated)
+    String, // file_path (always populated)
+    u32,    // start_line
+    u32,    // end_line
+    i32,    // exists_in_sha (1=open, 0=completed)
+);
 
 #[derive(Debug, Clone)]
 struct CacheTodo {
-    pub id: TodoIdentifier,
-    pub completion_date: Option<DateTime<Utc>>,
-    pub creation_date: DateTime<Utc>,
-    pub location: Location,
+    commit_sha: String,
+    id: TodoIdentifier,
+    completion_date: Option<DateTime<Utc>>,
+    creation_date: DateTime<Utc>,
+    location: Location,
 }
 
 impl CacheTodo {
     fn new(
+        commit_sha: String,
         id: TodoIdentifier,
         creation_date: DateTime<Utc>,
         completion_date: Option<DateTime<Utc>>,
         location: Location,
     ) -> Self {
         Self {
+            commit_sha,
             id,
             creation_date,
             completion_date,
@@ -65,8 +77,16 @@ impl CacheTodo {
     }
 
     fn from_cache_row(row: CacheRow, repo_path: &Path) -> Self {
-        let (todo_id, creation_ts, last_seen_ts, exists_in_sha, file_path, start_line, end_line) =
-            row;
+        let (
+            todo_id,
+            creation_ts,
+            last_seen_ts,
+            last_seen_sha,
+            file_path,
+            start_line,
+            end_line,
+            exists_in_sha,
+        ) = row;
 
         let creation_date = Utc.timestamp_opt(creation_ts, 0).single().unwrap();
 
@@ -76,17 +96,14 @@ impl CacheTodo {
             None
         };
 
-        let abs_path = file_path.map(|p| repo_path.join(&p).to_string_lossy().into_owned());
+        let abs_path = repo_path.join(&file_path).to_string_lossy().into_owned();
 
         Self::new(
+            last_seen_sha,
             TodoIdentifier::Primary(todo_id),
             creation_date,
             completion_date,
-            Location::new(
-                abs_path,
-                start_line.unwrap_or(0) as usize,
-                end_line.unwrap_or(0) as usize,
-            ),
+            Location::new(Some(abs_path), start_line as usize, end_line as usize),
         )
     }
 
@@ -97,8 +114,61 @@ impl CacheTodo {
     /// (title, priority, tags, etc.).
     ///
     /// Lifecycle data (creation_date, completion_date) is preserved.
-    fn load(&self, parser: &TodoParser) -> Result<Todo> {
-        let mut loaded = self.location.load(parser)?;
+    fn load(&self, parser: &TodoParser, repo: &Repository) -> Result<Todo> {
+        let commit = repo.find_commit(Oid::from_str(&self.commit_sha)?)?;
+        let tree = commit.tree()?;
+        let file_path = self
+            .location
+            .file_path
+            .as_ref()
+            .ok_or_else(|| Error::DataError("cache entry missing file path".to_string()))?;
+        let file_type = Path::new(file_path)
+            .get_filetype_from_name()
+            .ok_or_else(|| {
+                Error::DataError(format!("Cannot load: Unknown file type for {}", file_path))
+            })?;
+        let entry = tree.get_path(Path::new(
+            file_path
+                .strip_prefix(
+                    repo.workdir()
+                        .unwrap_or_else(|| repo.path())
+                        .to_str()
+                        .ok_or_else(|| {
+                            Error::DataError("invalid UTF-8 in file path".to_string())
+                        })?,
+                )
+                .unwrap_or(file_path.as_ref()),
+        ))?;
+        let blob = repo.find_blob(entry.id())?;
+        let content = blob.content();
+        let lines: Vec<String> = content
+            .split(|&b| b == b'\n')
+            .enumerate()
+            .filter_map(|(i, line)| {
+                let line_num = i + 1;
+                if line_num >= self.location.start_line_num
+                    && line_num <= self.location.end_line_num
+                {
+                    String::from_utf8(line.to_owned()).ok()
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let text = lines.join("\n");
+
+        // let mut loaded = self.location.load(parser)?;
+
+        let mut loaded = match parser.parse_text(&text, file_type).pop() {
+            Some(todo) => todo,
+            None => {
+                return Err(Error::GitError(format!(
+                    "Cannot load: No TODO found at {}:{}",
+                    file_path, self.location.start_line_num
+                )))
+            }
+        };
+
         loaded.creation_date = Some(self.creation_date.date_naive());
         loaded.completion_date = self.completion_date.map(|dt| dt.date_naive());
         loaded.location = self.location.clone();
@@ -239,19 +309,34 @@ impl Cache {
         let placeholders: Vec<String> =
             (0..todo_ids.len()).map(|i| format!("?{}", i + 1)).collect();
         let sha_param = todo_ids.len() + 1;
+
         let query = format!(
-            "SELECT
-                l.todo_id,
-                MIN(c.timestamp) as creation_ts,
-                MAX(c.timestamp) as last_seen_ts,
-                MAX(CASE WHEN l.commit_sha = ?{sha_param} THEN 1 ELSE 0 END) as exists_in_sha,
-                MAX(CASE WHEN l.commit_sha = ?{sha_param} THEN l.file_path END) as file_path,
-                MAX(CASE WHEN l.commit_sha = ?{sha_param} THEN l.start_line END) as start_line,
-                MAX(CASE WHEN l.commit_sha = ?{sha_param} THEN l.end_line END) as end_line
-            FROM todo_locations l
-            JOIN commits c ON l.commit_sha = c.sha
-            WHERE l.todo_id IN ({})
-            GROUP BY l.todo_id",
+            "WITH filtered AS (
+                SELECT
+                    l.todo_id,
+                    l.commit_sha,
+                    l.file_path,
+                    l.start_line,
+                    l.end_line,
+                    c.timestamp,
+                    ROW_NUMBER() OVER (PARTITION BY l.todo_id ORDER BY c.timestamp DESC, l.commit_sha DESC) as rn,
+                    MIN(c.timestamp) OVER (PARTITION BY l.todo_id) as creation_ts
+                FROM todo_locations l
+                JOIN commits c ON l.commit_sha = c.sha
+                WHERE c.timestamp <= (SELECT timestamp FROM commits WHERE sha = ?{sha_param})
+                AND l.todo_id IN ({})
+            )
+            SELECT
+                todo_id,
+                creation_ts,
+                timestamp as last_seen_ts,
+                commit_sha as last_seen_sha,
+                file_path,
+                start_line,
+                end_line,
+                CASE WHEN commit_sha = ?{sha_param} THEN 1 ELSE 0 END as exists_in_sha
+            FROM filtered
+            WHERE rn = 1",
             placeholders.join(", ")
         );
 
@@ -269,10 +354,11 @@ impl Cache {
                 row.get::<_, u32>(0)?,
                 row.get::<_, i64>(1)?,
                 row.get::<_, i64>(2)?,
-                row.get::<_, i32>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, Option<u32>>(5)?,
-                row.get::<_, Option<u32>>(6)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, u32>(5)?,
+                row.get::<_, u32>(6)?,
+                row.get::<_, i32>(7)?,
             ))
         })?;
 
@@ -287,28 +373,43 @@ impl Cache {
     /// Get cache data for all TODOs that existed at a given SHA.
     pub fn get_all_todos(&self, sha: &str) -> Result<Vec<CacheTodo>> {
         let mut stmt = self.conn.prepare(
-            "SELECT
-                l.todo_id,
-                MIN(c.timestamp) as creation_ts,
-                MAX(c.timestamp) as last_seen_ts,
-                MAX(CASE WHEN l.commit_sha = ?1 THEN 1 ELSE 0 END) as exists_in_sha,
-                MAX(CASE WHEN l.commit_sha = ?1 THEN l.file_path END) as file_path,
-                MAX(CASE WHEN l.commit_sha = ?1 THEN l.start_line END) as start_line,
-                MAX(CASE WHEN l.commit_sha = ?1 THEN l.end_line END) as end_line
-            FROM todo_locations l
-            JOIN commits c ON l.commit_sha = c.sha
-            GROUP BY l.todo_id",
+            "WITH filtered AS (
+                SELECT
+                    l.todo_id,
+                    l.commit_sha,
+                    l.file_path,
+                    l.start_line,
+                    l.end_line,
+                    c.timestamp,
+                    ROW_NUMBER() OVER (PARTITION BY l.todo_id ORDER BY c.timestamp DESC, l.commit_sha DESC) as rn,
+                    MIN(c.timestamp) OVER (PARTITION BY l.todo_id) as creation_ts
+                FROM todo_locations l
+                JOIN commits c ON l.commit_sha = c.sha
+                WHERE c.timestamp <= (SELECT timestamp FROM commits WHERE sha = ?1)
+            )
+            SELECT
+                todo_id,
+                creation_ts,
+                timestamp as last_seen_ts,
+                commit_sha as last_seen_sha,
+                file_path,
+                start_line,
+                end_line,
+                CASE WHEN commit_sha = ?1 THEN 1 ELSE 0 END as exists_in_sha
+            FROM filtered
+            WHERE rn = 1",
         )?;
 
-        let rows = stmt.query_map([sha], |row| {
+        let rows = stmt.query_map(rusqlite::params![sha], |row| {
             Ok((
                 row.get::<_, u32>(0)?,
                 row.get::<_, i64>(1)?,
                 row.get::<_, i64>(2)?,
-                row.get::<_, i32>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, Option<u32>>(5)?,
-                row.get::<_, Option<u32>>(6)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, u32>(5)?,
+                row.get::<_, u32>(6)?,
+                row.get::<_, i32>(7)?,
             ))
         })?;
 
@@ -503,20 +604,22 @@ impl GitBackend {
     fn load_cache_todos(&self, cache_todos: &[CacheTodo]) -> Result<Todos> {
         Ok(cache_todos
             .iter()
-            .map(|cache_todo| match cache_todo.load(&self.parser) {
-                Ok(todo) => todo,
-                Err(_) => {
-                    let mut todo: Todo = cache_todo.clone().into();
-                    todo.title = format!(
-                        "[Failed to load TODO #{}]",
-                        match todo.id {
-                            Some(TodoIdentifier::Primary(id)) => id.to_string(),
-                            _ => "unknown".to_string(),
-                        }
-                    );
-                    todo
-                }
-            })
+            .map(
+                |cache_todo| match cache_todo.load(&self.parser, &self.repo) {
+                    Ok(todo) => todo,
+                    Err(_) => {
+                        let mut todo: Todo = cache_todo.clone().into();
+                        todo.title = format!(
+                            "[Failed to load TODO #{}]",
+                            match todo.id {
+                                Some(TodoIdentifier::Primary(id)) => id.to_string(),
+                                _ => "unknown".to_string(),
+                            }
+                        );
+                        todo
+                    }
+                },
+            )
             .collect::<Vec<Todo>>()
             .into())
     }
@@ -959,7 +1062,7 @@ mod tests {
     }
 
     #[test]
-    fn test_git_backend_falls_back_when_removed_todo_cannot_be_loaded() {
+    fn test_git_backend_loads_removed_todo_from_last_seen_location() {
         let (dir, _repo) = create_test_repo();
 
         commit_file(
@@ -977,11 +1080,12 @@ mod tests {
         let todo = todos
             .get(&22)
             .expect("removed TODO should still be returned");
-        assert_eq!(todo.title, "[Failed to load TODO #22]");
+        // Removed TODOs now load successfully from their last seen location
+        assert_eq!(todo.title, "Removed task");
         assert_eq!(todo.id, Some(TodoIdentifier::Primary(22)));
         assert!(todo.creation_date.is_some());
         assert!(todo.completion_date.is_some());
-        assert_eq!(todo.location.file_path, None);
+        assert_path_ends_with(&todo.location.file_path, "main.rs");
     }
 
     // TodoCache tests
@@ -1107,15 +1211,27 @@ mod tests {
             todo.completion_date.unwrap(),
             Utc.with_ymd_and_hms(2024, 1, 10, 12, 0, 0).unwrap()
         );
-        assert_eq!(todo.location.file_path, None);
-        assert_eq!(todo.location.start_line_num, 0);
-        assert_eq!(todo.location.end_line_num, 0);
+        // Now returns last seen location instead of None
+        assert_path_ends_with(&todo.location.file_path, "before.rs");
+        assert_eq!(todo.location.start_line_num, 4);
+        assert_eq!(todo.location.end_line_num, 6);
     }
 
     #[test]
     fn test_todo_cache_lifecycle_not_found() {
         let (_dir, repo) = create_test_repo();
-        let cache = Cache::open(&repo).expect("failed to open cache");
+        let mut cache = Cache::open(&repo).expect("failed to open cache");
+
+        // Insert a commit so get_commit_timestamp can succeed
+        let meta = CommitMetadata {
+            sha: "head123".to_string(),
+            timestamp: Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap(),
+            author_name: "Test".to_string(),
+            author_email: "test@test.com".to_string(),
+        };
+        cache
+            .insert_commits(&[(meta, vec![])])
+            .expect("failed to insert");
 
         let err = cache
             .get_todo(999, "head123")
@@ -1253,15 +1369,16 @@ mod tests {
             .find(|t| t.id == TodoIdentifier::Primary(2))
             .unwrap();
 
-        // Todo 1 was removed - should have completion_date
+        // Todo 1 was removed - should have completion_date and last seen location
         assert_eq!(
             todo1.creation_date,
             Utc.with_ymd_and_hms(2024, 1, 10, 12, 0, 0).unwrap()
         );
         assert!(todo1.completion_date.is_some());
-        assert_eq!(todo1.location.file_path, None);
-        assert_eq!(todo1.location.start_line_num, 0);
-        assert_eq!(todo1.location.end_line_num, 0);
+        // Now returns last seen location instead of None
+        assert_path_ends_with(&todo1.location.file_path, "src/old.rs");
+        assert_eq!(todo1.location.start_line_num, 3);
+        assert_eq!(todo1.location.end_line_num, 5);
 
         // Todo 2 still exists - no completion_date
         assert_eq!(
