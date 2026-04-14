@@ -538,6 +538,10 @@ impl Todos {
         self.ids().max().unwrap_or(0)
     }
 
+    pub fn has(&self, id: u32) -> bool {
+        self.imported.contains_key(&id)
+    }
+
     pub fn get(&self, id: &u32) -> Option<&Todo> {
         self.imported.get(id)
     }
