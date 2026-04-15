@@ -14,6 +14,8 @@ use rusqlite::Connection;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Instant;
 
 /// Metadata extracted from a commit.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -653,6 +655,93 @@ impl GitBackend {
         self.load_cache_todos(&cache_todos)
     }
 
+    fn parse_commit(
+        repo: &Repository,
+        parser: &TodoParser,
+        oid: Oid,
+        history_start: Oid,
+    ) -> Result<HashMap<u32, Vec<Event>>> {
+        let commit = repo.find_commit(oid)?;
+
+        // For root commits (no parents or history start), diff against empty tree
+        let parents = if commit.parent_count() == 0 || oid == history_start {
+            vec![None]
+        } else {
+            commit.parents().map(Some).collect()
+        };
+
+        let mut events: HashMap<u32, Vec<Event>> = HashMap::new();
+
+        for parent in parents {
+            let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
+
+            let mut line_changes: HashMap<u32, Event> = HashMap::new();
+
+            let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&commit.tree()?), None)?;
+
+            diff.foreach(
+                &mut |_file: git2::DiffDelta<'_>, _| true,
+                None,
+                None,
+                Some(&mut |file: git2::DiffDelta<'_>, _, line: git2::DiffLine| {
+                    let file_path = match line.origin() {
+                        '+' => file.new_file().path(),
+                        '-' => file.old_file().path(),
+                        _ => return true,
+                    };
+                    let file_type = match file_path.and_then(|p| p.get_filetype_from_name()) {
+                        Some(ft) => ft,
+                        None => return true,
+                    };
+                    let file_path_name = match file_path.and_then(|p| p.to_str()) {
+                        Some(name) => name,
+                        None => return true,
+                    }
+                    .to_string();
+                    let status = match line.origin() {
+                        '+' => Event::Add(oid, file_path_name.clone()),
+                        '-' => {
+                            let parent_oid = parent.as_ref().unwrap().id();
+                            Event::Remove(parent_oid, file_path_name.clone())
+                        }
+                        _ => return true,
+                    };
+                    let todo = match parser
+                        .parse_bytes(line.content(), file_type)
+                        .into_iter()
+                        .exactly_one()
+                    {
+                        Ok(todo) => todo,
+                        Err(_) => return true, // Skip
+                    };
+                    if let Some(TodoIdentifier::Primary(id)) = todo.id {
+                        use Event::*;
+                        match line_changes.get(&id) {
+                            Some(existing) => match (existing, status) {
+                                (Add(_, _), Remove(oid, file_path_name))
+                                | (Remove(_, _), Add(oid, file_path_name)) => {
+                                    // Add + Remove => Move
+                                    line_changes.insert(id, Update(oid, file_path_name));
+                                }
+                                _ => eprintln!("Multiple Events for commit {:?}", &commit), // Same kind seen twice, keep existing
+                            },
+                            None => {
+                                line_changes.insert(id, status);
+                            }
+                        }
+                    }
+                    true
+                }),
+            )?;
+
+            for (id, event) in line_changes {
+                events.entry(id).or_default().push(event);
+            }
+        }
+
+        Ok(events)
+    }
+
     fn revparse_todos(&self) -> Result<Todos> {
         let mut revwalk = self.repo.revwalk()?;
 
@@ -678,89 +767,33 @@ impl GitBackend {
         revwalk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME | git2::Sort::REVERSE)?;
 
         let mut todos: HashMap<u32, Todo> = HashMap::new();
+
+        let repo_path = &self.get_repo_path();
+        let parser = &self.parser;
+
+        let oids: Vec<Oid> = revwalk
+            .into_iter()
+            .filter_map(|oid_result| oid_result.ok())
+            .collect();
+
+        let results: Vec<Result<HashMap<u32, Vec<Event>>>> = oids
+            .par_iter()
+            .map(|oid| {
+                let thread_repo = Repository::open(repo_path)?;
+                Self::parse_commit(&thread_repo, parser, *oid, history_start_commit_id)
+            })
+            .collect();
+
         let mut events: HashMap<u32, Vec<Event>> = HashMap::new();
 
-        for oid_result in revwalk {
-            let oid = oid_result?;
-            let commit = self.repo.find_commit(oid)?;
-
-            // For root commits (no parents or history start), diff against empty tree
-            let parents = if commit.parent_count() == 0 || oid == history_start_commit_id {
-                vec![None]
-            } else {
-                commit.parents().map(Some).collect()
-            };
-
-            for parent in parents {
-                let parent_tree = parent.as_ref().map(|p| p.tree()).transpose()?;
-
-                let mut line_changes: HashMap<u32, Event> = HashMap::new();
-
-                let diff = self.repo.diff_tree_to_tree(
-                    parent_tree.as_ref(),
-                    Some(&commit.tree()?),
-                    None,
-                )?;
-
-                diff.foreach(
-                    &mut |_file: git2::DiffDelta<'_>, _| true,
-                    None,
-                    None,
-                    Some(&mut |file: git2::DiffDelta<'_>, _, line: git2::DiffLine| {
-                        let file_path = match line.origin() {
-                            '+' => file.new_file().path(),
-                            '-' => file.old_file().path(),
-                            _ => return true,
-                        };
-                        let file_type = match file_path.and_then(|p| p.get_filetype_from_name()) {
-                            Some(ft) => ft,
-                            None => return true,
-                        };
-                        let file_path_name = match file_path.and_then(|p| p.to_str()) {
-                            Some(name) => name,
-                            None => return true,
-                        }
-                        .to_string();
-                        let status = match line.origin() {
-                            '+' => Event::Add(oid, file_path_name.clone()),
-                            '-' => {
-                                let parent_oid = parent.as_ref().unwrap().id();
-                                Event::Remove(parent_oid, file_path_name.clone())
-                            }
-                            _ => return true,
-                        };
-                        let todo = match self
-                            .parser
-                            .parse_bytes(line.content(), file_type)
-                            .into_iter()
-                            .exactly_one()
-                        {
-                            Ok(todo) => todo,
-                            Err(_) => return true, // Skip
-                        };
-                        if let Some(TodoIdentifier::Primary(id)) = todo.id {
-                            use Event::*;
-                            match line_changes.get(&id) {
-                                Some(existing) => match (existing, status) {
-                                    (Add(_, _), Remove(oid, file_path_name))
-                                    | (Remove(_, _), Add(oid, file_path_name)) => {
-                                        // Add + Remove => Move
-                                        line_changes.insert(id, Update(oid, file_path_name));
-                                    }
-                                    _ => eprintln!("Multiple Events for commit {:?}", &commit), // Same kind seen twice, keep existing
-                                },
-                                None => {
-                                    line_changes.insert(id, status);
-                                }
-                            }
-                        }
-                        true
-                    }),
-                )?;
-
-                for (id, event) in line_changes {
-                    events.entry(id).or_default().push(event);
+        for result in results {
+            match result {
+                Ok(commit_events) => {
+                    for (id, evs) in commit_events {
+                        events.entry(id).or_default().extend(evs);
+                    }
                 }
+                Err(e) => eprintln!("Error parsing commit: {:?}", e),
             }
         }
 
