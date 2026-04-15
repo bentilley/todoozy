@@ -4,18 +4,16 @@ use super::{
     error::{Error, Result},
     VcsBackend,
 };
-use crate::fs::FileTypeAwarePath;
+use crate::fs::{FileType, FileTypeAwarePath};
 use crate::todo::{parser::TodoParser, Location, Todo, TodoIdentifier, Todos};
 use chrono::{DateTime, TimeZone, Utc};
-use git2::{Commit, Oid, Repository};
+use git2::{Commit, DiffOptions, Oid, Repository};
 use itertools::Itertools;
 use rayon::prelude::*;
 use rusqlite::Connection;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Instant;
 
 /// Metadata extracted from a commit.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -677,7 +675,12 @@ impl GitBackend {
 
             let mut line_changes: HashMap<u32, Event> = HashMap::new();
 
-            let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&commit.tree()?), None)?;
+            let mut diff_opts = DiffOptions::new();
+            diff_opts.skip_binary_check(true);
+            for pattern in FileType::supported_pathspecs() {
+                diff_opts.pathspec(pattern);
+            }
+            let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&commit.tree()?), Some(&mut diff_opts))?;
 
             diff.foreach(
                 &mut |_file: git2::DiffDelta<'_>, _| true,
@@ -888,8 +891,6 @@ impl VcsBackend for GitBackend {
 
     fn get_all_todos(&self) -> Result<Todos> {
         self.revparse_todos()
-        // self.cache_todo_history()?;
-        // self.get_all_todos_for_oid(self.repo.head()?.peel_to_commit()?.id())
     }
 
     fn get_todo_for_version(&self, id: u32, version: String) -> Result<Todo> {

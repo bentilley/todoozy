@@ -21,6 +21,38 @@ pub enum FileType {
     Zsh,
 }
 
+impl FileType {
+    /// Returns glob patterns for all supported file types.
+    /// Used for filtering git diffs to only relevant files.
+    /// Keep in sync with get_filetype_from_name below.
+    pub fn supported_pathspecs() -> &'static [&'static str] {
+        &[
+            "*.bash",
+            "*.dockerfile",
+            "*.go",
+            "*.ksh",
+            "*.md",
+            "*.mk",
+            "*.proto",
+            "*.py",
+            "*.rs",
+            "*.sh",
+            "*.tdz",
+            "*.tf",
+            "*.ts",
+            "*.tsx",
+            "*.yaml",
+            "*.yml",
+            "*.zsh",
+            "Dockerfile",
+            "Makefile",
+            "makefile",
+            "GNUmakefile",
+            ".tdz",
+        ]
+    }
+}
+
 pub trait FileTypeAwarePath {
     fn get_filetype(&self) -> Option<FileType> {
         self.get_filetype_from_name()
