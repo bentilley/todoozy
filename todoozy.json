@@ -1,7 +1,6 @@
 {
-  "_num_todos": 80,
+  "_num_todos": 81,
   "exclude": [],
   "filter": "priority>=z",
-  "sorter": "priority:asc > creation_date:desc",
-  "todo_token": null
+  "sorter": "priority:asc > creation_date:desc"
 }
