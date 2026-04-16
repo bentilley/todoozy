@@ -3,8 +3,7 @@
 // Usage: cargo run --example vcs_git
 
 use std::env;
-use todoozy::provider::vcs::git::GitBackend;
-use todoozy::provider::vcs::VcsBackend;
+use todoozy::provider::vcs::create_vcs_backend;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -23,7 +22,7 @@ fn main() {
     };
 
     println!("Creating Git backend for path: {}", path.display());
-    let provider = match GitBackend::new(&path, "TODO", history_start) {
+    let provider = match create_vcs_backend(&path, "TODO", history_start) {
         Ok(b) => b,
         Err(e) => {
             eprintln!("Error: {}", e);

@@ -680,7 +680,11 @@ impl GitBackend {
             for pattern in FileType::supported_pathspecs() {
                 diff_opts.pathspec(pattern);
             }
-            let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&commit.tree()?), Some(&mut diff_opts))?;
+            let diff = repo.diff_tree_to_tree(
+                parent_tree.as_ref(),
+                Some(&commit.tree()?),
+                Some(&mut diff_opts),
+            )?;
 
             diff.foreach(
                 &mut |_file: git2::DiffDelta<'_>, _| true,
@@ -745,15 +749,21 @@ impl GitBackend {
         Ok(events)
     }
 
-    fn revparse_todos(&self) -> Result<Todos> {
+    fn revparse_todos(&self, for_commit: Oid) -> Result<Todos> {
         let mut revwalk = self.repo.revwalk()?;
 
-        revwalk.push_head().map_err(|e| {
-            if e.code() == git2::ErrorCode::UnbornBranch {
-                return Error::GitError("repository has no commits".to_string());
+        revwalk.push(for_commit).map_err(|e| {
+            if e.code() == git2::ErrorCode::NotFound {
+                return Error::GitError(format!("commit {} not found", for_commit));
             }
             Error::from(e)
         })?;
+        // revwalk.push_head().map_err(|e| {
+        //     if e.code() == git2::ErrorCode::UnbornBranch {
+        //         return Error::GitError("repository has no commits".to_string());
+        //     }
+        //     Error::from(e)
+        // })?;
 
         if let Some(history_start_commit) = self.get_history_start_commit()? {
             for parent in history_start_commit.parents() {
@@ -883,66 +893,22 @@ impl GitBackend {
 }
 
 impl VcsBackend for GitBackend {
-    fn get_most_recent_version(&self) -> Result<String> {
-        let head = self.repo.head()?;
-        let commit = head.peel_to_commit()?;
-        Ok(commit.id().to_string())
-    }
-
     fn get_all_todos(&self) -> Result<Todos> {
-        self.revparse_todos()
+        let head = self.repo.head()?.peel_to_commit()?.id();
+        self.revparse_todos(head)
     }
 
-    fn get_todo_for_version(&self, id: u32, version: String) -> Result<Todo> {
-        self.cache_todo_history()?;
+    fn get_todos_for_version(&self, ids: &[u32], version: &str) -> Result<Todos> {
         let oid = self.repo.revparse_single(&version)?.id();
-        self.get_todo_for_oid(id, oid)
-    }
-
-    fn get_todos_for_version(&self, ids: &[u32], version: String) -> Result<Todos> {
-        self.cache_todo_history()?;
-        let oid = self.repo.revparse_single(&version)?.id();
-        self.get_todos_for_oid(ids, oid)
-    }
-
-    fn get_all_todos_for_version(&self, version: String) -> Result<Todos> {
-        self.cache_todo_history()?;
-        let oid = self.repo.revparse_single(&version)?.id();
-        self.get_all_todos_for_oid(oid)
-    }
-
-    fn hydrate_todos(&self, todos: &mut [&mut Todo]) -> Result<()> {
-        todos.iter_mut().try_for_each(|todo| match todo.id {
-            Some(TodoIdentifier::Primary(id)) => {
-                let oid = self.repo.head()?.peel_to_commit()?.id();
-                let cache_todo = self.cache.borrow().get_todo(id, &oid.to_string())?;
-                todo.location = cache_todo.location.clone();
-                todo.creation_date = Some(cache_todo.creation_date.date_naive());
-                todo.completion_date = cache_todo.completion_date.map(|dt| dt.date_naive());
-                Ok(())
-            }
-            _ => Err(Error::DataError(
-                "cannot hydrate TODO without a primary ID".to_string(),
-            )),
-        })
-    }
-
-    fn get_all_ids(&self) -> Result<HashSet<u32>> {
-        self.cache_todo_history()?;
-        self.cache.borrow().get_all_todo_ids()
-    }
-
-    fn get_ids_for_version(&self, version: String) -> Result<HashSet<u32>> {
-        self.cache_todo_history()?;
-        let oid = self.repo.revparse_single(&version)?.id();
-        let todos = self.get_all_todos_for_oid(oid)?;
+        let todos = self.revparse_todos(oid)?;
         Ok(todos
-            .iter()
-            .filter_map(|todo| match todo.id {
-                Some(TodoIdentifier::Primary(id)) => Some(id),
-                _ => None,
+            .into_iter()
+            .filter(|todo| match todo.id {
+                Some(TodoIdentifier::Primary(id)) => ids.contains(&id),
+                _ => false,
             })
-            .collect())
+            .collect::<Vec<_>>()
+            .into())
     }
 }
 
@@ -1739,7 +1705,7 @@ mod tests {
         );
 
         let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos = backend.revparse_todos().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         assert_eq!(todos.len(), 1, "should detect TODO in initial commit");
         let todo = todos.get(&1).expect("TODO #1 should exist");
@@ -1760,7 +1726,7 @@ mod tests {
         );
 
         let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos = backend.revparse_todos().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         assert_eq!(todos.len(), 1);
         let todo = todos.get(&1).expect("TODO #1 should exist");
@@ -1782,7 +1748,7 @@ mod tests {
         commit_file(dir.path(), "main.rs", "fn main() {}", "Remove TODO");
 
         let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos = backend.revparse_todos().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         assert_eq!(todos.len(), 1);
         let todo = todos.get(&1).expect("TODO #1 should exist");
@@ -1811,7 +1777,7 @@ mod tests {
         );
 
         let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos = backend.revparse_todos().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         // Should NOT have duplicate entries
         assert_eq!(todos.len(), 1, "modified TODO should not create duplicates");
@@ -1833,7 +1799,7 @@ mod tests {
         );
 
         let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos = backend.revparse_todos().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         let todo = todos.get(&1).expect("TODO #1 should exist");
         assert!(
@@ -1858,7 +1824,7 @@ mod tests {
         );
 
         let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos = backend.revparse_todos().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         assert_eq!(todos.len(), 3);
         assert!(todos.get(&1).is_some());
@@ -1891,7 +1857,7 @@ mod tests {
             .expect("failed to commit deletion");
 
         let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos = backend.revparse_todos().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         assert_eq!(todos.len(), 1);
         let todo = todos.get(&1).expect("TODO #1 should exist");
@@ -1922,7 +1888,7 @@ mod tests {
         );
 
         let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos = backend.revparse_todos().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         // Moving a TODO (same ID) should result in a single TODO, not a completion + new
         assert_eq!(todos.len(), 1, "moved TODO should not be duplicated");
@@ -1961,7 +1927,7 @@ mod tests {
 
         let backend = GitBackend::new(dir.path(), "TODO", Some("history_start".to_string()))
             .expect("failed to create backend");
-        let todos = backend.revparse_todos().expect("failed to scan");
+        let todos = backend.get_all_todos().expect("failed to scan");
 
         assert!(
             todos.get(&1).is_none(),
