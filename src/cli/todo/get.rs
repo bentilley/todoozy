@@ -5,6 +5,23 @@ use crate::cli::error;
 use todoozy::todo::TodoIdentifier;
 use todoozy::provider::{FileSystemProvider, Provider};
 
+// TODO #94 (A) 2026-04-16 Support completed todos using VcsBackend
+//
+// Currently, todos are only accessible if they are still present in the file system - completing
+// a todo is just deleteing the comment. Need to use the VcsBackend Provider to support fetching
+// info for historic todos.
+//
+// Don't know whether to force the user to be explicit - i.e. must specify `tdz todo get --done
+// <N>` or allow some flexibility and do some lifting our side to work it out - i.e. user can just
+// write `tdz todo get <N>`, first we check the todos that exist in the file system, then if we
+// can't find it fall back to the vcs search. The vcs search can be expensive for large repos, so
+// might be best to require the user to be explicit about it. Need a flag to specify the vcs
+// search... `--vcs`? `--history`? `--done`? `--include-completed`? `--search-all`?
+// `--search-history`?
+//
+// We should also support getting the view of a todo at a specific version. Something like `tdz
+// todo get <N> --version <commit-ish>`. This is useful when a todo has evolved across several
+// commits.
 pub const USAGE: &str = r#"Show full details for a specific todo
 
 Usage: tdz todo get [OPTIONS] <ID>
