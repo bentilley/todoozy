@@ -586,6 +586,19 @@ impl Todos {
         self.imported.retain(|_, todo| filter(todo));
         self.unimported.retain(filter);
     }
+
+    /// Merge another Todos into this one.
+    ///
+    /// Imported todos from `other` override existing ones with the same ID.
+    /// Unimported todos from `other` are appended.
+    /// Warnings from `other` are appended.
+    pub fn merge(&mut self, other: Todos) {
+        for (id, todo) in other.imported {
+            self.imported.insert(id, todo);
+        }
+        self.unimported.extend(other.unimported);
+        self.warnings.extend(other.warnings);
+    }
 }
 
 impl From<Vec<Todo>> for Todos {
@@ -1101,5 +1114,114 @@ mod tests {
         assert_eq!(todos.get_max_id(), 0);
         assert_eq!(todos.iter().count(), 0);
         assert!(todos.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_todos_merge_imported_override() {
+        let mut base: Todos = vec![Todo::new(
+            TodoInfoBuilder::default()
+                .id(Some(TodoIdentifier::Primary(1)))
+                .title("Original".to_string())
+                .build()
+                .unwrap(),
+            Location::default(),
+        )]
+        .into();
+
+        let other: Todos = vec![Todo::new(
+            TodoInfoBuilder::default()
+                .id(Some(TodoIdentifier::Primary(1)))
+                .title("Updated".to_string())
+                .build()
+                .unwrap(),
+            Location::default(),
+        )]
+        .into();
+
+        base.merge(other);
+
+        assert_eq!(base.iter().count(), 1);
+        assert_eq!(base.get(&1).unwrap().title, "Updated");
+    }
+
+    #[test]
+    fn test_todos_merge_adds_new_imported() {
+        let mut base: Todos = vec![Todo::new(
+            TodoInfoBuilder::default()
+                .id(Some(TodoIdentifier::Primary(1)))
+                .title("First".to_string())
+                .build()
+                .unwrap(),
+            Location::default(),
+        )]
+        .into();
+
+        let other: Todos = vec![Todo::new(
+            TodoInfoBuilder::default()
+                .id(Some(TodoIdentifier::Primary(2)))
+                .title("Second".to_string())
+                .build()
+                .unwrap(),
+            Location::default(),
+        )]
+        .into();
+
+        base.merge(other);
+
+        assert_eq!(base.iter().count(), 2);
+        assert!(base.has(1));
+        assert!(base.has(2));
+    }
+
+    #[test]
+    fn test_todos_merge_unimported() {
+        let mut base: Todos = vec![Todo::new(
+            TodoInfoBuilder::default()
+                .id(Some(TodoIdentifier::Primary(1)))
+                .title("Imported".to_string())
+                .build()
+                .unwrap(),
+            Location::default(),
+        )]
+        .into();
+
+        let other: Todos = vec![Todo::new(
+            TodoInfoBuilder::default()
+                .id(None)
+                .title("Unimported".to_string())
+                .build()
+                .unwrap(),
+            Location::default(),
+        )]
+        .into();
+
+        base.merge(other);
+
+        assert_eq!(base.iter().count(), 2);
+        let titles: Vec<_> = base.iter().map(|t| t.title.as_str()).collect();
+        assert!(titles.contains(&"Imported"));
+        assert!(titles.contains(&"Unimported"));
+    }
+
+    #[test]
+    fn test_todos_merge_warnings() {
+        let mut base: Todos = Todos::new();
+
+        let other: Todos = vec![Todo::new(
+            TodoInfoBuilder::default()
+                .id(Some(TodoIdentifier::Reference(999)))
+                .title("Orphan".to_string())
+                .build()
+                .unwrap(),
+            Location::new(Some("test.rs".to_string()), 1, 1),
+        )]
+        .into();
+
+        assert_eq!(other.warnings().len(), 1);
+
+        base.merge(other);
+
+        assert_eq!(base.warnings().len(), 1);
+        matches!(&base.warnings()[0], LinkingWarning::OrphanReference { id: 999, .. });
     }
 }
