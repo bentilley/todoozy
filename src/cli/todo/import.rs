@@ -24,6 +24,13 @@ pub struct TodoImportOptions {
     pub location: Option<LocationSpec>,
 }
 
+// TODO #93 (C) 2026-04-16 Support Dir type to import all in directory
+//
+// This would require changing the LocationSpec enum to include a Dir variant, and updating the
+// import logic to handle it. The Dir variant would specify a directory path, and the import logic
+// would need to recursively search for todos in that directory and its subdirectories. This would
+// allow users to easily import all untracked todos from a specific directory, which could be
+// useful for larger projects with many files.
 pub enum LocationSpec {
     File(String),
     FileLine(String, usize),
