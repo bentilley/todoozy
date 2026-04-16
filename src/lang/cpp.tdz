@@ -1,0 +1,6 @@
+# TODO #92 (C) Add C++ language support
+
+C++ support should cover `.cc`, `.cpp`, `.cxx`, `.hh`, `.hpp`, and `.hxx` files.
+
+It mostly shares C-style comments, but we should also handle raw string literals in
+addition to normal string and character literals.

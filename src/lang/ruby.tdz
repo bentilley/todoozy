@@ -1,0 +1,6 @@
+# TODO #90 (C) Add Ruby language support
+
+Ruby support should cover `.rb` files.
+
+The parser should handle `#` comments and skip quoted strings plus heredoc content so
+embedded TODO text does not create false positives.

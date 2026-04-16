@@ -1,0 +1,6 @@
+# TODO #91 (C) Add Java language support
+
+Java support should cover `.java` files.
+
+The parser should handle `//` and `/* ... */` comments, skip normal strings and
+character literals, and account for text blocks as well.

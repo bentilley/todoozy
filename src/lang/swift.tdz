@@ -1,0 +1,6 @@
+# TODO #85 (C) Add Swift language support
+
+Swift support should cover `.swift` files.
+
+It should handle `//` and `/* ... */` comments, regular strings, multiline string
+literals, and keep TODO detection out of quoted content.

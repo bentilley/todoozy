@@ -1,0 +1,6 @@
+# TODO #82 (C) Add Kotlin language support
+
+Kotlin support should cover `.kt` and `.kts` files.
+
+This will need `//` and `/* ... */` comments, normal quoted strings, and triple-quoted
+raw strings so TODO-like text inside string literals is ignored.

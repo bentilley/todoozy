@@ -1,0 +1,6 @@
+# TODO #87 (C) Add CSS language support
+
+CSS support should cover `.css` files.
+
+That likely just needs `/* ... */` comment parsing, while still avoiding false positives
+inside strings where relevant.

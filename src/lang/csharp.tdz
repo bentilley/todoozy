@@ -1,0 +1,6 @@
+# TODO #84 (C) Add C# language support
+
+C# support should cover `.cs` files.
+
+We should handle `//` and `/* ... */` comments, plus regular strings, verbatim strings,
+raw string literals, and character literals so TODOs inside them are ignored.

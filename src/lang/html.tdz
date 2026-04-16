@@ -1,0 +1,6 @@
+# TODO #83 (C) Add HTML language support
+
+HTML support should cover `.html` and `.htm` files.
+
+This mainly needs HTML comment parsing with `<!-- ... -->`, which is common for TODOs in
+templates and static pages.

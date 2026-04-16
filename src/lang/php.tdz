@@ -1,0 +1,6 @@
+# TODO #88 (C) Add PHP language support
+
+PHP support should cover `.php` files.
+
+We should parse `//`, `#`, and `/* ... */` comments, and skip single-quoted,
+double-quoted, and heredoc-style string content.

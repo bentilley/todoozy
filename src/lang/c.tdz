@@ -1,0 +1,6 @@
+# TODO #86 (C) Add C language support
+
+C support should cover `.c` and `.h` files.
+
+It can likely reuse C-style parsing rules: `//` and `/* ... */` comments, plus skipping
+string and character literals so fake TODOs inside quoted code are ignored.
