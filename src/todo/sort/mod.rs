@@ -50,6 +50,7 @@ impl<'de> Deserialize<'de> for Box<dyn Sorter> {
     }
 }
 
+// TODO #95 (C) 2026-04-18 Add sort by ID
 #[derive(Debug, PartialEq, Clone)]
 enum Property {
     Title,
