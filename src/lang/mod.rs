@@ -232,6 +232,20 @@ pub trait RawParser {
     }
 }
 
+// TODO #95 (C) 2026-04-18 Handle TODO comments with colon e.g. TODO:
+//
+// Currently, the parser looks for the token followed by a word boundary. This means "TODO:" is
+// parsed but the title starts with ":". Options:
+//
+// - Could add special handling to strip a colon if it immediately follows the token.
+// - add logic to the todo syntax parser to ignore titles that start with :
+// - do nothing - users can configure the token to include the colon if they want that style (e.g.
+// "TODO:").
+//
+// It's tempting to do nothing and not take an opinion here, but it does hurt the onboarding
+// experience as many code bases have comments with both styles - it seems to be a real personal
+// prefernce thing, so it's nice to not force people to choose. I think it would be good to handle
+// but want to do it with the minimal code / complexity add.
 pub struct Parser<'a> {
     todo_token: &'a str,
     syntax_rules: &'static [SyntaxRule],
