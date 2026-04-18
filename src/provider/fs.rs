@@ -50,7 +50,7 @@ impl FileSystemProvider {
             .parse_text(&text, file_type)
             .into_iter()
             .map(|mut todo| {
-                todo.location.file_path = Some(file_name.to_string());
+                todo.location.file_path = Some(file_path.to_path_buf());
                 todo
             })
             .collect())

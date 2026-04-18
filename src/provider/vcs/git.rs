@@ -97,7 +97,7 @@ impl CacheTodo {
             None
         };
 
-        let abs_path = repo_path.join(&file_path).to_string_lossy().into_owned();
+        let abs_path = repo_path.join(&file_path);
 
         Self::new(
             last_seen_sha,
@@ -123,10 +123,13 @@ impl CacheTodo {
             .file_path
             .as_ref()
             .ok_or_else(|| Error::DataError("cache entry missing file path".to_string()))?;
-        let file_type = Path::new(file_path)
+        let file_type = file_path
             .get_filetype_from_name()
             .ok_or_else(|| {
-                Error::DataError(format!("Cannot load: Unknown file type for {}", file_path))
+                Error::DataError(format!(
+                    "Cannot load: Unknown file type for {}",
+                    file_path.display()
+                ))
             })?;
         let entry = tree.get_path(Path::new(
             file_path
@@ -138,7 +141,7 @@ impl CacheTodo {
                             Error::DataError("invalid UTF-8 in file path".to_string())
                         })?,
                 )
-                .unwrap_or(file_path.as_ref()),
+                .unwrap_or(file_path.as_path()),
         ))?;
         let blob = repo.find_blob(entry.id())?;
         let content = blob.content();
@@ -165,7 +168,8 @@ impl CacheTodo {
             None => {
                 return Err(Error::GitError(format!(
                     "Cannot load: No TODO found at {}:{}",
-                    file_path, self.location.start_line_num
+                    file_path.display(),
+                    self.location.start_line_num
                 )))
             }
         };
@@ -278,7 +282,12 @@ impl Cache {
 
                 for todo in todos {
                     if let Some(TodoIdentifier::Primary(id)) = &todo.id {
-                        let file_path = todo.location.file_path.as_deref().unwrap_or("");
+                        let file_path = todo
+                            .location
+                            .file_path
+                            .as_ref()
+                            .map(|path| path.to_string_lossy().into_owned())
+                            .unwrap_or_default();
                         let start_line = todo.location.start_line_num as u32;
                         let end_line = todo.location.end_line_num as u32;
                         location_stmt.execute(rusqlite::params![
@@ -594,7 +603,7 @@ impl GitBackend {
                     let parsed = parser.parse_bytes(blob.content(), ft);
                     for mut todo in parsed {
                         if let Some(TodoIdentifier::Primary(_)) = &todo.id {
-                            todo.location.file_path = Some(file_path.clone());
+                            todo.location.file_path = Some(file_path.clone().into());
                             todo.creation_date = Some(meta.timestamp.date_naive());
                             todos.push(todo);
                         }
@@ -854,7 +863,7 @@ impl GitBackend {
                                 .unwrap_or_else(Utc::now)
                                 .date_naive(),
                         );
-                        t.location.file_path = Some(path.clone());
+                        t.location.file_path = Some(path.clone().into());
                         t
                     }
                     Add(oid, path) | Update(oid, path) => {
@@ -879,7 +888,7 @@ impl GitBackend {
                             None => continue,
                         };
                         t.creation_date = Some(created_datetime.date_naive());
-                        t.location.file_path = Some(path.clone());
+                        t.location.file_path = Some(path.clone().into());
                         t
                     }
                 },
@@ -987,11 +996,12 @@ mod tests {
             .expect("failed to tag HEAD");
     }
 
-    fn assert_path_ends_with(actual: &Option<String>, expected_suffix: &str) {
+    fn assert_path_ends_with(actual: &Option<PathBuf>, expected_suffix: &str) {
         let actual = actual.as_deref().expect("expected file path");
         assert!(
-            Path::new(actual).ends_with(expected_suffix),
-            "expected path `{actual}` to end with `{expected_suffix}`"
+            actual.ends_with(expected_suffix),
+            "expected path `{}` to end with `{expected_suffix}`",
+            actual.display()
         );
     }
 
@@ -1344,7 +1354,7 @@ mod tests {
 
         let mut todo = Todo::default();
         todo.id = Some(TodoIdentifier::Primary(1));
-        todo.location.file_path = Some("test.rs".to_string());
+        todo.location.file_path = Some("test.rs".into());
         todo.location.start_line_num = 10;
         todo.location.end_line_num = 12;
 
@@ -1380,7 +1390,7 @@ mod tests {
 
         let mut todo = Todo::default();
         todo.id = Some(TodoIdentifier::Primary(1));
-        todo.location.file_path = Some("before.rs".to_string());
+        todo.location.file_path = Some("before.rs".into());
         todo.location.start_line_num = 4;
         todo.location.end_line_num = 6;
 
@@ -1458,13 +1468,13 @@ mod tests {
 
         let mut todo1 = Todo::default();
         todo1.id = Some(TodoIdentifier::Primary(1));
-        todo1.location.file_path = Some("src/main.rs".to_string());
+        todo1.location.file_path = Some("src/main.rs".into());
         todo1.location.start_line_num = 10;
         todo1.location.end_line_num = 12;
 
         let mut todo2 = Todo::default();
         todo2.id = Some(TodoIdentifier::Primary(2));
-        todo2.location.file_path = Some("src/lib.rs".to_string());
+        todo2.location.file_path = Some("src/lib.rs".into());
         todo2.location.start_line_num = 20;
         todo2.location.end_line_num = 25;
 
@@ -1524,13 +1534,13 @@ mod tests {
 
         let mut todo1 = Todo::default();
         todo1.id = Some(TodoIdentifier::Primary(1));
-        todo1.location.file_path = Some("src/old.rs".to_string());
+        todo1.location.file_path = Some("src/old.rs".into());
         todo1.location.start_line_num = 3;
         todo1.location.end_line_num = 5;
 
         let mut todo2 = Todo::default();
         todo2.id = Some(TodoIdentifier::Primary(2));
-        todo2.location.file_path = Some("src/todo.rs".to_string());
+        todo2.location.file_path = Some("src/todo.rs".into());
         todo2.location.start_line_num = 8;
         todo2.location.end_line_num = 9;
 
@@ -1548,7 +1558,7 @@ mod tests {
 
         let mut todo2_still = Todo::default();
         todo2_still.id = Some(TodoIdentifier::Primary(2));
-        todo2_still.location.file_path = Some("src/todo.rs".to_string());
+        todo2_still.location.file_path = Some("src/todo.rs".into());
         todo2_still.location.start_line_num = 30;
         todo2_still.location.end_line_num = 35;
 
@@ -1807,7 +1817,7 @@ mod tests {
             "TODO should have file_path set"
         );
         assert!(
-            Path::new(todo.location.file_path.as_deref().unwrap()).ends_with("src/lib.rs"),
+            todo.location.file_path.as_deref().unwrap().ends_with("src/lib.rs"),
             "file_path should end with src/lib.rs"
         );
     }

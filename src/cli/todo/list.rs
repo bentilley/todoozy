@@ -74,7 +74,7 @@ impl From<&todoozy::todo::Todo> for TodoOutput {
             priority: todo.priority,
             title: todo.title.clone(),
             description: todo.description.clone(),
-            file: todo.location.file_path.clone(),
+            file: todo.location.file_path_string(),
             line_number: Some(todo.location.start_line_num),
             tags: todo.tags.clone(),
             creation_date: todo.creation_date.map(|d| d.to_string()),

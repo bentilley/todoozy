@@ -7,7 +7,7 @@ pub mod syntax;
 
 use std::fs::File;
 use std::io::{self, prelude::*, BufReader, BufWriter};
-use std::path::Path;
+use std::path::PathBuf;
 
 use crate::fs::FileTypeAwarePath;
 
@@ -109,7 +109,7 @@ impl FromIterator<(std::string::String, std::string::String)> for Metadata {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Location {
-    pub file_path: Option<String>,
+    pub file_path: Option<PathBuf>,
     pub start_line_num: usize,
     pub end_line_num: usize,
 }
@@ -129,9 +129,9 @@ impl std::fmt::Display for Location {
 }
 
 impl Location {
-    pub fn new(file: Option<String>, line_number: usize, end_line_number: usize) -> Self {
+    pub fn new<P: Into<PathBuf>>(file: Option<P>, line_number: usize, end_line_number: usize) -> Self {
         Location {
-            file_path: file,
+            file_path: file.map(Into::into),
             start_line_num: line_number,
             end_line_num: end_line_number,
         }
@@ -139,16 +139,22 @@ impl Location {
 
     fn file_location_prefix(&self) -> String {
         self.file_path
-            .clone()
-            .map_or("".to_string(), |p| format!("{}:", p))
+            .as_ref()
+            .map_or("".to_string(), |p| format!("{}:", p.display()))
     }
 
-    pub fn from_file_line(file: Option<String>, line_number: usize) -> Self {
+    pub fn from_file_line<P: Into<PathBuf>>(file: Option<P>, line_number: usize) -> Self {
         Location {
-            file_path: file,
+            file_path: file.map(Into::into),
             start_line_num: line_number,
             end_line_num: line_number,
         }
+    }
+
+    pub fn file_path_string(&self) -> Option<String> {
+        self.file_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned())
     }
 
     pub fn display_start(&self) -> String {
@@ -161,13 +167,13 @@ impl Location {
             .as_ref()
             .ok_or("Cannot load: No file path in location")?;
 
-        let path = Path::new(&file_path);
+        let path = file_path.as_path();
         let file_type = path
             .get_filetype_from_name()
-            .ok_or_else(|| format!("Cannot load: Unknown file type for {}", file_path))?;
+            .ok_or_else(|| format!("Cannot load: Unknown file type for {}", path.display()))?;
 
         let file = File::open(path)
-            .map_err(|e| format!("Cannot load: Failed to open file {}: {}", file_path, e))?;
+            .map_err(|e| format!("Cannot load: Failed to open file {}: {}", path.display(), e))?;
         let reader = BufReader::new(file);
 
         // Extract lines from start to end (1-indexed)
@@ -190,7 +196,7 @@ impl Location {
             Some(todo) => Ok(todo),
             None => Err(format!(
                 "Cannot load: No TODO found at {}:{}",
-                file_path, self.start_line_num
+                path.display(), self.start_line_num
             )
             .into()),
         }
@@ -220,7 +226,7 @@ impl TryFrom<crate::lang::RawTodo> for Todo {
 
     fn try_from(raw_todo: crate::lang::RawTodo) -> std::result::Result<Self, Self::Error> {
         let (start, end, text) = raw_todo;
-        let location = Location::new(None, start, end);
+        let location = Location::new(None::<PathBuf>, start, end);
         let info = syntax::TodoInfo::try_from(text.as_str()).map_err(|e| format!("{}", e))?;
         Ok(Todo::new(info, location))
     }
@@ -259,7 +265,7 @@ impl Todo {
             .file_path
             .as_ref()
             .ok_or("Cannot write ID: No file path in location")?;
-        let file = File::open(&file_path)?;
+        let file = File::open(file_path)?;
         let reader = BufReader::new(file);
 
         let tmp_file = NamedTempFile::new()?;
@@ -292,7 +298,7 @@ impl Todo {
         }
 
         writer.flush()?;
-        std::fs::copy(tmp_file.path(), &file_path)?;
+        std::fs::copy(tmp_file.path(), file_path)?;
 
         Ok(())
     }
@@ -304,7 +310,7 @@ impl Todo {
             .as_ref()
             .ok_or("Cannot remove: No file path in location")?;
 
-        let file = File::open(&file_path)?;
+        let file = File::open(file_path)?;
         let reader = BufReader::new(file);
         let tmp_file = NamedTempFile::new()?;
         let mut writer = BufWriter::new(tmp_file.as_file());
@@ -319,7 +325,7 @@ impl Todo {
         }
 
         writer.flush()?;
-        std::fs::copy(tmp_file.path(), &file_path)?;
+        std::fs::copy(tmp_file.path(), file_path)?;
         Ok(())
     }
 

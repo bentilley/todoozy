@@ -95,12 +95,16 @@ impl Filter for PropertyFilter {
         match self.property {
             Property::File => match todo.location.file_path.clone() {
                 Some(file_path) => match self.relation {
-                    Relation::Equal => file_path == self.value,
-                    Relation::NotEqual => file_path != self.value,
-                    Relation::Greater => file_path > self.value,
-                    Relation::GreaterEqual => file_path >= self.value,
-                    Relation::Less => file_path < self.value,
-                    Relation::LessEqual => file_path <= self.value,
+                    Relation::Equal => file_path.to_string_lossy() == self.value,
+                    Relation::NotEqual => file_path.to_string_lossy() != self.value,
+                    Relation::Greater => file_path.to_string_lossy().as_ref() > self.value.as_str(),
+                    Relation::GreaterEqual => {
+                        file_path.to_string_lossy().as_ref() >= self.value.as_str()
+                    }
+                    Relation::Less => file_path.to_string_lossy().as_ref() < self.value.as_str(),
+                    Relation::LessEqual => {
+                        file_path.to_string_lossy().as_ref() <= self.value.as_str()
+                    }
                 },
                 None => false,
             },

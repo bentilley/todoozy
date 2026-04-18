@@ -1,22 +1,23 @@
+use std::ffi::OsString;
+use std::path::Path;
 use std::process::Command;
 
 pub struct EditorCommand {
-    editor: String,
+    editor: OsString,
     editor_name: String,
-    args: Vec<String>,
+    args: Vec<OsString>,
 }
 
 impl EditorCommand {
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
-        let editor = std::env::var("EDITOR")
-            .or_else(|_| std::env::var("VISUAL"))
-            .unwrap_or_else(|_| "vi".to_string());
+        let editor = std::env::var_os("EDITOR")
+            .or_else(|| std::env::var_os("VISUAL"))
+            .unwrap_or_else(|| OsString::from("vi"));
 
         let editor_name = std::path::Path::new(&editor)
             .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(&editor)
-            .to_string();
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| editor.to_string_lossy().into_owned());
 
         Ok(EditorCommand {
             editor,
@@ -25,28 +26,33 @@ impl EditorCommand {
         })
     }
 
-    pub fn with_location(mut self, file_path: &str, line_num: usize) -> Self {
+    pub fn with_location(mut self, file_path: impl AsRef<Path>, line_num: usize) -> Self {
+        let file_path = file_path.as_ref();
         self.args = match self.editor_name.as_str() {
             // Vim-style editors: +<line> <file>
             "vi" | "vim" | "nvim" | "neovim" | "gvim" | "mvim" => {
-                vec![format!("+{}", line_num), file_path.to_string()]
+                vec![OsString::from(format!("+{}", line_num)), file_path.as_os_str().to_os_string()]
             }
             // Emacs-style: +<line> <file>
-            "emacs" | "emacsclient" => vec![format!("+{}", line_num), file_path.to_string()],
+            "emacs" | "emacsclient" => {
+                vec![OsString::from(format!("+{}", line_num)), file_path.as_os_str().to_os_string()]
+            }
             // VS Code style: --goto <file>:<line> --wait
             "code" | "code-insiders" => vec![
-                "--goto".to_string(),
-                format!("{}:{}", file_path, line_num),
-                "--wait".to_string(),
+                OsString::from("--goto"),
+                file_at_line(file_path, line_num),
+                OsString::from("--wait"),
             ],
             // Nano: +<line> <file>
-            "nano" => vec![format!("+{}", line_num), file_path.to_string()],
+            "nano" => {
+                vec![OsString::from(format!("+{}", line_num)), file_path.as_os_str().to_os_string()]
+            }
             // Sublime Text: <file>:<line> --wait
             "subl" | "sublime_text" => {
-                vec![format!("{}:{}", file_path, line_num), "--wait".to_string()]
+                vec![file_at_line(file_path, line_num), OsString::from("--wait")]
             }
             // Default: try +<line> syntax (works for many editors)
-            _ => vec![format!("+{}", line_num), file_path.to_string()],
+            _ => vec![OsString::from(format!("+{}", line_num)), file_path.as_os_str().to_os_string()],
         };
 
         self
@@ -66,10 +72,22 @@ impl EditorCommand {
                 }
             }
             Err(e) => {
-                return Err(format!("Failed to launch editor '{}': {}", self.editor, e).into());
+                return Err(format!(
+                    "Failed to launch editor '{}': {}",
+                    self.editor.to_string_lossy(),
+                    e
+                )
+                .into());
             }
         }
 
         Ok(())
     }
+}
+
+fn file_at_line(file_path: &Path, line_num: usize) -> OsString {
+    let mut arg = file_path.as_os_str().to_os_string();
+    arg.push(":");
+    arg.push(line_num.to_string());
+    arg
 }

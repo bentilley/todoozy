@@ -200,7 +200,7 @@ fn write_json(w: &mut impl std::io::Write, todo: &todoozy::todo::Todo) -> std::i
             };
             TodoRefOutput {
                 id: ref_id,
-                file: r.location.file_path.clone(),
+                file: r.location.file_path_string(),
                 line_number: Some(r.location.start_line_num),
                 end_line_number: Some(r.location.end_line_num),
                 title: r.title.clone(),
@@ -221,7 +221,7 @@ fn write_json(w: &mut impl std::io::Write, todo: &todoozy::todo::Todo) -> std::i
         priority: todo.priority,
         creation_date: todo.creation_date.map(|d| d.to_string()),
         completion_date: todo.completion_date.map(|d| d.to_string()),
-        file: todo.location.file_path.clone(),
+        file: todo.location.file_path_string(),
         line_number: Some(todo.location.start_line_num),
         end_line_number: Some(todo.location.end_line_num),
         title: todo.title.clone(),

@@ -2,7 +2,9 @@ use super::TodoCommand;
 use crate::cli::args::{Command, Mode};
 use crate::cli::config;
 use crate::cli::error;
+use std::path::{Component, Path, PathBuf};
 use todoozy::provider::{FileSystemProvider, Provider};
+use todoozy::todo::Todo;
 
 pub const USAGE: &str = r#"Import untracked todos (assign IDs)
 
@@ -32,8 +34,8 @@ pub struct TodoImportOptions {
 // allow users to easily import all untracked todos from a specific directory, which could be
 // useful for larger projects with many files.
 pub enum LocationSpec {
-    File(String),
-    FileLine(String, usize),
+    File(PathBuf),
+    FileLine(PathBuf, usize),
 }
 
 impl TodoImportOptions {
@@ -76,10 +78,34 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
 fn parse_location(value: &str) -> error::Result<LocationSpec> {
     if let Some((file, line_str)) = value.rsplit_once(':') {
         if let Ok(line) = line_str.parse::<usize>() {
-            return Ok(LocationSpec::FileLine(file.to_string(), line));
+            return Ok(LocationSpec::FileLine(file.into(), line));
         }
     }
-    Ok(LocationSpec::File(value.to_string()))
+    Ok(LocationSpec::File(value.into()))
+}
+
+fn todo_matches_location(todo: &Todo, location: &LocationSpec) -> bool {
+    let Some(todo_path) = todo.location.file_path.as_deref() else {
+        return false;
+    };
+
+    match location {
+        LocationSpec::File(file) => normalize_location_path(todo_path) == normalize_location_path(file),
+        LocationSpec::FileLine(file, line) => {
+            normalize_location_path(todo_path) == normalize_location_path(file)
+                && todo.location.start_line_num == *line
+        }
+    }
+}
+
+fn normalize_location_path(path: impl AsRef<Path>) -> PathBuf {
+    path.as_ref()
+        .components()
+        .filter(|component| !matches!(component, Component::CurDir))
+        .fold(PathBuf::new(), |mut normalized, component| {
+            normalized.push(component.as_os_str());
+            normalized
+        })
 }
 
 pub fn import(conf: &mut config::Config, opts: &TodoImportOptions) -> error::Result<()> {
@@ -94,20 +120,8 @@ pub fn import(conf: &mut config::Config, opts: &TodoImportOptions) -> error::Res
 
         // Apply location filter if specified
         if let Some(ref location) = opts.location {
-            match location {
-                LocationSpec::File(file) => {
-                    if todo.location.file_path != Some(file.to_string()) {
-                        continue;
-                    }
-                }
-                LocationSpec::FileLine(file, line) => {
-                    if todo.location.file_path != Some(file.to_string()) {
-                        continue;
-                    }
-                    if todo.location.start_line_num != *line {
-                        continue;
-                    }
-                }
+            if !todo_matches_location(&todo, location) {
+                continue;
             }
         }
 
@@ -137,4 +151,40 @@ pub fn import(conf: &mut config::Config, opts: &TodoImportOptions) -> error::Res
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use todoozy::todo::{Location, Todo, TodoInfoBuilder};
+
+    fn make_todo(file_path: &str, line: usize) -> Todo {
+        Todo::new(
+            TodoInfoBuilder::default()
+                .title("Test todo".to_string())
+                .build()
+                .unwrap(),
+            Location::from_file_line(Some(file_path.to_string()), line),
+        )
+    }
+
+    #[test]
+    fn test_todo_matches_location_normalizes_curdir_prefix_for_file() {
+        let todo = make_todo("./src/cli/todo/get.rs", 8);
+
+        assert!(todo_matches_location(
+            &todo,
+            &LocationSpec::File("src/cli/todo/get.rs".into())
+        ));
+    }
+
+    #[test]
+    fn test_todo_matches_location_normalizes_curdir_prefix_for_file_and_line() {
+        let todo = make_todo("./src/cli/todo/get.rs", 8);
+
+        assert!(todo_matches_location(
+            &todo,
+            &LocationSpec::FileLine("src/cli/todo/get.rs".into(), 8)
+        ));
+    }
 }
