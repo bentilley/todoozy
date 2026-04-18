@@ -6,17 +6,6 @@ use todoozy::provider::{vcs, FileSystemProvider, Provider};
 use todoozy::todo::filter;
 use todoozy::todo::sort;
 
-// TODO #81 (A) 2026-04-16 Support completed todos in `tdz todo list`
-//
-// Currently, `tdz todo list` only shows active todos. We should add an option to include completed
-// todos as well, and display their completion status in the output. This will require using the
-// VcsBackend provider in src/provider/vcs to get completed todos from the history.
-//
-// Add an --all flag to toggle whether the command shows the completed todos or not.
-//
-// If the user provides the --all flag, then I think the process is to load the vcs todos, then
-// load the current todos, override the vcs todos with current ones so that we have the most up to
-// date info and then proceed with filtering / sorting / etc. as before.
 pub const USAGE: &str = r#"List todos in compact table format
 
 Usage: tdz todo list [OPTIONS]
