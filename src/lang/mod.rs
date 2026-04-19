@@ -6,6 +6,7 @@ pub mod markdown;
 pub mod protobuf;
 pub mod python;
 pub mod rust;
+pub mod sql;
 pub mod sh;
 pub mod tdz;
 pub mod terraform;

@@ -25,6 +25,7 @@ impl TodoParser {
             Protobuf => Box::new(Parser::new(&self.todo_token, &protobuf::PROTOBUF)),
             Python => Box::new(Parser::new(&self.todo_token, &python::PYTHON)),
             Rust => Box::new(Parser::new(&self.todo_token, &rust::RUST)),
+            Sql => Box::new(Parser::new(&self.todo_token, &sql::SQL)),
             Terraform => Box::new(Parser::new(&self.todo_token, &terraform::TERRAFORM)),
             Todoozy => Box::new(tdz::Parser::new(&self.todo_token)),
             Typescript => Box::new(Parser::new(&self.todo_token, &javascript::JAVASCRIPT)),

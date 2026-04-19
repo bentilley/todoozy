@@ -14,6 +14,7 @@ pub enum FileType {
     Protobuf,
     Python,
     Rust,
+    Sql,
     Sh,
     Terraform,
     Todoozy,
@@ -39,6 +40,7 @@ impl FileType {
             "*.proto",
             "*.py",
             "*.rs",
+            "*.sql",
             "*.sh",
             "*.tdz",
             "*.tf",
@@ -79,6 +81,7 @@ impl FileTypeAwarePath for std::path::Path {
             Some("proto") => Some(Protobuf),
             Some("py") => Some(Python),
             Some("rs") => Some(Rust),
+            Some("sql") => Some(Sql),
             Some("sh") => Some(Sh),
             Some("tdz") => Some(Todoozy),
             Some("tf") => Some(Terraform),
@@ -142,6 +145,7 @@ fn test_get_filetype_from_name() {
     assert_eq!(Path::new("test.yaml").get_filetype_from_name(), Some(YAML));
     assert_eq!(Path::new("test.yml").get_filetype_from_name(), Some(YAML));
     assert_eq!(Path::new("test.proto").get_filetype_from_name(), Some(Protobuf));
+    assert_eq!(Path::new("test.sql").get_filetype_from_name(), Some(Sql));
     assert_eq!(Path::new("test.mk").get_filetype_from_name(), Some(Makefile));
     assert_eq!(Path::new("Makefile").get_filetype_from_name(), Some(Makefile));
     assert_eq!(Path::new("makefile").get_filetype_from_name(), Some(Makefile));
