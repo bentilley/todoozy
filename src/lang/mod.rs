@@ -232,20 +232,6 @@ pub trait RawParser {
     }
 }
 
-// TODO #96 (C) 2026-04-18 Handle TODO comments with colon e.g. TODO:
-//
-// Currently, the parser looks for the token followed by a word boundary. This means "TODO:" is
-// parsed but the title starts with ":". Options:
-//
-// - Could add special handling to strip a colon if it immediately follows the token.
-// - add logic to the todo syntax parser to ignore titles that start with :
-// - do nothing - users can configure the token to include the colon if they want that style (e.g.
-// "TODO:").
-//
-// It's tempting to do nothing and not take an opinion here, but it does hurt the onboarding
-// experience as many code bases have comments with both styles - it seems to be a real personal
-// prefernce thing, so it's nice to not force people to choose. I think it would be good to handle
-// but want to do it with the minimal code / complexity add.
 pub struct Parser<'a> {
     todo_token: &'a str,
     syntax_rules: &'static [SyntaxRule],
@@ -272,6 +258,11 @@ impl<'a> Parser<'a> {
             || after_token.starts_with(char::is_whitespace)
             || !after_token.chars().next().unwrap().is_alphanumeric()
     }
+
+    fn extract_todo_text(&self, text: &str) -> String {
+        let after_token = text.splitn(2, &self.todo_token).nth(1).unwrap_or("").trim();
+        after_token.strip_prefix(':').unwrap_or(after_token).trim_start().to_string()
+    }
 }
 
 impl RawParser for Parser<'_> {
@@ -287,12 +278,7 @@ impl RawParser for Parser<'_> {
                         continue;
                     }
 
-                    let mut todo_text = text
-                        .splitn(2, &self.todo_token)
-                        .nth(1)
-                        .unwrap_or("")
-                        .trim()
-                        .to_string();
+                    let mut todo_text = self.extract_todo_text(text);
 
                     // Append code block
                     let trimmed = line_prefix.trim();
@@ -309,12 +295,7 @@ impl RawParser for Parser<'_> {
                         continue;
                     }
 
-                    let mut todo_text = text
-                        .splitn(2, &self.todo_token)
-                        .nth(1)
-                        .unwrap_or("")
-                        .trim()
-                        .to_string();
+                    let mut todo_text = self.extract_todo_text(text);
                     let mut end_line_number = line_number;
 
                     let mut indent_prefix_len = None;
@@ -356,15 +337,13 @@ impl RawParser for Parser<'_> {
                         continue;
                     }
 
-                    let mut lines = text
-                        .splitn(2, &self.todo_token)
-                        .nth(1)
-                        .unwrap_or("")
-                        .lines();
+                    let after_token = text.splitn(2, &self.todo_token).nth(1).unwrap_or("").trim();
+                    let after_token = after_token.strip_prefix(':').unwrap_or(after_token).trim_start();
+                    let mut lines = after_token.lines();
 
                     let mut todo_text = String::new();
                     if let Some(first_line) = lines.next() {
-                        todo_text.push_str(first_line.trim());
+                        todo_text.push_str(first_line.trim_end());
                     }
 
                     let mut indent_prefix_len = None;
@@ -948,5 +927,57 @@ let y = 2;"#;
             todos[1],
             (4, 7, "block comment todo\n\nwith continuation".to_string())
         );
+    }
+
+    // Colon handling tests
+    #[test]
+    fn line_comment_todo_with_colon_and_space() {
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
+        let text = "// TODO: with colon\nlet x = 1;";
+        let todos = parser.parse_str(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (1, 1, "with colon".to_string()));
+    }
+
+    #[test]
+    fn line_comment_todo_with_colon_no_space() {
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
+        let text = "// TODO:no space\nlet x = 1;";
+        let todos = parser.parse_str(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (1, 1, "no space".to_string()));
+    }
+
+    #[test]
+    fn block_comment_todo_with_colon() {
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
+        let text = "/* TODO: block with colon */\nlet x = 1;";
+        let todos = parser.parse_str(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (1, 1, "block with colon".to_string()));
+    }
+
+    #[test]
+    fn block_comment_multiline_todo_with_colon() {
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
+        let text = r#"/* TODO: multiline with colon
+   second line
+   third line
+*/"#;
+        let todos = parser.parse_str(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (1, 4, "multiline with colon\nsecond line\nthird line".to_string())
+        );
+    }
+
+    #[test]
+    fn inline_comment_todo_with_colon() {
+        let parser = Parser::new("TODO", &TEST_LINE_COMMENT);
+        let text = "let x = 1; // TODO: inline with colon\nlet y = 2;";
+        let todos = parser.parse_str(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (1, 1, "inline with colon\n\n`let x = 1;`".to_string()));
     }
 }
