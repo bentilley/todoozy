@@ -21,25 +21,6 @@ use todoozy::todo::sort;
 // - breakdown by tag
 // - maybe: tracked vs untracked count
 
-// TODO #66 (D) 2026-03-22 Implement `tdz lint` command +cli +ids
-//
-// Validation command for CI/hooks. Checks for:
-// - Duplicate IDs (same #id used in multiple places)
-// - Orphan references (&id with no matching #id primary)
-// - Other structural issues as needed
-//
-// Usage:
-//   tdz lint              # report issues, exit 1 if any found
-//   tdz lint --fix        # auto-fix duplicates by reindexing
-//
-// The --fix flag reassigns duplicate IDs to next available:
-// - Keeps first occurrence's ID
-// - Reassigns subsequent occurrences
-// - Updates files in place
-// - Reports what changed
-//
-// Designed for CI integration - non-zero exit code on errors.
-
 // TODO #67 (D) 2026-03-22 Implement `tdz cache build` command +cli +ids
 //
 // Build cache of all TODO IDs ever used in git history.
