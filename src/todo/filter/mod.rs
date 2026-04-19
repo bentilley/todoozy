@@ -2,13 +2,11 @@ use core::fmt::{self, Display};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
+mod error;
 mod parser;
 
-// TODO #79 (C) 2026-04-03 Refactor Filter along same lines as Sorter
-//
-// see the recent changes to src/todo/sort
-//
-// notably, remove parse_str, module specific error type, better parser error messages
+pub use error::{Error, Result};
+
 pub trait Filter: Display + std::fmt::Debug {
     fn filter(&self, todo: &crate::todo::Todo) -> bool;
     fn box_clone(&self) -> Box<dyn Filter>;
@@ -21,7 +19,7 @@ impl Clone for Box<dyn Filter> {
 }
 
 impl Serialize for Box<dyn Filter> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: serde::ser::Serializer,
     {
@@ -30,12 +28,12 @@ impl Serialize for Box<dyn Filter> {
 }
 
 impl<'de> Deserialize<'de> for Box<dyn Filter> {
-    fn deserialize<D>(deserializer: D) -> Result<Box<dyn Filter>, D::Error>
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Box<dyn Filter>, D::Error>
     where
         D: serde::de::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        parse_str(&s).map_err(serde::de::Error::custom)
+        s.parse().map_err(serde::de::Error::custom)
     }
 }
 
@@ -270,14 +268,10 @@ impl Display for All {
     }
 }
 
-pub fn parse_str(filter_def: &str) -> Result<Box<dyn Filter>, String> {
-    self::parser::parse_expression(&filter_def)
-}
-
 impl FromStr for Box<dyn Filter> {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        parse_str(s)
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self> {
+        self::parser::parse_expression(s)
     }
 }
 

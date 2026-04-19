@@ -1,54 +1,47 @@
-use super::{Conjunction, Disjunction, Filter, Negation, Property, PropertyFilter, Relation};
+use super::{error::Result, Conjunction, Disjunction, Filter, Negation, Property, PropertyFilter, Relation};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag},
     character::complete::{char, space0, space1},
-    combinator::opt,
+    combinator::{all_consuming, cut, opt, value},
+    error::{context, VerboseError},
     multi::many0,
     sequence::{delimited, tuple},
-    IResult,
 };
 
-fn property(i: &str) -> IResult<&str, Property> {
-    let (i, p) = alt((
-        tag("file"),
-        tag("priority"),
-        tag("tag"),
-        tag("creation_date"),
-        tag("completion_date"),
-    ))(i)?;
-    match p {
-        "file" => Ok((i, Property::File)),
-        "priority" => Ok((i, Property::Priority)),
-        "tag" => Ok((i, Property::Tag)),
-        "creation_date" => Ok((i, Property::CreationDate)),
-        "completion_date" => Ok((i, Property::CompletionDate)),
-        _ => unreachable!(),
-    }
+type IResult<'a, O> = nom::IResult<&'a str, O, VerboseError<&'a str>>;
+
+fn property(i: &str) -> IResult<'_, Property> {
+    context(
+        "property (file, priority, tag, creation_date, completion_date)",
+        alt((
+            value(Property::File, tag("file")),
+            value(Property::Priority, tag("priority")),
+            value(Property::Tag, tag("tag")),
+            value(Property::CreationDate, tag("creation_date")),
+            value(Property::CompletionDate, tag("completion_date")),
+        )),
+    )(i)
 }
 
-fn relation(i: &str) -> IResult<&str, Relation> {
-    let (i, p) = alt((
-        tag("="),
-        tag("!="),
-        tag(">="),
-        tag(">"),
-        tag("<="),
-        tag("<"),
-    ))(i)?;
-    match p {
-        "=" => Ok((i, Relation::Equal)),
-        "!=" => Ok((i, Relation::NotEqual)),
-        ">" => Ok((i, Relation::Greater)),
-        ">=" => Ok((i, Relation::GreaterEqual)),
-        "<" => Ok((i, Relation::Less)),
-        "<=" => Ok((i, Relation::LessEqual)),
-        _ => unreachable!(),
-    }
+fn relation(i: &str) -> IResult<'_, Relation> {
+    context(
+        "relation (=, !=, >, >=, <, <=)",
+        alt((
+            value(Relation::Equal, tag("=")),
+            value(Relation::NotEqual, tag("!=")),
+            value(Relation::GreaterEqual, tag(">=")),
+            value(Relation::Greater, tag(">")),
+            value(Relation::LessEqual, tag("<=")),
+            value(Relation::Less, tag("<")),
+        )),
+    )(i)
 }
 
-fn property_filter(i: &str) -> IResult<&str, PropertyFilter> {
-    let (i, (p, r, v)) = tuple((property, relation, is_not(" )")))(i)?;
+fn property_filter(i: &str) -> IResult<'_, PropertyFilter> {
+    let (i, p) = context("property filter", property)(i)?;
+    let (i, r) = cut(relation)(i)?;
+    let (i, v) = cut(context("filter value", is_not(" )")))(i)?;
     Ok((
         i,
         PropertyFilter {
@@ -59,28 +52,28 @@ fn property_filter(i: &str) -> IResult<&str, PropertyFilter> {
     ))
 }
 
-fn and(i: &str) -> IResult<&str, &str> {
+fn and(i: &str) -> IResult<'_, &str> {
     delimited(space0, tag("and"), space1)(i)
 }
 
-fn or(i: &str) -> IResult<&str, &str> {
+fn or(i: &str) -> IResult<'_, &str> {
     delimited(space0, tag("or"), space1)(i)
 }
 
-fn term(i: &str) -> IResult<&str, Box<dyn Filter>> {
+fn term(i: &str) -> IResult<'_, Box<dyn Filter>> {
     let (i, f) = property_filter(i)?;
     Ok((i, Box::new(f)))
 }
 
-fn parens(i: &str) -> IResult<&str, Box<dyn Filter>> {
+fn parens(i: &str) -> IResult<'_, Box<dyn Filter>> {
     delimited(space0, delimited(char('('), conjunction, char(')')), space0)(i)
 }
 
-fn not(i: &str) -> IResult<&str, &str> {
+fn not(i: &str) -> IResult<'_, &str> {
     delimited(space0, tag("not"), space1)(i)
 }
 
-fn clause(i: &str) -> IResult<&str, Box<dyn Filter>> {
+fn clause(i: &str) -> IResult<'_, Box<dyn Filter>> {
     let (i, n) = opt(not)(i)?;
     let (i, f) = alt((parens, term))(i)?;
     if n.is_some() {
@@ -90,7 +83,7 @@ fn clause(i: &str) -> IResult<&str, Box<dyn Filter>> {
     }
 }
 
-fn disjunction(i: &str) -> IResult<&str, Box<dyn Filter>> {
+fn disjunction(i: &str) -> IResult<'_, Box<dyn Filter>> {
     let (i, s) = clause(i)?;
     let (i, exprs) = many0(tuple((or, clause)))(i)?;
     let mut filter = Disjunction { filters: vec![s] };
@@ -100,7 +93,7 @@ fn disjunction(i: &str) -> IResult<&str, Box<dyn Filter>> {
     Ok((i, Box::new(filter)))
 }
 
-fn conjunction(i: &str) -> IResult<&str, Box<dyn Filter>> {
+fn conjunction(i: &str) -> IResult<'_, Box<dyn Filter>> {
     let (i, s) = disjunction(i)?;
     let (i, exprs) = many0(tuple((and, disjunction)))(i)?;
     let mut filter = Conjunction { filters: vec![s] };
@@ -110,10 +103,10 @@ fn conjunction(i: &str) -> IResult<&str, Box<dyn Filter>> {
     Ok((i, Box::new(filter)))
 }
 
-pub fn parse_expression(filter_def: &str) -> Result<Box<dyn Filter>, String> {
-    match conjunction(filter_def) {
+pub fn parse_expression(filter_def: &str) -> Result<Box<dyn Filter>> {
+    match all_consuming(conjunction)(filter_def) {
         Ok((_, f)) => Ok(f),
-        Err(e) => Err(format!("Failed to parse filter conjunction: {:?}", e)),
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -512,5 +505,26 @@ mod tests {
             Location::default(),
         );
         assert!(!f.filter(&todo));
+    }
+
+    #[test]
+    fn test_parse_expression_invalid() {
+        // Invalid property names
+        assert_eq!(
+            parse_expression("non").unwrap_err().to_string(),
+            "expected property (file, priority, tag, creation_date, completion_date) at 'non'"
+        );
+
+        // Empty or whitespace-only expressions
+        assert_eq!(
+            parse_expression("").unwrap_err().to_string(),
+            "expected property (file, priority, tag, creation_date, completion_date)"
+        );
+
+        // Trailing input should be rejected
+        assert_eq!(
+            parse_expression("priority=A extra").unwrap_err().to_string(),
+            "unexpected ' extra' in filter expression"
+        );
     }
 }

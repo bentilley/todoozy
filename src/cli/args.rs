@@ -191,7 +191,7 @@ fn parse_tui_args(mut parser: lexopt::Parser) -> error::Result<Mode> {
                 if value.is_empty() {
                     args.filter = Override::Unset;
                 } else {
-                    args.filter = match filter::parse_str(&value) {
+                    args.filter = match value.parse() {
                         Ok(f) => Override::Value(f),
                         Err(e) => return Err(format!("invalid filter '{}': {}", value, e).into()),
                     };
