@@ -129,7 +129,11 @@ impl std::fmt::Display for Location {
 }
 
 impl Location {
-    pub fn new<P: Into<PathBuf>>(file: Option<P>, line_number: usize, end_line_number: usize) -> Self {
+    pub fn new<P: Into<PathBuf>>(
+        file: Option<P>,
+        line_number: usize,
+        end_line_number: usize,
+    ) -> Self {
         Location {
             file_path: file.map(Into::into),
             start_line_num: line_number,
@@ -196,7 +200,8 @@ impl Location {
             Some(todo) => Ok(todo),
             None => Err(format!(
                 "Cannot load: No TODO found at {}:{}",
-                path.display(), self.start_line_num
+                path.display(),
+                self.start_line_num
             )
             .into()),
         }
@@ -286,6 +291,56 @@ impl Todo {
                                 )))
                             }
                         };
+                        writer.write_all(new_line.as_bytes())?;
+                        writer.write_all(b"\n")?;
+                    } else {
+                        writer.write_all(line.as_bytes())?;
+                        writer.write_all(b"\n")?;
+                    }
+                }
+                Err(e) => return Err(Box::new(e)),
+            }
+        }
+
+        writer.flush()?;
+        std::fs::copy(tmp_file.path(), file_path)?;
+
+        Ok(())
+    }
+
+    /// Rewrites the todo's ID in the source file to a new value.
+    pub fn rewrite_id(&self, new_id: u32) -> Result<()> {
+        let (token, old_id) = match &self.id {
+            Some(TodoIdentifier::Primary(id)) => ('#', *id),
+            Some(TodoIdentifier::Reference(id)) => ('&', *id),
+            None => {
+                return Err(Box::new(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "No ID to rewrite",
+                )))
+            }
+        };
+
+        let file_path = self
+            .location
+            .file_path
+            .as_ref()
+            .ok_or("Cannot rewrite ID: No file path in location")?;
+        let file = File::open(file_path)?;
+        let reader = BufReader::new(file);
+
+        let tmp_file = NamedTempFile::new()?;
+        let mut writer = BufWriter::new(tmp_file.as_file());
+
+        let old_pattern = format!("{}{}", token, old_id);
+        let new_pattern = format!("{}{}", token, new_id);
+
+        for (i, line) in reader.lines().enumerate() {
+            match line {
+                Ok(line) => {
+                    if i + 1 == self.location.start_line_num {
+                        // Replace the old ID with the new ID on the TODO line
+                        let new_line = line.replacen(&old_pattern, &new_pattern, 1);
                         writer.write_all(new_line.as_bytes())?;
                         writer.write_all(b"\n")?;
                     } else {
@@ -1228,6 +1283,9 @@ mod tests {
         base.merge(other);
 
         assert_eq!(base.warnings().len(), 1);
-        matches!(&base.warnings()[0], LinkingWarning::OrphanReference { id: 999, .. });
+        matches!(
+            &base.warnings()[0],
+            LinkingWarning::OrphanReference { id: 999, .. }
+        );
     }
 }

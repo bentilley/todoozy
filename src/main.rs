@@ -23,7 +23,15 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         }
         Ok(Cli(cmd)) => {
             let mut config = cli::config::Config::load_config()?;
+            // TODO #97 (B) 2026-04-19 Need a way for these commands to return non-zero exit codes
+            //
+            // We shouldn't use `std::process::exit()` in the middle of any of these functions, they
+            // should be pure functions that return a Result, and we should handle the error here
+            // in main and exit with a non-zero code if there was an error. I think commands should
+            // return Result<u32> or something like that, so that they can define the error code
+            // that they'd like returned, but not have to raise it themselves.
             match cmd {
+                Lint(ref opts) => cli::lint::lint(&config, opts),
                 Todo(TodoCommand::List(ref opts)) => cli::todo::list(&config, opts),
                 Todo(TodoCommand::Get(ref opts)) => cli::todo::get(&config, opts),
                 Todo(TodoCommand::Import(ref opts)) => cli::todo::import(&mut config, opts),

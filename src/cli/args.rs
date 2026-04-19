@@ -1,4 +1,5 @@
 use super::error;
+use super::lint;
 use super::tag;
 use super::todo;
 use todoozy::todo::filter;
@@ -73,6 +74,7 @@ use todoozy::todo::sort;
 // Useful for scaffolding new files from TODO specifications.
 
 pub enum Command {
+    Lint(lint::LintOptions),
     Tag(tag::TagCommand),
     Todo(todo::TodoCommand),
 }
@@ -88,6 +90,7 @@ const USAGE: &str = r#"Todos as code manager
 Usage: tdz [OPTIONS] [COMMAND]
 
 Commands:
+    lint    Validate todo structure
     todo    Manage todos (list, get, import, edit, remove)
     tag     Manage tags
 
@@ -100,6 +103,7 @@ Options:
 
 pub fn parse_args(mut parser: lexopt::Parser) -> error::Result<Mode> {
     match detect_subcommand(&mut parser) {
+        Some(cmd) if cmd == "lint" => lint::parse_opts(parser),
         Some(cmd) if cmd == "tag" => tag::parse_cmd(parser),
         Some(cmd) if cmd == "todo" => todo::parse_cmd(parser),
         Some(other) => Err(format!("unknown subcommand '{}'", other).into()),
