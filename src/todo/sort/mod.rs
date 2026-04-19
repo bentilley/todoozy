@@ -50,9 +50,9 @@ impl<'de> Deserialize<'de> for Box<dyn Sorter> {
     }
 }
 
-// TODO #95 (C) 2026-04-18 Add sort by ID
 #[derive(Debug, PartialEq, Clone)]
 enum Property {
+    Id,
     Title,
     File,
     LineNumber,
@@ -64,6 +64,7 @@ enum Property {
 impl Display for Property {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
+            Property::Id => write!(f, "id"),
             Property::Title => write!(f, "title"),
             Property::File => write!(f, "file"),
             Property::LineNumber => write!(f, "line_number"),
@@ -116,13 +117,18 @@ impl Default for PropertySorter {
 impl Sorter for PropertySorter {
     fn compare(&self, a: &crate::todo::Todo, b: &crate::todo::Todo) -> std::cmp::Ordering {
         let ord = match self.property {
+            Property::Id => {
+                let a_id = a.id.as_ref().map(|id| **id).unwrap_or(0);
+                let b_id = b.id.as_ref().map(|id| **id).unwrap_or(0);
+                a_id.cmp(&b_id)
+            }
             Property::Title => a.title.cmp(&b.title),
             Property::File => a.location.file_path.cmp(&b.location.file_path),
             Property::LineNumber => a.location.start_line_num.cmp(&b.location.start_line_num),
             Property::Priority => {
-                let a = a.priority.unwrap_or('Z');
-                let b = b.priority.unwrap_or('Z');
-                a.cmp(&b)
+                let a_priority = a.priority.unwrap_or('Z');
+                let b_priority = b.priority.unwrap_or('Z');
+                a_priority.cmp(&b_priority)
             }
             Property::CreationDate => a.creation_date.cmp(&b.creation_date),
             Property::CompletionDate => a.completion_date.cmp(&b.completion_date),
@@ -226,6 +232,16 @@ mod tests {
         });
         let json = serde_json::to_string(&sorter).unwrap();
         assert_eq!(json, "\"priority:asc\"");
+    }
+
+    #[test]
+    fn test_serialize_json_sorter_id() {
+        let sorter: Box<dyn Sorter> = Box::new(PropertySorter {
+            property: Property::Id,
+            direction: Direction::Ascending,
+        });
+        let json = serde_json::to_string(&sorter).unwrap();
+        assert_eq!(json, "\"id:asc\"");
     }
 
     #[test]

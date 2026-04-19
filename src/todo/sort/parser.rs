@@ -13,8 +13,9 @@ type IResult<'a, O> = nom::IResult<&'a str, O, VerboseError<&'a str>>;
 
 fn property(i: &str) -> IResult<'_, Property> {
     context(
-        "property (title, file, line_number, priority, creation_date, completion_date)",
+        "property (id, title, file, line_number, priority, creation_date, completion_date)",
         alt((
+            value(Property::Id, tag("id")),
             value(Property::Title, tag("title")),
             value(Property::File, tag("file")),
             value(Property::LineNumber, tag("line_number")),
@@ -96,6 +97,7 @@ mod tests {
 
     #[test]
     fn test_property() {
+        assert_eq!(property("id"), Ok(("", Property::Id)));
         assert_eq!(property("title"), Ok(("", Property::Title)));
         assert_eq!(property("file"), Ok(("", Property::File)));
         assert_eq!(property("line_number"), Ok(("", Property::LineNumber)));
@@ -145,6 +147,48 @@ mod tests {
                 }
             ))
         );
+        assert_eq!(
+            property_sort("id:desc"),
+            Ok((
+                "",
+                PropertySorter {
+                    property: Property::Id,
+                    direction: Direction::Descending
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn test_id_sort_comparison() {
+        use crate::todo::TodoIdentifier;
+
+        let sorter = PropertySorter {
+            property: Property::Id,
+            direction: Direction::Ascending,
+        };
+        let a = Todo::new(
+            TodoInfoBuilder::default()
+                .id(Some(TodoIdentifier::Primary(1)))
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        let b = Todo::new(
+            TodoInfoBuilder::default()
+                .id(Some(TodoIdentifier::Primary(2)))
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        let c = Todo::new(
+            TodoInfoBuilder::default().build().unwrap(),
+            Location::default(),
+        );
+        assert_eq!(sorter.compare(&a, &b), std::cmp::Ordering::Less);
+        assert_eq!(sorter.compare(&b, &a), std::cmp::Ordering::Greater);
+        assert_eq!(sorter.compare(&a, &c), std::cmp::Ordering::Greater); // 1 > 0
+        assert_eq!(sorter.compare(&c, &a), std::cmp::Ordering::Less); // 0 < 1
     }
 
     #[test]
