@@ -3,25 +3,8 @@ use crate::cli::args::{Command, Mode};
 use crate::cli::config;
 use crate::cli::error;
 use todoozy::todo::TodoIdentifier;
-use todoozy::provider::{FileSystemProvider, Provider};
+use todoozy::provider::{vcs, FileSystemProvider, Provider};
 
-// TODO #94 (A) 2026-04-16 Support completed todos using VcsBackend
-//
-// Currently, todos are only accessible if they are still present in the file system - completing
-// a todo is just deleteing the comment. Need to use the VcsBackend Provider to support fetching
-// info for historic todos.
-//
-// Don't know whether to force the user to be explicit - i.e. must specify `tdz todo get --done
-// <N>` or allow some flexibility and do some lifting our side to work it out - i.e. user can just
-// write `tdz todo get <N>`, first we check the todos that exist in the file system, then if we
-// can't find it fall back to the vcs search. The vcs search can be expensive for large repos, so
-// might be best to require the user to be explicit about it. Need a flag to specify the vcs
-// search... `--vcs`? `--history`? `--done`? `--include-completed`? `--search-all`?
-// `--search-history`?
-//
-// We should also support getting the view of a todo at a specific version. Something like `tdz
-// todo get <N> --version <commit-ish>`. This is useful when a todo has evolved across several
-// commits.
 pub const USAGE: &str = r#"Show full details for a specific todo
 
 Usage: tdz todo get [OPTIONS] <ID>
@@ -30,13 +13,17 @@ Arguments:
     <ID>    The todo ID to display
 
 Options:
-    --format <FORMAT>  Output format: raw, json (default: raw)
-    --help             Print help
+    -a, --all              Search VCS history if not found in filesystem
+        --version <REV>    Get todo at a specific commit/tag/branch (implies --all)
+        --format <FORMAT>  Output format: raw, json (default: raw)
+        --help             Print help
 "#;
 
 pub struct TodoGetOptions {
     pub id: u32,
     pub format: OutputFormat,
+    pub include_completed: bool,
+    pub version: Option<String>,
 }
 
 pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
@@ -44,9 +31,13 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
 
     let mut id: Option<u32> = None;
     let mut format = OutputFormat::Raw;
+    let mut include_completed = false;
+    let mut version: Option<String> = None;
 
     while let Some(arg) = parser.next()? {
         match arg {
+            Short('a') | Long("all") => include_completed = true,
+            Long("version") => version = Some(parser.value()?.parse()?),
             Long("format") => format = parser.value()?.parse()?,
             Long("help") => return Ok(Mode::Help(USAGE)),
             Value(val) if id.is_none() => {
@@ -63,32 +54,85 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     Ok(Mode::Cli(Command::Todo(TodoCommand::Get(TodoGetOptions {
         id,
         format,
+        include_completed,
+        version,
     }))))
 }
 
 pub fn get(conf: &config::Config, opts: &TodoGetOptions) -> error::Result<()> {
-    let todo = FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone())
-        .get_todo(opts.id)?;
+    let todo = if let Some(ref version) = opts.version {
+        // --version: VCS lookup at specific version
+        get_todo_from_vcs(conf, opts.id, version)?
+    } else if opts.include_completed {
+        // --all: filesystem first, then VCS fallback
+        let fs_todo = FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone())
+            .get_todo(opts.id)?;
+        match fs_todo {
+            Some(todo) => Some(todo),
+            None => get_todo_from_vcs(conf, opts.id, "HEAD")?,
+        }
+    } else {
+        // Default: filesystem only
+        FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone())
+            .get_todo(opts.id)?
+    };
 
     match todo {
         Some(todo) => match opts.format {
-            OutputFormat::Raw => print_raw(&todo),
-            OutputFormat::Json => print_json(&todo),
+            OutputFormat::Raw => print_raw(&todo, opts.version.as_deref()),
+            OutputFormat::Json => print_json(&todo, opts.version.as_deref()),
         },
-        None => return Err(format!("Todo #{} not found", opts.id).into()),
+        None => {
+            let hint = if !opts.include_completed && opts.version.is_none() {
+                " (try --all to search history)"
+            } else {
+                ""
+            };
+            return Err(format!("Todo #{} not found{}", opts.id, hint).into());
+        }
     };
 
     Ok(())
 }
 
-fn print_raw(todo: &todoozy::todo::Todo) {
-    write_raw(&mut std::io::stdout(), todo).unwrap();
+fn get_todo_from_vcs(
+    conf: &config::Config,
+    id: u32,
+    version: &str,
+) -> error::Result<Option<todoozy::todo::Todo>> {
+    let cwd = std::env::current_dir()?;
+    match vcs::create_vcs_backend(&cwd, &conf.get_todo_token(), None) {
+        Ok(vcs_backend) => match vcs_backend.get_todo_for_version(id, version) {
+            Ok(todo) => Ok(Some(todo)),
+            Err(vcs::error::Error::Custom(msg)) if msg.contains("not found") => Ok(None),
+            Err(e) => Err(e.into()),
+        },
+        Err(vcs::error::Error::NotARepository) => {
+            if version != "HEAD" {
+                return Err("--version requires a git repository".into());
+            }
+            eprintln!("Warning: --all requires a git repository; searching only current files");
+            Ok(None)
+        }
+        Err(e) => Err(e.into()),
+    }
 }
 
-fn write_raw(w: &mut impl std::io::Write, todo: &todoozy::todo::Todo) -> std::io::Result<()> {
+fn print_raw(todo: &todoozy::todo::Todo, version: Option<&str>) {
+    write_raw(&mut std::io::stdout(), todo, version).unwrap();
+}
+
+fn write_raw(
+    w: &mut impl std::io::Write,
+    todo: &todoozy::todo::Todo,
+    version: Option<&str>,
+) -> std::io::Result<()> {
     // ID and priority
     writeln!(w, "ID:          {}", todo.display_id())?;
     writeln!(w, "Priority:    {}", todo.display_priority())?;
+    if let Some(v) = version {
+        writeln!(w, "Version:     {}", v)?;
+    }
 
     // Dates
     if let Some(date) = todo.creation_date {
@@ -149,8 +193,8 @@ fn write_raw(w: &mut impl std::io::Write, todo: &todoozy::todo::Todo) -> std::io
     Ok(())
 }
 
-fn print_json(todo: &todoozy::todo::Todo) {
-    write_json(&mut std::io::stdout(), todo).unwrap();
+fn print_json(todo: &todoozy::todo::Todo, version: Option<&str>) {
+    write_json(&mut std::io::stdout(), todo, version).unwrap();
 }
 
 #[derive(serde::Serialize)]
@@ -172,6 +216,8 @@ struct TodoFullOutput {
     priority: Option<char>,
     creation_date: Option<String>,
     completion_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
     file: Option<String>,
     line_number: Option<usize>,
     end_line_number: Option<usize>,
@@ -182,7 +228,11 @@ struct TodoFullOutput {
     references: Vec<TodoRefOutput>,
 }
 
-fn write_json(w: &mut impl std::io::Write, todo: &todoozy::todo::Todo) -> std::io::Result<()> {
+fn write_json(
+    w: &mut impl std::io::Write,
+    todo: &todoozy::todo::Todo,
+    version: Option<&str>,
+) -> std::io::Result<()> {
     let (id, id_type) = match &todo.id {
         Some(TodoIdentifier::Primary(n)) => (Some(*n), Some("primary".to_string())),
         Some(TodoIdentifier::Reference(n)) => (Some(*n), Some("reference".to_string())),
@@ -221,6 +271,7 @@ fn write_json(w: &mut impl std::io::Write, todo: &todoozy::todo::Todo) -> std::i
         priority: todo.priority,
         creation_date: todo.creation_date.map(|d| d.to_string()),
         completion_date: todo.completion_date.map(|d| d.to_string()),
+        version: version.map(|v| v.to_string()),
         file: todo.location.file_path_string(),
         line_number: Some(todo.location.start_line_num),
         end_line_number: Some(todo.location.end_line_num),
@@ -266,12 +317,13 @@ mod tests {
         );
 
         let mut buf = Vec::new();
-        write_raw(&mut buf, &todo).unwrap();
+        write_raw(&mut buf, &todo, None).unwrap();
         let output = String::from_utf8(buf).unwrap();
 
         // Check basic fields
         assert!(output.contains("ID:          #99"));
         assert!(output.contains("Priority:    (A)"));
+        assert!(!output.contains("Version:"));
         assert!(output.contains("Location:    src/main.rs:10-15"));
         assert!(output.contains("Tags:        +feature +urgent"));
         assert!(output.contains("Title:"));
@@ -307,7 +359,7 @@ mod tests {
         );
 
         let mut buf = Vec::new();
-        write_json(&mut buf, &todo).unwrap();
+        write_json(&mut buf, &todo, None).unwrap();
         let output = String::from_utf8(buf).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
 
@@ -315,6 +367,7 @@ mod tests {
         assert_eq!(parsed["id"], 99);
         assert_eq!(parsed["id_type"], "primary");
         assert_eq!(parsed["priority"], "A");
+        assert!(parsed.get("version").is_none());
         assert_eq!(parsed["title"], "Test todo title");
         assert_eq!(parsed["description"], "Test description");
         assert_eq!(parsed["file"], "src/main.rs");
