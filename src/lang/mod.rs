@@ -232,7 +232,7 @@ pub trait RawParser {
     }
 }
 
-// TODO #95 (C) 2026-04-18 Handle TODO comments with colon e.g. TODO:
+// TODO #96 (C) 2026-04-18 Handle TODO comments with colon e.g. TODO:
 //
 // Currently, the parser looks for the token followed by a word boundary. This means "TODO:" is
 // parsed but the title starts with ":". Options:
