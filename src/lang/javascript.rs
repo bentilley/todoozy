@@ -1,7 +1,17 @@
+use super::SyntaxRule;
+
+pub const JAVASCRIPT: [SyntaxRule; 5] = [
+    SyntaxRule::LineComment(b"//"),
+    SyntaxRule::BlockComment(b"/*", b"*/"),
+    SyntaxRule::SkipDelimitedWithEscape(b"`", b"`", b'\\'),
+    SyntaxRule::SkipDelimitedWithEscape(b"\"", b"\"", b'\\'),
+    SyntaxRule::SkipDelimitedWithEscape(b"'", b"'", b'\\'),
+];
+
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::lang::RawParser;
-    use crate::lang::javascript::JAVASCRIPT;
 
     #[test]
     fn test_parser() {
@@ -96,19 +106,19 @@ This is a test todo with some indented lines:
             )
         );
 
-        // File with raw strings
+        // File with template literals
         let text = r##"
     const some = "code";
     const text = `
         /* TODO 2020-08-06 Can it handle this fake todo? +Testing
          *
-         * This todo is in a raw string, so ignore it.
+         * This todo is in a template literal, so ignore it.
          */
     `
 
     /* TODO 2020-08-06 Does it find the real todo? +Testing
 
-       This todo isn't in a raw string.
+       This todo isn't in a template literal.
      */
 
     const more = "code";
@@ -121,7 +131,7 @@ This is a test todo with some indented lines:
                 13 as usize,
                 r#"2020-08-06 Does it find the real todo? +Testing
 
-This todo isn't in a raw string."#
+This todo isn't in a template literal."#
                     .to_string()
             )
         );

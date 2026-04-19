@@ -19,6 +19,7 @@ impl TodoParser {
             Bash | Ksh | Sh | Zsh => Box::new(Parser::new(&self.todo_token, &sh::SH)),
             Dockerfile => Box::new(Parser::new(&self.todo_token, &dockerfile::DOCKERFILE)),
             Go => Box::new(Parser::new(&self.todo_token, &go::GO)),
+            JavaScript => Box::new(Parser::new(&self.todo_token, &javascript::JAVASCRIPT)),
             Makefile => Box::new(Parser::new(&self.todo_token, &makefile::MAKEFILE)),
             Markdown => Box::new(Parser::new(&self.todo_token, &markdown::MARKDOWN)),
             Protobuf => Box::new(Parser::new(&self.todo_token, &protobuf::PROTOBUF)),
@@ -26,7 +27,7 @@ impl TodoParser {
             Rust => Box::new(Parser::new(&self.todo_token, &rust::RUST)),
             Terraform => Box::new(Parser::new(&self.todo_token, &terraform::TERRAFORM)),
             Todoozy => Box::new(tdz::Parser::new(&self.todo_token)),
-            Typescript => Box::new(Parser::new(&self.todo_token, &typescript::TYPESCRIPT)),
+            Typescript => Box::new(Parser::new(&self.todo_token, &javascript::JAVASCRIPT)),
             YAML => Box::new(Parser::new(&self.todo_token, &yaml::YAML)),
         }
     }

@@ -7,6 +7,7 @@ pub enum FileType {
     Bash,
     Dockerfile,
     Go,
+    JavaScript,
     Ksh,
     Makefile,
     Markdown,
@@ -30,6 +31,8 @@ impl FileType {
             "*.bash",
             "*.dockerfile",
             "*.go",
+            "*.js",
+            "*.jsx",
             "*.ksh",
             "*.md",
             "*.mk",
@@ -69,6 +72,7 @@ impl FileTypeAwarePath for std::path::Path {
             Some("bash") => Some(Bash),
             Some("dockerfile") => Some(Dockerfile),
             Some("go") => Some(Go),
+            Some("js") | Some("jsx") => Some(JavaScript),
             Some("ksh") => Some(Ksh),
             Some("md") => Some(Markdown),
             Some("mk") => Some(Makefile),
@@ -150,6 +154,8 @@ fn test_get_filetype_from_name() {
     assert_eq!(Path::new("test.ksh").get_filetype_from_name(), Some(Ksh));
     assert_eq!(Path::new("test.ts").get_filetype_from_name(), Some(Typescript));
     assert_eq!(Path::new("test.tsx").get_filetype_from_name(), Some(Typescript));
+    assert_eq!(Path::new("test.js").get_filetype_from_name(), Some(JavaScript));
+    assert_eq!(Path::new("test.jsx").get_filetype_from_name(), Some(JavaScript));
     // Unknown extension returns None (no shebang fallback)
     assert_eq!(Path::new("test").get_filetype_from_name(), None);
     assert_eq!(Path::new("script").get_filetype_from_name(), None);

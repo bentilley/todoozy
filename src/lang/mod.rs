@@ -1,5 +1,6 @@
 pub mod dockerfile;
 pub mod go;
+pub mod javascript;
 pub mod makefile;
 pub mod markdown;
 pub mod protobuf;
@@ -8,7 +9,6 @@ pub mod rust;
 pub mod sh;
 pub mod tdz;
 pub mod terraform;
-pub mod typescript;
 pub mod yaml;
 
 pub enum SyntaxRule {
