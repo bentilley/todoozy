@@ -455,13 +455,21 @@ enum Event {
 /// Git-based VCS backend for extracting TODO lifecycle data.
 pub struct GitBackend {
     repo: Repository,
-    history_start: Option<String>,
+    /// Optional commit-ish that limits how far back to scan. Commits before this are excluded.
+    cutoff: Option<String>,
     parser: TodoParser,
     cache: RefCell<Cache>,
 }
 
 impl GitBackend {
-    pub fn new(path: &Path, todo_token: &str, history_start: Option<String>) -> Result<Self> {
+    /// Create a new GitBackend for the repository at the given path.
+    ///
+    /// # Arguments
+    /// * `path` - Path within the repository
+    /// * `todo_token` - The token used to identify TODOs (e.g., "TODO")
+    /// * `cutoff` - Optional commit-ish (tag, branch, SHA) that limits how far back to scan.
+    ///   Commits before the cutoff are excluded. The cutoff commit itself is included.
+    pub fn new(path: &Path, todo_token: &str, cutoff: Option<String>) -> Result<Self> {
         let repo = Repository::discover(path).map_err(|e| {
             if e.code() == git2::ErrorCode::NotFound {
                 Error::NotARepository
@@ -474,7 +482,7 @@ impl GitBackend {
 
         Ok(GitBackend {
             repo,
-            history_start,
+            cutoff,
             parser: TodoParser::new(todo_token),
             cache,
         })
@@ -522,20 +530,21 @@ impl GitBackend {
         Ok(())
     }
 
-    fn get_history_start_commit(&self) -> Result<Option<Commit<'_>>> {
-        if let Some(ref history_start) = self.history_start {
-            match self.repo.revparse_single(history_start) {
+    /// Resolve the cutoff commit if one was specified.
+    fn get_cutoff_commit(&self) -> Result<Option<Commit<'_>>> {
+        if let Some(ref cutoff) = self.cutoff {
+            match self.repo.revparse_single(cutoff) {
                 Ok(obj) => Ok(Some(obj.peel_to_commit().map_err(|e| {
                     Error::GitError(format!(
-                        "history start `{}` is not a commit: {}",
-                        history_start,
+                        "cutoff `{}` is not a commit: {}",
+                        cutoff,
                         e.message()
                     ))
                 })?)),
                 Err(e) if e.code() == git2::ErrorCode::NotFound => Ok(None),
                 Err(e) => Err(Error::GitError(format!(
-                    "failed to resolve history start `{}`: {}",
-                    history_start,
+                    "failed to resolve cutoff `{}`: {}",
+                    cutoff,
                     e.message()
                 ))),
             }
@@ -556,14 +565,14 @@ impl GitBackend {
             Error::from(e)
         })?;
 
-        if let Some(history_start_commit) = self.get_history_start_commit()? {
+        if let Some(cutoff_commit) = self.get_cutoff_commit()? {
             println!(
-                "Using history start commit `{}` ({}), timestamp {:?}",
-                self.history_start.as_ref().unwrap(),
-                history_start_commit.id(),
-                history_start_commit.time()
+                "Using cutoff `{}` ({}), timestamp {:?}",
+                self.cutoff.as_ref().unwrap(),
+                cutoff_commit.id(),
+                cutoff_commit.time()
             );
-            for parent in history_start_commit.parents() {
+            for parent in cutoff_commit.parents() {
                 revwalk.hide(parent.id())?;
             }
         }
@@ -666,12 +675,12 @@ impl GitBackend {
         repo: &Repository,
         parser: &TodoParser,
         oid: Oid,
-        history_start: Oid,
+        cutoff: Oid,
     ) -> Result<HashMap<u32, Vec<Event>>> {
         let commit = repo.find_commit(oid)?;
 
-        // For root commits (no parents or history start), diff against empty tree
-        let parents = if commit.parent_count() == 0 || oid == history_start {
+        // For root commits (no parents or cutoff commit), diff against empty tree
+        let parents = if commit.parent_count() == 0 || oid == cutoff {
             vec![None]
         } else {
             commit.parents().map(Some).collect()
@@ -774,17 +783,16 @@ impl GitBackend {
         //     Error::from(e)
         // })?;
 
-        if let Some(history_start_commit) = self.get_history_start_commit()? {
-            for parent in history_start_commit.parents() {
+        if let Some(cutoff_commit) = self.get_cutoff_commit()? {
+            for parent in cutoff_commit.parents() {
                 revwalk.hide(parent.id())?;
             }
         }
-        let history_start_commit_id =
-            if let Some(history_start_commit) = self.get_history_start_commit()? {
-                history_start_commit.id()
-            } else {
-                Oid::zero() // Dummy OID that won't match any real commit
-            };
+        let cutoff_oid = if let Some(cutoff_commit) = self.get_cutoff_commit()? {
+            cutoff_commit.id()
+        } else {
+            Oid::zero() // Dummy OID that won't match any real commit
+        };
 
         revwalk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME | git2::Sort::REVERSE)?;
 
@@ -802,7 +810,7 @@ impl GitBackend {
             .par_iter()
             .map(|oid| {
                 let thread_repo = Repository::open(repo_path)?;
-                Self::parse_commit(&thread_repo, parser, *oid, history_start_commit_id)
+                Self::parse_commit(&thread_repo, parser, *oid, cutoff_oid)
             })
             .collect();
 
@@ -1143,7 +1151,7 @@ mod tests {
             "// TODO #2 Start here\nfn main() {}",
             "Start using todoozy",
         );
-        tag_head(dir.path(), "tdz_history_start");
+        tag_head(dir.path(), "tdz_cutoff");
 
         commit_file(
             dir.path(),
@@ -1152,21 +1160,21 @@ mod tests {
             "Add TODO after adoption",
         );
 
-        let backend = GitBackend::new(dir.path(), "TODO", Some("tdz_history_start".to_string()))
+        let backend = GitBackend::new(dir.path(), "TODO", Some("tdz_cutoff".to_string()))
             .expect("failed to create backend");
         let todos = backend.get_all_todos().expect("failed to scan");
 
         assert!(
             todos.get(&1).is_none(),
-            "pre-adoption TODO should be ignored"
+            "TODO before cutoff should be ignored"
         );
         assert!(
             todos.get(&2).is_some(),
-            "history start commit should be included"
+            "cutoff commit should be included"
         );
         assert!(
             todos.get(&3).is_some(),
-            "post-adoption TODO should be included"
+            "TODO after cutoff should be included"
         );
     }
 
@@ -1204,13 +1212,13 @@ mod tests {
     }
 
     #[test]
-    fn test_git_backend_rejects_non_commit_history_ref() {
+    fn test_git_backend_rejects_non_commit_cutoff_ref() {
         let (dir, repo) = create_test_repo();
 
         commit_file(
             dir.path(),
             "main.rs",
-            "// TODO #1 Invalid history ref target\nfn main() {}",
+            "// TODO #1 Invalid cutoff ref target\nfn main() {}",
             "Add TODO",
         );
 
@@ -1227,10 +1235,10 @@ mod tests {
             .expect("failed to create backend");
         match backend.cache_todo_history() {
             Err(Error::GitError(msg)) => {
-                assert!(msg.contains("history start `not-a-commit` is not a commit"));
+                assert!(msg.contains("cutoff `not-a-commit` is not a commit"));
             }
-            Err(other) => panic!("expected GitError for non-commit history ref, got {other}"),
-            Ok(_) => panic!("tree history ref should fail"),
+            Err(other) => panic!("expected GitError for non-commit cutoff ref, got {other}"),
+            Ok(_) => panic!("tree cutoff ref should fail"),
         }
     }
 
@@ -1910,46 +1918,46 @@ mod tests {
     }
 
     #[test]
-    fn test_revparse_respects_history_start() {
+    fn test_revparse_respects_cutoff() {
         let (dir, _repo) = create_test_repo();
 
         commit_file(
             dir.path(),
             "main.rs",
-            "// TODO #1 Before history start\nfn main() {}",
-            "Pre-adoption commit",
+            "// TODO #1 Before cutoff\nfn main() {}",
+            "Pre-cutoff commit",
         );
 
         commit_file(
             dir.path(),
             "main.rs",
-            "// TODO #2 At history start\nfn main() {}",
-            "History start commit",
+            "// TODO #2 At cutoff\nfn main() {}",
+            "Cutoff commit",
         );
-        tag_head(dir.path(), "history_start");
+        tag_head(dir.path(), "cutoff");
 
         commit_file(
             dir.path(),
             "main.rs",
-            "// TODO #2 At history start\n// TODO #3 After history start\nfn main() {}",
-            "Post-adoption commit",
+            "// TODO #2 At cutoff\n// TODO #3 After cutoff\nfn main() {}",
+            "Post-cutoff commit",
         );
 
-        let backend = GitBackend::new(dir.path(), "TODO", Some("history_start".to_string()))
+        let backend = GitBackend::new(dir.path(), "TODO", Some("cutoff".to_string()))
             .expect("failed to create backend");
         let todos = backend.get_all_todos().expect("failed to scan");
 
         assert!(
             todos.get(&1).is_none(),
-            "TODO from before history_start should be excluded"
+            "TODO from before cutoff should be excluded"
         );
         assert!(
             todos.get(&2).is_some(),
-            "TODO from history_start commit should be included"
+            "TODO from cutoff commit should be included"
         );
         assert!(
             todos.get(&3).is_some(),
-            "TODO after history_start should be included"
+            "TODO after cutoff should be included"
         );
     }
 }

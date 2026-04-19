@@ -15,14 +15,14 @@ fn main() {
         env::current_dir().expect("failed to get current dir")
     };
 
-    let history_start = if args.len() >= 3 {
+    let cutoff = if args.len() >= 3 {
         Some(args[2].clone())
     } else {
         None
     };
 
     println!("Creating Git backend for path: {}", path.display());
-    let provider = match create_vcs_backend(&path, "TODO", history_start) {
+    let provider = match create_vcs_backend(&path, "TODO", cutoff) {
         Ok(b) => b,
         Err(e) => {
             eprintln!("Error: {}", e);

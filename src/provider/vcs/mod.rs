@@ -57,15 +57,18 @@ impl Provider for dyn VcsBackend {
     }
 }
 
+/// Create a VCS backend for the given repository path.
+///
+/// # Arguments
+/// * `path` - Path to the repository
+/// * `todo_token` - The token used to identify TODOs (e.g., "TODO")
+/// * `cutoff` - Optional commit-ish (tag, branch, SHA) that limits how far back to scan.
+///   Commits before the cutoff are excluded from history. The cutoff commit itself is included.
 pub fn create_vcs_backend(
     path: &Path,
     todo_token: &str,
-    history_start: Option<String>,
+    cutoff: Option<String>,
 ) -> Result<Box<dyn VcsBackend>> {
     // For now, we only support git. In the future, we could add support for other VCS types.
-    Ok(Box::new(git::GitBackend::new(
-        path,
-        todo_token,
-        history_start,
-    )?))
+    Ok(Box::new(git::GitBackend::new(path, todo_token, cutoff)?))
 }
