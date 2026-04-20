@@ -2,6 +2,7 @@ pub mod c;
 pub mod cpp;
 pub mod dockerfile;
 pub mod go;
+pub mod html;
 pub mod javascript;
 pub mod makefile;
 pub mod markdown;

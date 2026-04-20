@@ -21,6 +21,7 @@ impl TodoParser {
             Cpp => Box::new(Parser::new(&self.todo_token, &cpp::CPP)),
             Dockerfile => Box::new(Parser::new(&self.todo_token, &dockerfile::DOCKERFILE)),
             Go => Box::new(Parser::new(&self.todo_token, &go::GO)),
+            Html => Box::new(Parser::new(&self.todo_token, &html::HTML)),
             JavaScript => Box::new(Parser::new(&self.todo_token, &javascript::JAVASCRIPT)),
             Makefile => Box::new(Parser::new(&self.todo_token, &makefile::MAKEFILE)),
             Markdown => Box::new(Parser::new(&self.todo_token, &markdown::MARKDOWN)),

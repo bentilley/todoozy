@@ -9,6 +9,7 @@ pub enum FileType {
     Cpp,
     Dockerfile,
     Go,
+    Html,
     JavaScript,
     Ksh,
     Makefile,
@@ -41,6 +42,8 @@ impl FileType {
             "*.h",
             "*.hh",
             "*.hpp",
+            "*.htm",
+            "*.html",
             "*.hxx",
             "*.js",
             "*.jsx",
@@ -88,6 +91,7 @@ impl FileTypeAwarePath for std::path::Path {
             }
             Some("dockerfile") => Some(Dockerfile),
             Some("go") => Some(Go),
+            Some("html") | Some("htm") => Some(Html),
             Some("js") | Some("jsx") => Some(JavaScript),
             Some("ksh") => Some(Ksh),
             Some("md") => Some(Markdown),
@@ -184,6 +188,9 @@ fn test_get_filetype_from_name() {
     assert_eq!(Path::new("test.hh").get_filetype_from_name(), Some(Cpp));
     assert_eq!(Path::new("test.hpp").get_filetype_from_name(), Some(Cpp));
     assert_eq!(Path::new("test.hxx").get_filetype_from_name(), Some(Cpp));
+    // HTML files
+    assert_eq!(Path::new("test.html").get_filetype_from_name(), Some(Html));
+    assert_eq!(Path::new("test.htm").get_filetype_from_name(), Some(Html));
     // Unknown extension returns None (no shebang fallback)
     assert_eq!(Path::new("test").get_filetype_from_name(), None);
     assert_eq!(Path::new("script").get_filetype_from_name(), None);
