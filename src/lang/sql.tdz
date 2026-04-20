@@ -1,6 +1,0 @@
-# TODO #89 (C) Add SQL language support
-
-SQL support should cover `.sql` files.
-
-The parser should handle `--` and `/* ... */` comments and ignore quoted string content
-so TODO-like text inside SQL literals is not parsed.
