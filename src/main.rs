@@ -36,6 +36,7 @@ fn run() -> Result<ExitCode, Box<dyn error::Error>> {
             let mut config = cli::config::Config::load_config()?;
             match cmd {
                 Lint(ref opts) => cli::lint::lint(&config, opts),
+                Summary(ref opts) => cli::summary::summary(&config, opts),
                 Todo(TodoCommand::List(ref opts)) => cli::todo::list(&config, opts),
                 Todo(TodoCommand::Get(ref opts)) => cli::todo::get(&config, opts),
                 Todo(TodoCommand::Import(ref opts)) => cli::todo::import(&mut config, opts),

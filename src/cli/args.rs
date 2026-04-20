@@ -1,5 +1,6 @@
 use super::error;
 use super::lint;
+use super::summary;
 use super::tag;
 use super::todo;
 use todoozy::todo::filter;
@@ -12,14 +13,6 @@ use todoozy::todo::sort;
 // files / directories. Def useful for testing, or seeing how a todo you just wrote looks. Also,
 // useful if you want to just see todos for a specific package in a monorepo. Needs some scoping
 // first +idea.
-
-// TODO #57 (D) 2026-03-22 Implement `tdz summary` command +cli
-//
-// Show summary statistics for the codebase:
-// - total todo count
-// - breakdown by priority
-// - breakdown by tag
-// - maybe: tracked vs untracked count
 
 // TODO #67 (D) 2026-03-22 Implement `tdz cache build` command +cli +ids
 //
@@ -56,6 +49,7 @@ use todoozy::todo::sort;
 
 pub enum Command {
     Lint(lint::LintOptions),
+    Summary(summary::SummaryOptions),
     Tag(tag::TagCommand),
     Todo(todo::TodoCommand),
 }
@@ -71,9 +65,10 @@ const USAGE: &str = r#"Todos as code manager
 Usage: tdz [OPTIONS] [COMMAND]
 
 Commands:
-    lint    Validate todo structure
-    todo    Manage todos (list, get, import, edit, remove)
-    tag     Manage tags
+    lint      Validate todo structure
+    summary   Show summary statistics
+    todo      Manage todos (list, get, import, edit, remove)
+    tag       Manage tags
 
 Options:
     -E, --exclude <PATH<,PATH>>  Files or directories to exclude from search
@@ -85,6 +80,7 @@ Options:
 pub fn parse_args(mut parser: lexopt::Parser) -> error::Result<Mode> {
     match detect_subcommand(&mut parser) {
         Some(cmd) if cmd == "lint" => lint::parse_opts(parser),
+        Some(cmd) if cmd == "summary" => summary::parse_opts(parser),
         Some(cmd) if cmd == "tag" => tag::parse_cmd(parser),
         Some(cmd) if cmd == "todo" => todo::parse_cmd(parser),
         Some(other) => Err(format!("unknown subcommand '{}'", other).into()),
