@@ -1,6 +1,7 @@
 use super::args::Mode;
 use super::config;
 use super::error;
+use std::process::ExitCode;
 use todoozy::provider::{FileSystemProvider, Provider};
 use todoozy::todo::LinkingWarning;
 
@@ -48,12 +49,13 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     Ok(Mode::Cli(Command::Lint(opts)))
 }
 
-pub fn lint(conf: &config::Config, opts: &LintOptions) -> error::Result<()> {
-    let todos = FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone()).get_todos()?;
+pub fn lint(conf: &config::Config, opts: &LintOptions) -> error::Result<ExitCode> {
+    let todos =
+        FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone()).get_todos()?;
     let warnings = todos.warnings();
 
     if warnings.is_empty() {
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     }
 
     if opts.fix {
@@ -63,15 +65,15 @@ pub fn lint(conf: &config::Config, opts: &LintOptions) -> error::Result<()> {
     }
 }
 
-fn lint_report(warnings: &[LinkingWarning]) -> error::Result<()> {
+fn lint_report(warnings: &[LinkingWarning]) -> error::Result<ExitCode> {
     for warning in warnings {
         eprintln!("{}", warning);
     }
 
-    std::process::exit(1);
+    Ok(ExitCode::FAILURE)
 }
 
-fn lint_fix(conf: &config::Config, todos: &todoozy::todo::Todos) -> error::Result<()> {
+fn lint_fix(conf: &config::Config, todos: &todoozy::todo::Todos) -> error::Result<ExitCode> {
     let mut max_id = todos.get_max_id();
     let mut fixed_count = 0;
     let mut remaining_issues = 0;
@@ -84,8 +86,7 @@ fn lint_fix(conf: &config::Config, todos: &todoozy::todo::Todos) -> error::Resul
                 first_location: _,
             } => {
                 // Load the duplicate todo from its location
-                let parser =
-                    todoozy::todo::parser::TodoParser::new(&conf.get_todo_token());
+                let parser = todoozy::todo::parser::TodoParser::new(&conf.get_todo_token());
                 match duplicate_location.load(&parser) {
                     Ok(mut todo) => {
                         // Set the file path on the loaded todo's location
@@ -105,19 +106,13 @@ fn lint_fix(conf: &config::Config, todos: &todoozy::todo::Todos) -> error::Resul
                                 fixed_count += 1;
                             }
                             Err(e) => {
-                                eprintln!(
-                                    "Error fixing #{} at {}: {}",
-                                    id, duplicate_location, e
-                                );
+                                eprintln!("Error fixing #{} at {}: {}", id, duplicate_location, e);
                                 remaining_issues += 1;
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!(
-                            "Error loading #{} at {}: {}",
-                            id, duplicate_location, e
-                        );
+                        eprintln!("Error loading #{} at {}: {}", id, duplicate_location, e);
                         remaining_issues += 1;
                     }
                 }
@@ -139,19 +134,45 @@ fn lint_fix(conf: &config::Config, todos: &todoozy::todo::Todos) -> error::Resul
 
     if remaining_issues > 0 {
         eprintln!("{} issue(s) remain", remaining_issues);
-        std::process::exit(1);
     }
 
-    Ok(())
+    Ok(lint_fix_exit_code(fixed_count, remaining_issues))
 }
 
-// TODO #98 (B) 2026-04-19 Add lint tests once `std::process::exit` calls removed
-//
-// depends:97 Once the calls are removed then we're free to add some tests for the lint_* functions
-// here.
+fn lint_fix_exit_code(fixed_count: usize, remaining_issues: usize) -> ExitCode {
+    if fixed_count > 0 || remaining_issues > 0 {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+    use todoozy::todo::Location;
+
+    fn test_config() -> config::Config {
+        serde_json::from_str(
+            r#"{
+                "_num_todos": 0,
+                "exclude": [],
+                "filter": null,
+                "sorter": null,
+                "todo_token": null
+            }"#,
+        )
+        .unwrap()
+    }
+
+    fn orphan_warning(id: u32) -> LinkingWarning {
+        LinkingWarning::OrphanReference {
+            id,
+            location: Location::from_file_line(Some(PathBuf::from("src/main.rs")), 42),
+        }
+    }
 
     #[test]
     fn parse_opts_no_args() {
@@ -181,5 +202,61 @@ mod tests {
         let parser = lexopt::Parser::from_iter(["dummy", "--help"]);
         let result = parse_opts(parser);
         assert!(matches!(result, Ok(Mode::Help(_))));
+    }
+
+    #[test]
+    fn lint_report_returns_failure_exit_code() {
+        let warnings = vec![orphan_warning(7)];
+
+        let exit_code = lint_report(&warnings).unwrap();
+
+        assert_eq!(exit_code, ExitCode::FAILURE);
+    }
+
+    #[test]
+    fn lint_fix_exit_code_is_success_when_nothing_changed() {
+        assert_eq!(lint_fix_exit_code(0, 0), ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn lint_fix_exit_code_is_failure_when_changes_were_made() {
+        assert_eq!(lint_fix_exit_code(1, 0), ExitCode::FAILURE);
+    }
+
+    #[test]
+    fn lint_fix_exit_code_is_failure_when_issues_remain() {
+        assert_eq!(lint_fix_exit_code(0, 1), ExitCode::FAILURE);
+    }
+
+    #[test]
+    fn lint_fix_rewrites_duplicate_id_in_temp_file() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("main.rs");
+        let config = test_config();
+        let text = "// TODO #1 first duplicate\n// TODO #1 second duplicate\n";
+
+        std::fs::write(&file_path, text).unwrap();
+
+        let parser = FileSystemProvider::new(&config.get_todo_token(), Vec::new());
+        let todos: todoozy::todo::Todos = parser
+            .parse_file(file_path.clone().leak())
+            .ok()
+            .unwrap()
+            .into();
+
+        assert_eq!(todos.warnings().len(), 1);
+
+        let exit_code = lint_fix(&config, &todos).unwrap();
+        let updated = std::fs::read_to_string(&file_path).unwrap();
+        let reparsed: todoozy::todo::Todos = parser
+            .parse_file(file_path.clone().leak())
+            .ok()
+            .unwrap()
+            .into();
+
+        assert_eq!(exit_code, ExitCode::FAILURE);
+        assert!(updated.contains("// TODO #1 first duplicate"));
+        assert!(updated.contains("// TODO #2 second duplicate"));
+        assert!(reparsed.warnings().is_empty());
     }
 }

@@ -3,6 +3,7 @@ use crate::cli::args::{Command, Mode};
 use crate::cli::config;
 use crate::cli::error;
 use std::path::{Component, Path, PathBuf};
+use std::process::ExitCode;
 use todoozy::provider::{FileSystemProvider, Provider};
 use todoozy::todo::Todo;
 
@@ -120,7 +121,7 @@ fn normalize_location_path(path: impl AsRef<Path>) -> PathBuf {
         })
 }
 
-pub fn import(conf: &mut config::Config, opts: &TodoImportOptions) -> error::Result<()> {
+pub fn import(conf: &mut config::Config, opts: &TodoImportOptions) -> error::Result<ExitCode> {
     let todos =
         FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone()).get_todos()?;
 
@@ -163,7 +164,7 @@ pub fn import(conf: &mut config::Config, opts: &TodoImportOptions) -> error::Res
         println!("No untracked todos found matching the criteria.");
     }
 
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 #[cfg(test)]

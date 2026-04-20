@@ -4,6 +4,7 @@ use crate::cli::config;
 use crate::cli::error;
 use std::collections::HashMap;
 use todoozy::provider::{FileSystemProvider, Provider};
+use std::process::ExitCode;
 
 pub const USAGE: &str = r#"List all tags with counts
 
@@ -100,7 +101,7 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     Ok(Mode::Cli(Command::Tag(TagCommand::List(opts))))
 }
 
-pub fn list(conf: &config::Config, opts: &TagListOptions) -> error::Result<()> {
+pub fn list(conf: &config::Config, opts: &TagListOptions) -> error::Result<ExitCode> {
     let todos = FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone())
         .get_todos()?;
 
@@ -152,5 +153,5 @@ pub fn list(conf: &config::Config, opts: &TagListOptions) -> error::Result<()> {
         }
     }
 
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }

@@ -2,6 +2,7 @@ use super::{OutputFormat, TodoCommand};
 use crate::cli::args::{Command, Mode};
 use crate::cli::config;
 use crate::cli::error;
+use std::process::ExitCode;
 use todoozy::provider::{vcs, FileSystemProvider, Provider};
 use todoozy::todo::filter;
 use todoozy::todo::sort;
@@ -92,7 +93,7 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     Ok(Mode::Cli(Command::Todo(TodoCommand::List(opts))))
 }
 
-pub fn list(conf: &config::Config, opts: &TodoListOptions) -> error::Result<()> {
+pub fn list(conf: &config::Config, opts: &TodoListOptions) -> error::Result<ExitCode> {
     let mut todos = if opts.include_completed {
         let cwd = std::env::current_dir()?;
         match vcs::create_vcs_backend(&cwd, &conf.get_todo_token(), None) {
@@ -144,7 +145,7 @@ pub fn list(conf: &config::Config, opts: &TodoListOptions) -> error::Result<()> 
         OutputFormat::Json => write_json(&mut std::io::stdout(), &all_todos)?,
     }
 
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 fn write_raw(w: &mut impl std::io::Write, todos: &[todoozy::todo::Todo]) -> std::io::Result<()> {

@@ -1,3 +1,5 @@
+use std::process::ExitCode;
+
 use super::TodoCommand;
 use crate::cli::args::{Command, Mode};
 use crate::cli::config;
@@ -45,7 +47,7 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     ))))
 }
 
-pub fn remove(conf: &config::Config, opts: &TodoRemoveOptions) -> error::Result<()> {
+pub fn remove(conf: &config::Config, opts: &TodoRemoveOptions) -> error::Result<ExitCode> {
     let todo = FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone())
         .get_todo(opts.id)?
         .ok_or_else(|| error::Error::from(format!("Todo #{} not found", opts.id)))?;
@@ -55,5 +57,5 @@ pub fn remove(conf: &config::Config, opts: &TodoRemoveOptions) -> error::Result<
 
     println!("Removed: #{} {}", opts.id, todo.title);
 
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }

@@ -4,6 +4,7 @@ use crate::cli::config;
 use crate::cli::error;
 use todoozy::todo::TodoIdentifier;
 use todoozy::provider::{vcs, FileSystemProvider, Provider};
+use std::process::ExitCode;
 
 pub const USAGE: &str = r#"Show full details for a specific todo
 
@@ -59,7 +60,7 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     }))))
 }
 
-pub fn get(conf: &config::Config, opts: &TodoGetOptions) -> error::Result<()> {
+pub fn get(conf: &config::Config, opts: &TodoGetOptions) -> error::Result<ExitCode> {
     let todo = if let Some(ref version) = opts.version {
         // --version: VCS lookup at specific version
         get_todo_from_vcs(conf, opts.id, version)?
@@ -92,7 +93,7 @@ pub fn get(conf: &config::Config, opts: &TodoGetOptions) -> error::Result<()> {
         }
     };
 
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 fn get_todo_from_vcs(

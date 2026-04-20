@@ -36,7 +36,7 @@ impl FileSystemProvider {
         Ok(todos.into())
     }
 
-    fn parse_file(&self, file_path: &std::path::Path) -> Result<Vec<Todo>> {
+    pub fn parse_file(&self, file_path: &std::path::Path) -> Result<Vec<Todo>> {
         let file_type = file_path.get_filetype().ok_or("Invalid file type")?;
         let file_name = file_path.to_str().ok_or("Invalid file path")?;
 

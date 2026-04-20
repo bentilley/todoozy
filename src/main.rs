@@ -1,4 +1,5 @@
 use std::error;
+use std::process::ExitCode;
 
 mod cli;
 
@@ -10,7 +11,17 @@ mod cli;
 //
 // A few useful tools like listing tags feels fine, but slicing and dicing the
 // todo metadata feels like too much.
-fn main() -> Result<(), Box<dyn error::Error>> {
+fn main() -> ExitCode {
+    match run() {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<ExitCode, Box<dyn error::Error>> {
     use cli::args::Command::*;
     use cli::args::Mode::*;
     use cli::tag::TagCommand;
@@ -19,17 +30,10 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     match cli::args::parse_args(lexopt::Parser::from_env()) {
         Ok(Help(text)) => {
             println!("{}", text);
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         Ok(Cli(cmd)) => {
             let mut config = cli::config::Config::load_config()?;
-            // TODO #97 (B) 2026-04-19 Need a way for these commands to return non-zero exit codes
-            //
-            // We shouldn't use `std::process::exit()` in the middle of any of these functions, they
-            // should be pure functions that return a Result, and we should handle the error here
-            // in main and exit with a non-zero code if there was an error. I think commands should
-            // return Result<u32> or something like that, so that they can define the error code
-            // that they'd like returned, but not have to raise it themselves.
             match cmd {
                 Lint(ref opts) => cli::lint::lint(&config, opts),
                 Todo(TodoCommand::List(ref opts)) => cli::todo::list(&config, opts),
@@ -43,11 +47,9 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         Ok(TUI(mut args)) => {
             let mut config = cli::config::Config::load_config()?;
             args.apply(&mut config);
-            cli::tui::run(config)
+            cli::tui::run(config)?;
+            Ok(ExitCode::SUCCESS)
         }
-        Err(e) => {
-            eprintln!("error: {}", e);
-            std::process::exit(1);
-        }
+        Err(e) => Err(e),
     }
 }

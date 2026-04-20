@@ -3,6 +3,7 @@ use crate::cli::args::{Command, Mode};
 use crate::cli::config;
 use crate::cli::error;
 use todoozy::provider::{FileSystemProvider, Provider};
+use std::process::ExitCode;
 
 pub const USAGE: &str = r#"Open todo in $EDITOR at its file location
 
@@ -46,7 +47,7 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     ))))
 }
 
-pub fn edit(conf: &config::Config, opts: &TodoEditOptions) -> error::Result<()> {
+pub fn edit(conf: &config::Config, opts: &TodoEditOptions) -> error::Result<ExitCode> {
     let todo = FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone())
         .get_todo(opts.id)?
         .ok_or_else(|| error::Error::from(format!("Todo #{} not found", opts.id)))?;
@@ -59,5 +60,5 @@ pub fn edit(conf: &config::Config, opts: &TodoEditOptions) -> error::Result<()> 
         .execute()
         .map_err(|e| error::Error::from(format!("{}", e)))?;
 
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
