@@ -5,6 +5,8 @@ pub use walk::{Walk, WalkConfig};
 #[derive(Debug, PartialEq)]
 pub enum FileType {
     Bash,
+    C,
+    Cpp,
     Dockerfile,
     Go,
     JavaScript,
@@ -30,8 +32,16 @@ impl FileType {
     pub fn supported_pathspecs() -> &'static [&'static str] {
         &[
             "*.bash",
+            "*.c",
+            "*.cc",
+            "*.cpp",
+            "*.cxx",
             "*.dockerfile",
             "*.go",
+            "*.h",
+            "*.hh",
+            "*.hpp",
+            "*.hxx",
             "*.js",
             "*.jsx",
             "*.ksh",
@@ -72,6 +82,10 @@ impl FileTypeAwarePath for std::path::Path {
         use FileType::*;
         match self.extension().and_then(std::ffi::OsStr::to_str) {
             Some("bash") => Some(Bash),
+            Some("c") | Some("h") => Some(C),
+            Some("cc") | Some("cpp") | Some("cxx") | Some("hh") | Some("hpp") | Some("hxx") => {
+                Some(Cpp)
+            }
             Some("dockerfile") => Some(Dockerfile),
             Some("go") => Some(Go),
             Some("js") | Some("jsx") => Some(JavaScript),
@@ -160,6 +174,16 @@ fn test_get_filetype_from_name() {
     assert_eq!(Path::new("test.tsx").get_filetype_from_name(), Some(Typescript));
     assert_eq!(Path::new("test.js").get_filetype_from_name(), Some(JavaScript));
     assert_eq!(Path::new("test.jsx").get_filetype_from_name(), Some(JavaScript));
+    // C files
+    assert_eq!(Path::new("test.c").get_filetype_from_name(), Some(C));
+    assert_eq!(Path::new("test.h").get_filetype_from_name(), Some(C));
+    // C++ files
+    assert_eq!(Path::new("test.cc").get_filetype_from_name(), Some(Cpp));
+    assert_eq!(Path::new("test.cpp").get_filetype_from_name(), Some(Cpp));
+    assert_eq!(Path::new("test.cxx").get_filetype_from_name(), Some(Cpp));
+    assert_eq!(Path::new("test.hh").get_filetype_from_name(), Some(Cpp));
+    assert_eq!(Path::new("test.hpp").get_filetype_from_name(), Some(Cpp));
+    assert_eq!(Path::new("test.hxx").get_filetype_from_name(), Some(Cpp));
     // Unknown extension returns None (no shebang fallback)
     assert_eq!(Path::new("test").get_filetype_from_name(), None);
     assert_eq!(Path::new("script").get_filetype_from_name(), None);

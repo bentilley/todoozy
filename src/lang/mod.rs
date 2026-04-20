@@ -1,3 +1,5 @@
+pub mod c;
+pub mod cpp;
 pub mod dockerfile;
 pub mod go;
 pub mod javascript;

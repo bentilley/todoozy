@@ -17,6 +17,8 @@ impl TodoParser {
         use crate::lang::*;
         match file_type {
             Bash | Ksh | Sh | Zsh => Box::new(Parser::new(&self.todo_token, &sh::SH)),
+            C => Box::new(Parser::new(&self.todo_token, &c::C)),
+            Cpp => Box::new(Parser::new(&self.todo_token, &cpp::CPP)),
             Dockerfile => Box::new(Parser::new(&self.todo_token, &dockerfile::DOCKERFILE)),
             Go => Box::new(Parser::new(&self.todo_token, &go::GO)),
             JavaScript => Box::new(Parser::new(&self.todo_token, &javascript::JAVASCRIPT)),
