@@ -11,6 +11,7 @@ use git2::{Commit, DiffOptions, Oid, Repository};
 use itertools::Itertools;
 use rayon::prelude::*;
 use rusqlite::{params, Connection};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -174,6 +175,7 @@ pub struct GitBackend {
     /// Optional commit-ish that limits how far back to scan. Commits before this are excluded.
     cutoff: Option<String>,
     parser: TodoParser,
+    cache: RefCell<Cache>,
 }
 
 impl GitBackend {
@@ -192,11 +194,13 @@ impl GitBackend {
                 Error::from(e)
             }
         })?;
+        let cache = RefCell::new(Cache::open(&repo)?);
 
         Ok(GitBackend {
             repo,
             cutoff,
             parser: TodoParser::new(todo_token),
+            cache,
         })
     }
 
@@ -347,12 +351,8 @@ impl GitBackend {
 
         revwalk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME | git2::Sort::REVERSE)?;
 
-        // Open cache and get cached commit OIDs
-        let mut cache = Cache::open(&self.repo).ok();
-        let cached_commits = cache
-            .as_ref()
-            .and_then(|c| c.get_cached_commit_oids().ok())
-            .unwrap_or_default();
+        // Get cached commit OIDs
+        let cached_commits = self.cache.borrow().get_cached_commit_oids().unwrap_or_default();
 
         // Filter out already-cached commits
         let oids_to_parse: Vec<Oid> = revwalk
@@ -395,16 +395,12 @@ impl GitBackend {
         }
 
         // Cache new results in a single transaction
-        if let Some(ref mut c) = cache {
-            let _ = c.cache_results(&to_cache);
-        }
+        let _ = self.cache.borrow_mut().cache_results(&to_cache);
 
         // Load and merge cached events
-        if let Some(ref c) = cache {
-            if let Ok(cached_events) = c.get_all_cached_events() {
-                for (id, evs) in cached_events {
-                    events.entry(id).or_default().extend(evs);
-                }
+        if let Ok(cached_events) = self.cache.borrow().get_all_cached_events() {
+            for (id, evs) in cached_events {
+                events.entry(id).or_default().extend(evs);
             }
         }
 
