@@ -68,8 +68,14 @@ impl Cache {
              PRAGMA busy_timeout=5000;",
         )?;
         conn.execute(
+            "CREATE TABLE IF NOT EXISTS git_commit (
+                oid TEXT PRIMARY KEY
+            )",
+            [],
+        )?;
+        conn.execute(
             "CREATE TABLE IF NOT EXISTS event (
-                commit_oid TEXT NOT NULL,
+                commit_oid TEXT NOT NULL REFERENCES git_commit(oid),
                 todo_id INTEGER NOT NULL,
                 event_type TEXT NOT NULL,
                 event_oid TEXT NOT NULL,
@@ -84,65 +90,80 @@ impl Cache {
         Ok(Self { conn })
     }
 
-    fn get_events(&self, oid: Oid) -> Option<HashMap<u32, Vec<Event>>> {
-        let oid_str = oid.to_string();
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT todo_id, event_type, event_oid, file_path FROM event WHERE commit_oid = ?",
-            )
-            .ok()?;
+    /// Returns all cached commit OIDs as strings for fast lookup.
+    fn get_cached_commit_oids(&self) -> Result<std::collections::HashSet<String>> {
+        let mut stmt = self.conn.prepare("SELECT oid FROM git_commit")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut result = std::collections::HashSet::new();
+        for row in rows {
+            result.insert(row?);
+        }
+        Ok(result)
+    }
 
-        let rows = stmt
-            .query_map([&oid_str], |row| {
-                Ok((
-                    row.get::<_, u32>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                ))
-            })
-            .ok()?;
+    /// Load events for all cached commits (for merging with newly parsed data).
+    fn get_all_cached_events(&self) -> Result<HashMap<u32, Vec<Event>>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT todo_id, event_type, event_oid, file_path FROM event",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, u32>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?;
 
         let mut result: HashMap<u32, Vec<Event>> = HashMap::new();
         for row in rows {
-            let (todo_id, event_type, event_oid, file_path) = row.ok()?;
-            let oid = Oid::from_str(&event_oid).ok()?;
+            let (todo_id, event_type, event_oid, file_path) = row?;
+            let oid = Oid::from_str(&event_oid)
+                .map_err(|e| Error::CacheError(format!("invalid oid in cache: {}", e)))?;
             let event = match event_type.as_str() {
                 "Add" => Event::Add(oid, file_path),
                 "Update" => Event::Update(oid, file_path),
                 "Remove" => Event::Remove(oid, file_path),
-                _ => return None,
+                _ => continue,
             };
             result.entry(todo_id).or_default().push(event);
         }
-
-        if result.is_empty() {
-            None
-        } else {
-            Some(result)
-        }
+        Ok(result)
     }
 
-    fn set_events(&self, oid: Oid, events: &HashMap<u32, Vec<Event>>) -> Result<()> {
-        let oid_str = oid.to_string();
-        let mut stmt = self.conn.prepare(
-            "INSERT INTO event (commit_oid, todo_id, event_type, event_oid, file_path)
-             VALUES (?, ?, ?, ?, ?)",
-        )?;
+    /// Cache multiple commits and their events in a single transaction.
+    fn cache_results(&mut self, results: &[(Oid, HashMap<u32, Vec<Event>>)]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        {
+            let mut commit_stmt = tx.prepare("INSERT OR IGNORE INTO git_commit (oid) VALUES (?)")?;
+            let mut event_stmt = tx.prepare(
+                "INSERT INTO event (commit_oid, todo_id, event_type, event_oid, file_path)
+                 VALUES (?, ?, ?, ?, ?)",
+            )?;
 
-        for (todo_id, event_list) in events {
-            for event in event_list {
-                let (event_type, event_oid, file_path) = match event {
-                    Event::Add(oid, path) => ("Add", oid.to_string(), path.clone()),
-                    Event::Update(oid, path) => ("Update", oid.to_string(), path.clone()),
-                    Event::Remove(oid, path) => ("Remove", oid.to_string(), path.clone()),
-                };
-                stmt.execute(params![
-                    &oid_str, todo_id, event_type, &event_oid, &file_path
-                ])?;
+            for (commit_oid, events) in results {
+                let commit_oid_str = commit_oid.to_string();
+                commit_stmt.execute([&commit_oid_str])?;
+
+                for (todo_id, event_list) in events {
+                    for event in event_list {
+                        let (event_type, event_oid, file_path) = match event {
+                            Event::Add(oid, path) => ("Add", oid.to_string(), path.clone()),
+                            Event::Update(oid, path) => ("Update", oid.to_string(), path.clone()),
+                            Event::Remove(oid, path) => ("Remove", oid.to_string(), path.clone()),
+                        };
+                        event_stmt.execute(params![
+                            &commit_oid_str,
+                            todo_id,
+                            event_type,
+                            &event_oid,
+                            &file_path
+                        ])?;
+                    }
+                }
             }
         }
+        tx.commit()?;
         Ok(())
     }
 }
@@ -211,16 +232,10 @@ impl GitBackend {
 
     fn parse_commit(
         repo: &Repository,
-        cache: Option<&Cache>,
         parser: &TodoParser,
         oid: Oid,
         cutoff: Oid,
     ) -> Result<HashMap<u32, Vec<Event>>> {
-        if let Some(cached) = cache.and_then(|c| c.get_events(oid)) {
-            println!("Cache hit for commit {}", oid);
-            return Ok(cached);
-        }
-
         let commit = repo.find_commit(oid)?;
 
         // For root commits (no parents or cutoff commit), diff against empty tree
@@ -308,11 +323,6 @@ impl GitBackend {
             }
         }
 
-        // Cache write failures are non-fatal - the cache is just an optimization
-        if let Some(c) = cache {
-            let _ = c.set_events(oid, &events);
-        }
-
         Ok(events)
     }
 
@@ -337,33 +347,64 @@ impl GitBackend {
 
         revwalk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME | git2::Sort::REVERSE)?;
 
-        let oids: Vec<Oid> = revwalk
+        // Open cache and get cached commit OIDs
+        let mut cache = Cache::open(&self.repo).ok();
+        let cached_commits = cache
+            .as_ref()
+            .and_then(|c| c.get_cached_commit_oids().ok())
+            .unwrap_or_default();
+
+        // Filter out already-cached commits
+        let oids_to_parse: Vec<Oid> = revwalk
             .into_iter()
             .filter_map(|oid_result| oid_result.ok())
+            .filter(|oid| !cached_commits.contains(&oid.to_string()))
             .collect();
 
         let repo_path = &self.get_repo_path();
         let parser = &self.parser;
 
-        let results: Vec<Result<HashMap<u32, Vec<Event>>>> = oids
+        // Parse uncached commits in parallel
+        let results: Vec<(Oid, Result<HashMap<u32, Vec<Event>>>)> = oids_to_parse
             .par_iter()
             .map(|oid| {
                 let thread_repo = Repository::open(repo_path)?;
-                let cache = Cache::open(&thread_repo).ok();
-                Self::parse_commit(&thread_repo, cache.as_ref(), parser, *oid, cutoff_oid)
+                let events = Self::parse_commit(&thread_repo, parser, *oid, cutoff_oid)?;
+                Ok((*oid, events))
+            })
+            .map(|r: Result<(Oid, HashMap<u32, Vec<Event>>)>| match r {
+                Ok((oid, events)) => (oid, Ok(events)),
+                Err(e) => (Oid::zero(), Err(e)),
             })
             .collect();
 
+        // Aggregate newly parsed events
         let mut events: HashMap<u32, Vec<Event>> = HashMap::new();
+        let mut to_cache: Vec<(Oid, HashMap<u32, Vec<Event>>)> = Vec::new();
 
-        for result in results {
+        for (oid, result) in results {
             match result {
                 Ok(commit_events) => {
+                    to_cache.push((oid, commit_events.clone()));
                     for (id, evs) in commit_events {
                         events.entry(id).or_default().extend(evs);
                     }
                 }
                 Err(e) => eprintln!("Error parsing commit: {:?}", e),
+            }
+        }
+
+        // Cache new results in a single transaction
+        if let Some(ref mut c) = cache {
+            let _ = c.cache_results(&to_cache);
+        }
+
+        // Load and merge cached events
+        if let Some(ref c) = cache {
+            if let Ok(cached_events) = c.get_all_cached_events() {
+                for (id, evs) in cached_events {
+                    events.entry(id).or_default().extend(evs);
+                }
             }
         }
 
