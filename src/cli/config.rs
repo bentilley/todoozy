@@ -34,6 +34,7 @@ pub struct Config {
     pub sorter: Option<Box<dyn Sorter>>,
 
     pub todo_token: Option<String>,
+    pub vcs_cutoff: Option<String>,
 }
 
 impl Config {
@@ -62,6 +63,7 @@ impl Config {
                     filter: None,
                     sorter: Some(Box::new(todoozy::todo::sort::SortPipeline::app_default())),
                     todo_token: None,
+                    vcs_cutoff: None,
                 };
                 config.save()?;
                 Ok(config)

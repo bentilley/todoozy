@@ -10,6 +10,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use git2::{Commit, DiffOptions, Oid, Repository};
 use itertools::Itertools;
 use rayon::prelude::*;
+use rusqlite::{params, Connection};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -45,13 +46,113 @@ enum Event {
     Remove(Oid, String),
 }
 
+struct Cache {
+    conn: Connection,
+}
+
+impl Cache {
+    fn get_cache_path(repo: &Repository) -> PathBuf {
+        repo.commondir().join("todoozy").join("cache.db")
+    }
+
+    fn open(repo: &Repository) -> Result<Self> {
+        let path = Self::get_cache_path(repo);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let conn = Connection::open(&path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA synchronous=NORMAL;
+             PRAGMA busy_timeout=5000;",
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS event (
+                commit_oid TEXT NOT NULL,
+                todo_id INTEGER NOT NULL,
+                event_type TEXT NOT NULL,
+                event_oid TEXT NOT NULL,
+                file_path TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_event_commit_oid ON event(commit_oid)",
+            [],
+        )?;
+        Ok(Self { conn })
+    }
+
+    fn get_events(&self, oid: Oid) -> Option<HashMap<u32, Vec<Event>>> {
+        let oid_str = oid.to_string();
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT todo_id, event_type, event_oid, file_path FROM event WHERE commit_oid = ?",
+            )
+            .ok()?;
+
+        let rows = stmt
+            .query_map([&oid_str], |row| {
+                Ok((
+                    row.get::<_, u32>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .ok()?;
+
+        let mut result: HashMap<u32, Vec<Event>> = HashMap::new();
+        for row in rows {
+            let (todo_id, event_type, event_oid, file_path) = row.ok()?;
+            let oid = Oid::from_str(&event_oid).ok()?;
+            let event = match event_type.as_str() {
+                "Add" => Event::Add(oid, file_path),
+                "Update" => Event::Update(oid, file_path),
+                "Remove" => Event::Remove(oid, file_path),
+                _ => return None,
+            };
+            result.entry(todo_id).or_default().push(event);
+        }
+
+        if result.is_empty() {
+            None
+        } else {
+            Some(result)
+        }
+    }
+
+    fn set_events(&self, oid: Oid, events: &HashMap<u32, Vec<Event>>) -> Result<()> {
+        let oid_str = oid.to_string();
+        let mut stmt = self.conn.prepare(
+            "INSERT INTO event (commit_oid, todo_id, event_type, event_oid, file_path)
+             VALUES (?, ?, ?, ?, ?)",
+        )?;
+
+        for (todo_id, event_list) in events {
+            for event in event_list {
+                let (event_type, event_oid, file_path) = match event {
+                    Event::Add(oid, path) => ("Add", oid.to_string(), path.clone()),
+                    Event::Update(oid, path) => ("Update", oid.to_string(), path.clone()),
+                    Event::Remove(oid, path) => ("Remove", oid.to_string(), path.clone()),
+                };
+                stmt.execute(params![
+                    &oid_str, todo_id, event_type, &event_oid, &file_path
+                ])?;
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Git-based VCS backend for extracting TODO lifecycle data.
 pub struct GitBackend {
     repo: Repository,
     /// Optional commit-ish that limits how far back to scan. Commits before this are excluded.
     cutoff: Option<String>,
     parser: TodoParser,
-    // cache: RefCell<Cache>,
 }
 
 impl GitBackend {
@@ -71,13 +172,10 @@ impl GitBackend {
             }
         })?;
 
-        // let cache = RefCell::new(Cache::open(&repo)?);
-
         Ok(GitBackend {
             repo,
             cutoff,
             parser: TodoParser::new(todo_token),
-            // cache,
         })
     }
 
@@ -113,10 +211,16 @@ impl GitBackend {
 
     fn parse_commit(
         repo: &Repository,
+        cache: Option<&Cache>,
         parser: &TodoParser,
         oid: Oid,
         cutoff: Oid,
     ) -> Result<HashMap<u32, Vec<Event>>> {
+        if let Some(cached) = cache.and_then(|c| c.get_events(oid)) {
+            println!("Cache hit for commit {}", oid);
+            return Ok(cached);
+        }
+
         let commit = repo.find_commit(oid)?;
 
         // For root commits (no parents or cutoff commit), diff against empty tree
@@ -204,6 +308,11 @@ impl GitBackend {
             }
         }
 
+        // Cache write failures are non-fatal - the cache is just an optimization
+        if let Some(c) = cache {
+            let _ = c.set_events(oid, &events);
+        }
+
         Ok(events)
     }
 
@@ -216,19 +325,11 @@ impl GitBackend {
             }
             Error::from(e)
         })?;
-        // revwalk.push_head().map_err(|e| {
-        //     if e.code() == git2::ErrorCode::UnbornBranch {
-        //         return Error::GitError("repository has no commits".to_string());
-        //     }
-        //     Error::from(e)
-        // })?;
 
-        if let Some(cutoff_commit) = self.get_cutoff_commit()? {
+        let cutoff_oid = if let Some(cutoff_commit) = self.get_cutoff_commit()? {
             for parent in cutoff_commit.parents() {
                 revwalk.hide(parent.id())?;
             }
-        }
-        let cutoff_oid = if let Some(cutoff_commit) = self.get_cutoff_commit()? {
             cutoff_commit.id()
         } else {
             Oid::zero() // Dummy OID that won't match any real commit
@@ -236,21 +337,20 @@ impl GitBackend {
 
         revwalk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME | git2::Sort::REVERSE)?;
 
-        let mut todos: HashMap<u32, Todo> = HashMap::new();
-
-        let repo_path = &self.get_repo_path();
-        let parser = &self.parser;
-
         let oids: Vec<Oid> = revwalk
             .into_iter()
             .filter_map(|oid_result| oid_result.ok())
             .collect();
 
+        let repo_path = &self.get_repo_path();
+        let parser = &self.parser;
+
         let results: Vec<Result<HashMap<u32, Vec<Event>>>> = oids
             .par_iter()
             .map(|oid| {
                 let thread_repo = Repository::open(repo_path)?;
-                Self::parse_commit(&thread_repo, parser, *oid, cutoff_oid)
+                let cache = Cache::open(&thread_repo).ok();
+                Self::parse_commit(&thread_repo, cache.as_ref(), parser, *oid, cutoff_oid)
             })
             .collect();
 
@@ -266,6 +366,8 @@ impl GitBackend {
                 Err(e) => eprintln!("Error parsing commit: {:?}", e),
             }
         }
+
+        let mut todos: HashMap<u32, Todo> = HashMap::new();
 
         for (id, events) in events.iter() {
             use Event::*;

@@ -9,8 +9,8 @@ pub mod markdown;
 pub mod protobuf;
 pub mod python;
 pub mod rust;
-pub mod sql;
 pub mod sh;
+pub mod sql;
 pub mod tdz;
 pub mod terraform;
 pub mod yaml;
@@ -126,7 +126,11 @@ impl<'a> Iterator for CommentParser<'a> {
                             }
 
                             let end_line = self.line_number;
-                            let content_end = self.position - end_token.len();
+                            let content_end = if depth == 0 {
+                                self.position.saturating_sub(end_token.len())
+                            } else {
+                                self.position
+                            };
                             let content =
                                 std::str::from_utf8(&self.text[content_start..content_end])
                                     .unwrap_or("");
@@ -265,7 +269,11 @@ impl<'a> Parser<'a> {
 
     fn extract_todo_text(&self, text: &str) -> String {
         let after_token = text.splitn(2, &self.todo_token).nth(1).unwrap_or("").trim();
-        after_token.strip_prefix(':').unwrap_or(after_token).trim_start().to_string()
+        after_token
+            .strip_prefix(':')
+            .unwrap_or(after_token)
+            .trim_start()
+            .to_string()
     }
 }
 
@@ -342,7 +350,10 @@ impl RawParser for Parser<'_> {
                     }
 
                     let after_token = text.splitn(2, &self.todo_token).nth(1).unwrap_or("").trim();
-                    let after_token = after_token.strip_prefix(':').unwrap_or(after_token).trim_start();
+                    let after_token = after_token
+                        .strip_prefix(':')
+                        .unwrap_or(after_token)
+                        .trim_start();
                     let mut lines = after_token.lines();
 
                     let mut todo_text = String::new();
@@ -834,6 +845,44 @@ let x = 1;"#;
         assert_eq!(todos[0], (1, 1, "with /**/ empty nested".to_string()));
     }
 
+    #[test]
+    fn block_comment_unterminated_todo_at_eof() {
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
+        let text = "/* TODO unfinished block comment";
+        let todos = parser.parse_str(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (1, 1, "unfinished block comment".to_string()));
+    }
+
+    #[test]
+    fn block_comment_unterminated_multiline_todo_at_eof() {
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
+        let text = "/* TODO unfinished block comment\n   with more detail";
+        let todos = parser.parse_str(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(
+            todos[0],
+            (1, 2, "unfinished block comment\nwith more detail".to_string())
+        );
+    }
+
+    #[test]
+    fn block_comment_unterminated_without_todo_is_ignored() {
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
+        let text = "/* not a todo";
+        let todos = parser.parse_str(text);
+        assert!(todos.is_empty());
+    }
+
+    #[test]
+    fn block_comment_unterminated_nested_todo_at_eof() {
+        let parser = Parser::new("TODO", &TEST_BLOCK_COMMENT);
+        let text = "/* TODO outer /* inner";
+        let todos = parser.parse_str(text);
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0], (1, 1, "outer /* inner".to_string()));
+    }
+
     // Multi-line string tests
     const TEST_WITH_MULTI_LINE_STRING: [SyntaxRule; 2] = [
         SyntaxRule::LineComment(b"//"),
@@ -972,7 +1021,11 @@ let y = 2;"#;
         assert_eq!(todos.len(), 1);
         assert_eq!(
             todos[0],
-            (1, 4, "multiline with colon\nsecond line\nthird line".to_string())
+            (
+                1,
+                4,
+                "multiline with colon\nsecond line\nthird line".to_string()
+            )
         );
     }
 
@@ -982,6 +1035,9 @@ let y = 2;"#;
         let text = "let x = 1; // TODO: inline with colon\nlet y = 2;";
         let todos = parser.parse_str(text);
         assert_eq!(todos.len(), 1);
-        assert_eq!(todos[0], (1, 1, "inline with colon\n\n`let x = 1;`".to_string()));
+        assert_eq!(
+            todos[0],
+            (1, 1, "inline with colon\n\n`let x = 1;`".to_string())
+        );
     }
 }

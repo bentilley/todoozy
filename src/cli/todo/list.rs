@@ -96,7 +96,7 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
 pub fn list(conf: &config::Config, opts: &TodoListOptions) -> error::Result<ExitCode> {
     let mut todos = if opts.include_completed {
         let cwd = std::env::current_dir()?;
-        match vcs::create_vcs_backend(&cwd, &conf.get_todo_token(), None) {
+        match vcs::create_vcs_backend(&cwd, &conf.get_todo_token(), conf.vcs_cutoff.clone()) {
             Ok(vcs_backend) => {
                 let mut vcs_todos = vcs_backend.get_all_todos()?;
 
