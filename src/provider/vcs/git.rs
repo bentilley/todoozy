@@ -104,9 +104,9 @@ impl Cache {
 
     /// Load events for all cached commits (for merging with newly parsed data).
     fn get_all_cached_events(&self) -> Result<HashMap<u32, Vec<Event>>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT todo_id, event_type, event_oid, file_path FROM event",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT todo_id, event_type, event_oid, file_path FROM event")?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, u32>(0)?,
@@ -136,7 +136,8 @@ impl Cache {
     fn cache_results(&mut self, results: &[(Oid, HashMap<u32, Vec<Event>>)]) -> Result<()> {
         let tx = self.conn.transaction()?;
         {
-            let mut commit_stmt = tx.prepare("INSERT OR IGNORE INTO git_commit (oid) VALUES (?)")?;
+            let mut commit_stmt =
+                tx.prepare("INSERT OR IGNORE INTO git_commit (oid) VALUES (?)")?;
             let mut event_stmt = tx.prepare(
                 "INSERT INTO event (commit_oid, todo_id, event_type, event_oid, file_path)
                  VALUES (?, ?, ?, ?, ?)",
@@ -277,47 +278,63 @@ impl GitBackend {
                         '-' => file.old_file().path(),
                         _ => return true,
                     };
+
                     let file_type = match file_path.and_then(|p| p.get_filetype_from_name()) {
                         Some(ft) => ft,
                         None => return true,
                     };
-                    let file_path_name = match file_path.and_then(|p| p.to_str()) {
-                        Some(name) => name,
-                        None => return true,
-                    }
-                    .to_string();
-                    let status = match line.origin() {
-                        '+' => Event::Add(oid, file_path_name.clone()),
-                        '-' => {
-                            let parent_oid = parent.as_ref().unwrap().id();
-                            Event::Remove(parent_oid, file_path_name.clone())
-                        }
-                        _ => return true,
-                    };
-                    let todo = match parser
+
+                    if let Ok(todo) = parser
                         .parse_bytes(line.content(), file_type)
                         .into_iter()
                         .exactly_one()
                     {
-                        Ok(todo) => todo,
-                        Err(_) => return true, // Skip
-                    };
-                    if let Some(TodoIdentifier::Primary(id)) = todo.id {
-                        use Event::*;
-                        match line_changes.get(&id) {
-                            Some(existing) => match (existing, status) {
-                                (Add(_, _), Remove(oid, file_path_name))
-                                | (Remove(_, _), Add(oid, file_path_name)) => {
-                                    // Add + Remove => Move
-                                    line_changes.insert(id, Update(oid, file_path_name));
-                                }
-                                _ => eprintln!("Multiple Events for commit {:?}", &commit), // Same kind seen twice, keep existing
-                            },
-                            None => {
-                                line_changes.insert(id, status);
-                            }
+                        let file_path_name = match file_path.and_then(|p| p.to_str()) {
+                            Some(name) => name,
+                            None => return true,
                         }
-                    }
+                        .to_string();
+
+                        let status = match line.origin() {
+                            '+' => Event::Add(oid, file_path_name.clone()),
+                            '-' => {
+                                let parent_oid = parent.as_ref().unwrap().id();
+                                Event::Remove(parent_oid, file_path_name.clone())
+                            }
+                            _ => return true,
+                        };
+
+                        match todo.id {
+                            Some(id) => {
+                                use TodoIdentifier::*;
+                                match id {
+                                    Primary(p) => {
+                                        use Event::*;
+                                        match line_changes.get(&p) {
+                                            Some(existing) => match (existing, status) {
+                                                (Add(_, _), Remove(oid, file_path_name))
+                                                | (Remove(_, _), Add(oid, file_path_name)) => {
+                                                    // Add + Remove => Move
+                                                    line_changes
+                                                        .insert(p, Update(oid, file_path_name));
+                                                }
+                                                _ => eprintln!(
+                                                    "Multiple Events for commit {:?}",
+                                                    &commit
+                                                ), // Same kind seen twice, keep existing
+                                            },
+                                            None => {
+                                                line_changes.insert(p, status);
+                                            }
+                                        }
+                                    }
+                                    Reference(_r) => {}
+                                };
+                            }
+                            _ => (), // Ignore todos without IDs
+                        }
+                    };
+
                     true
                 }),
             )?;
@@ -328,6 +345,109 @@ impl GitBackend {
         }
 
         Ok(events)
+    }
+
+    /// Walk history backwards from `for_commit`, collecting events only for the specified IDs.
+    /// Uses parallel processing with early stopping (via try_for_each) once all Add events are found.
+    fn revparse_events_for_ids(
+        &self,
+        for_commit: Oid,
+        ids: Vec<u32>,
+    ) -> HashMap<u32, Vec<Event>> {
+        use std::sync::Mutex;
+
+        if ids.is_empty() {
+            return HashMap::new();
+        }
+
+        let mut revwalk = match self.repo.revwalk() {
+            Ok(rw) => rw,
+            Err(_) => return HashMap::new(),
+        };
+
+        if revwalk.push(for_commit).is_err() {
+            return HashMap::new();
+        }
+
+        // Apply cutoff if configured
+        if let Ok(Some(cutoff_commit)) = self.get_cutoff_commit() {
+            for parent in cutoff_commit.parents() {
+                let _ = revwalk.hide(parent.id());
+            }
+        }
+
+        // Walk backwards (HEAD to root) - no REVERSE flag
+        let _ = revwalk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME);
+
+        let cutoff_oid = self
+            .get_cutoff_commit()
+            .ok()
+            .flatten()
+            .map(|c| c.id())
+            .unwrap_or_else(Oid::zero);
+
+        let oids: Vec<Oid> = revwalk.filter_map(|r| r.ok()).collect();
+
+        let ids_set: std::collections::HashSet<u32> = ids.iter().copied().collect();
+        let ids_needing_add = Mutex::new(ids_set.clone());
+        let results: Mutex<Vec<(Oid, HashMap<u32, Vec<Event>>)>> = Mutex::new(Vec::new());
+
+        let repo_path = self.get_repo_path();
+        let parser = &self.parser;
+
+        // Process in parallel, using try_for_each to stop early
+        let _ = oids.par_iter().try_for_each(|&oid| {
+            let thread_repo = match Repository::open(&repo_path) {
+                Ok(r) => r,
+                Err(_) => return Ok(()),
+            };
+
+            let commit_events = match Self::parse_commit(&thread_repo, parser, oid, cutoff_oid) {
+                Ok(e) => e,
+                Err(_) => return Ok(()),
+            };
+
+            // Filter to only IDs we care about
+            let filtered: HashMap<u32, Vec<Event>> = commit_events
+                .into_iter()
+                .filter(|(id, _)| ids_set.contains(id))
+                .collect();
+
+            if !filtered.is_empty() {
+                // Capture result before checking completion
+                results.lock().unwrap().push((oid, filtered.clone()));
+
+                // Check for Add events and update tracking
+                let mut needing = ids_needing_add.lock().unwrap();
+                for (id, evs) in &filtered {
+                    if evs.iter().any(|e| matches!(e, Event::Add(_, _))) {
+                        needing.remove(id);
+                    }
+                }
+                if needing.is_empty() {
+                    return Err(()); // Signal early exit
+                }
+            }
+
+            Ok(())
+        });
+
+        // Aggregate results, sorting by commit order
+        let mut results = results.into_inner().unwrap();
+
+        let oid_positions: HashMap<Oid, usize> =
+            oids.iter().enumerate().map(|(i, &o)| (o, i)).collect();
+        results.sort_by_key(|(oid, _)| oid_positions.get(oid).copied().unwrap_or(usize::MAX));
+
+        // Build events map with oldest commits first
+        let mut events: HashMap<u32, Vec<Event>> = HashMap::new();
+        for (_, commit_events) in results.into_iter().rev() {
+            for (id, evs) in commit_events {
+                events.entry(id).or_default().extend(evs);
+            }
+        }
+
+        events
     }
 
     fn revparse_todos(&self, for_commit: Oid) -> Result<Todos> {
@@ -352,7 +472,11 @@ impl GitBackend {
         revwalk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME | git2::Sort::REVERSE)?;
 
         // Get cached commit OIDs
-        let cached_commits = self.cache.borrow().get_cached_commit_oids().unwrap_or_default();
+        let cached_commits = self
+            .cache
+            .borrow()
+            .get_cached_commit_oids()
+            .unwrap_or_default();
 
         // Filter out already-cached commits
         let oids_to_parse: Vec<Oid> = revwalk
@@ -492,6 +616,46 @@ impl VcsBackend for GitBackend {
     fn get_all_todos(&self) -> Result<Todos> {
         let head = self.repo.head()?.peel_to_commit()?.id();
         self.revparse_todos(head)
+    }
+
+    fn hydrate_todos(&self, todos: &mut [&mut Todo]) -> Result<()> {
+        let head = self.repo.head()?.peel_to_commit()?.id();
+        let for_ids: Vec<u32> = todos
+            .iter()
+            .filter_map(|todo| match todo.id {
+                Some(TodoIdentifier::Primary(id)) => Some(id),
+                _ => None,
+            })
+            .collect();
+
+        let events = self.revparse_events_for_ids(head, for_ids);
+
+        for todo in todos.iter_mut() {
+            if let Some(TodoIdentifier::Primary(id)) = todo.id {
+                if let Some(evs) = events.get(&id) {
+                    // First event should be Add (creation)
+                    if let Some(Event::Add(oid, _)) = evs.first() {
+                        if let Ok(commit) = self.repo.find_commit(*oid) {
+                            todo.creation_date = Utc
+                                .timestamp_opt(commit.time().seconds(), 0)
+                                .single()
+                                .map(|dt| dt.date_naive());
+                        }
+                    }
+
+                    // Last event determines completion status
+                    if let Some(Event::Remove(oid, _)) = evs.last() {
+                        if let Ok(commit) = self.repo.find_commit(*oid) {
+                            todo.completion_date = Utc
+                                .timestamp_opt(commit.time().seconds(), 0)
+                                .single()
+                                .map(|dt| dt.date_naive());
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn get_todos_for_version(&self, ids: &[u32], version: &str) -> Result<Todos> {
@@ -1097,6 +1261,135 @@ mod tests {
         assert!(
             todos.get(&3).is_some(),
             "TODO after cutoff should be included"
+        );
+    }
+
+    // ====== hydrate_todos tests ======
+
+    #[test]
+    fn test_hydrate_todos_sets_creation_date() {
+        let (dir, _repo) = create_test_repo();
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 Test todo\nfn main() {}",
+            "Add TODO",
+        );
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+
+        let mut todo = Todo {
+            id: Some(TodoIdentifier::Primary(1)),
+            title: "Test todo".to_string(),
+            ..Default::default()
+        };
+
+        assert!(todo.creation_date.is_none(), "precondition: no creation_date");
+
+        backend
+            .hydrate_todos(&mut [&mut todo])
+            .expect("hydrate should succeed");
+
+        assert!(
+            todo.creation_date.is_some(),
+            "creation_date should be set after hydration"
+        );
+    }
+
+    #[test]
+    fn test_hydrate_todos_sets_completion_date_for_removed() {
+        let (dir, _repo) = create_test_repo();
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 Will be removed\nfn main() {}",
+            "Add TODO",
+        );
+
+        commit_file(dir.path(), "main.rs", "fn main() {}", "Remove TODO");
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+
+        let mut todo = Todo {
+            id: Some(TodoIdentifier::Primary(1)),
+            title: "Will be removed".to_string(),
+            ..Default::default()
+        };
+
+        backend
+            .hydrate_todos(&mut [&mut todo])
+            .expect("hydrate should succeed");
+
+        assert!(
+            todo.creation_date.is_some(),
+            "creation_date should be set"
+        );
+        assert!(
+            todo.completion_date.is_some(),
+            "completion_date should be set for removed TODO"
+        );
+    }
+
+    #[test]
+    fn test_hydrate_todos_multiple() {
+        let (dir, _repo) = create_test_repo();
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 First\n// TODO #2 Second\nfn main() {}",
+            "Add TODOs",
+        );
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+
+        let mut todo1 = Todo {
+            id: Some(TodoIdentifier::Primary(1)),
+            title: "First".to_string(),
+            ..Default::default()
+        };
+        let mut todo2 = Todo {
+            id: Some(TodoIdentifier::Primary(2)),
+            title: "Second".to_string(),
+            ..Default::default()
+        };
+
+        backend
+            .hydrate_todos(&mut [&mut todo1, &mut todo2])
+            .expect("hydrate should succeed");
+
+        assert!(todo1.creation_date.is_some(), "todo1 should have creation_date");
+        assert!(todo2.creation_date.is_some(), "todo2 should have creation_date");
+    }
+
+    #[test]
+    fn test_hydrate_todos_nonexistent_id_is_noop() {
+        let (dir, _repo) = create_test_repo();
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 Exists\nfn main() {}",
+            "Add TODO",
+        );
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+
+        let mut todo = Todo {
+            id: Some(TodoIdentifier::Primary(999)),
+            title: "Does not exist".to_string(),
+            ..Default::default()
+        };
+
+        backend
+            .hydrate_todos(&mut [&mut todo])
+            .expect("hydrate should succeed even for nonexistent ID");
+
+        assert!(
+            todo.creation_date.is_none(),
+            "nonexistent TODO should not have creation_date set"
         );
     }
 }

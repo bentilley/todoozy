@@ -38,9 +38,13 @@ pub trait VcsBackend: Send {
 
     fn get_todos_for_version(&self, id: &[u32], version: &str) -> Result<Todos>;
 
+    fn hydrate_todo(&self, todo: &mut Todo) -> Result<()> {
+        self.hydrate_todos(&mut [&mut *todo])
+    }
+
+    fn hydrate_todos(&self, todos: &mut [&mut Todo]) -> Result<()>;
+
     // fn get_all_todos_for_version(&self, version: String) -> Result<Todos>;
-    // fn hydrate_todo(&self, todo: &mut Todo) -> Result<()>;
-    // fn hydrate_todos(&self, todos: &mut [&mut Todo]) -> Result<()>;
     // fn get_all_ids(&self) -> Result<HashSet<u32>>;
     // fn get_ids_for_version(&self, version: String) -> Result<HashSet<u32>>;
     // fn get_max_id(&self) -> Result<u32>;

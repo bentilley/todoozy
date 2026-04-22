@@ -2,7 +2,7 @@ mod walk;
 
 pub use walk::{Walk, WalkConfig};
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FileType {
     Bash,
     C,
