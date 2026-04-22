@@ -7,6 +7,7 @@ pub enum FileType {
     Bash,
     C,
     Cpp,
+    Css,
     Dockerfile,
     Go,
     Html,
@@ -36,6 +37,7 @@ impl FileType {
             "*.c",
             "*.cc",
             "*.cpp",
+            "*.css",
             "*.cxx",
             "*.dockerfile",
             "*.go",
@@ -89,6 +91,7 @@ impl FileTypeAwarePath for std::path::Path {
             Some("cc") | Some("cpp") | Some("cxx") | Some("hh") | Some("hpp") | Some("hxx") => {
                 Some(Cpp)
             }
+            Some("css") => Some(Css),
             Some("dockerfile") => Some(Dockerfile),
             Some("go") => Some(Go),
             Some("html") | Some("htm") => Some(Html),
@@ -188,6 +191,8 @@ fn test_get_filetype_from_name() {
     assert_eq!(Path::new("test.hh").get_filetype_from_name(), Some(Cpp));
     assert_eq!(Path::new("test.hpp").get_filetype_from_name(), Some(Cpp));
     assert_eq!(Path::new("test.hxx").get_filetype_from_name(), Some(Cpp));
+    // CSS files
+    assert_eq!(Path::new("test.css").get_filetype_from_name(), Some(Css));
     // HTML files
     assert_eq!(Path::new("test.html").get_filetype_from_name(), Some(Html));
     assert_eq!(Path::new("test.htm").get_filetype_from_name(), Some(Html));
