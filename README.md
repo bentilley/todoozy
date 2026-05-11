@@ -10,8 +10,8 @@ CLI for managing todo comment based project management.
 
 ## Features
 
-- **Multi-language support** - Parse TODO comments from 14+ languages including
-  Rust, Go, Python, TypeScript, Bash, Terraform, and more
+- **Multi-language support** - Parse TODO comments from 17+ languages including
+  Rust, Go, Python, TypeScript, CSS, SCSS, LESS, Bash, Terraform, and more
 - **Rich TODO metadata** - IDs, priorities (A-Z), dates, projects (`+project`),
   contexts (`@context`), and custom key:value pairs
 - **Interactive TUI** - Full-screen terminal interface for browsing, filtering,
@@ -136,20 +136,23 @@ Multiline in block comment:
 
 | Language   | Extensions                  |
 |------------|-----------------------------|
-| Rust       | `.rs`                       |
-| Go         | `.go`                       |
-| Python     | `.py`                       |
-| TypeScript | `.ts`, `.tsx`               |
 | Bash       | `.bash`                     |
-| Shell      | `.sh`                       |
-| Zsh        | `.zsh`                      |
-| Ksh        | `.ksh`                      |
-| Protobuf   | `.proto`                    |
-| Terraform  | `.tf`                       |
-| Markdown   | `.md`                       |
-| YAML       | `.yaml`, `.yml`             |
-| Makefile   | `Makefile`, `.mk`           |
+| CSS        | `.css`                      |
 | Dockerfile | `Dockerfile`, `.dockerfile` |
+| Go         | `.go`                       |
+| Ksh        | `.ksh`                      |
+| LESS       | `.less`                     |
+| Makefile   | `Makefile`, `.mk`           |
+| Markdown   | `.md`                       |
+| Protobuf   | `.proto`                    |
+| Python     | `.py`                       |
+| Rust       | `.rs`                       |
+| SCSS       | `.scss`                     |
+| Shell      | `.sh`                       |
+| Terraform  | `.tf`                       |
+| TypeScript | `.ts`, `.tsx`               |
+| YAML       | `.yaml`, `.yml`             |
+| Zsh        | `.zsh`                      |
 
 ## Configuration
 

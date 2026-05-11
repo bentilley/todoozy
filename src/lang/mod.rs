@@ -1,5 +1,6 @@
 pub mod c;
 pub mod cpp;
+pub mod css;
 pub mod dockerfile;
 pub mod go;
 pub mod html;
@@ -10,8 +11,8 @@ pub mod php;
 pub mod protobuf;
 pub mod python;
 pub mod rust;
-pub mod sql;
 pub mod sh;
+pub mod sql;
 pub mod tdz;
 pub mod terraform;
 pub mod yaml;

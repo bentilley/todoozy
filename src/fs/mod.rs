@@ -6,18 +6,21 @@ pub use walk::{Walk, WalkConfig};
 pub enum FileType {
     Bash,
     C,
+    Css,
     Cpp,
     Dockerfile,
     Go,
     Html,
     JavaScript,
     Ksh,
+    Less,
     Makefile,
     Markdown,
     Php,
     Protobuf,
     Python,
     Rust,
+    Scss,
     Sql,
     Sh,
     Terraform,
@@ -36,6 +39,7 @@ impl FileType {
             "*.bash",
             "*.c",
             "*.cc",
+            "*.css",
             "*.cpp",
             "*.cxx",
             "*.dockerfile",
@@ -49,12 +53,14 @@ impl FileType {
             "*.js",
             "*.jsx",
             "*.ksh",
+            "*.less",
             "*.md",
             "*.mk",
             "*.php",
             "*.proto",
             "*.py",
             "*.rs",
+            "*.scss",
             "*.sql",
             "*.sh",
             "*.tdz",
@@ -88,6 +94,7 @@ impl FileTypeAwarePath for std::path::Path {
         match self.extension().and_then(std::ffi::OsStr::to_str) {
             Some("bash") => Some(Bash),
             Some("c") | Some("h") => Some(C),
+            Some("css") => Some(Css),
             Some("cc") | Some("cpp") | Some("cxx") | Some("hh") | Some("hpp") | Some("hxx") => {
                 Some(Cpp)
             }
@@ -96,12 +103,14 @@ impl FileTypeAwarePath for std::path::Path {
             Some("html") | Some("htm") => Some(Html),
             Some("js") | Some("jsx") => Some(JavaScript),
             Some("ksh") => Some(Ksh),
+            Some("less") => Some(Less),
             Some("md") => Some(Markdown),
             Some("mk") => Some(Makefile),
             Some("php") => Some(Php),
             Some("proto") => Some(Protobuf),
             Some("py") => Some(Python),
             Some("rs") => Some(Rust),
+            Some("scss") => Some(Scss),
             Some("sql") => Some(Sql),
             Some("sh") => Some(Sh),
             Some("tdz") => Some(Todoozy),
@@ -163,6 +172,9 @@ fn test_get_filetype_from_name() {
     assert_eq!(Path::new("test.md").get_filetype_from_name(), Some(Markdown));
     assert_eq!(Path::new("test.py").get_filetype_from_name(), Some(Python));
     assert_eq!(Path::new("test.tf").get_filetype_from_name(), Some(Terraform));
+    assert_eq!(Path::new("test.css").get_filetype_from_name(), Some(Css));
+    assert_eq!(Path::new("test.scss").get_filetype_from_name(), Some(Scss));
+    assert_eq!(Path::new("test.less").get_filetype_from_name(), Some(Less));
     assert_eq!(Path::new("test.yaml").get_filetype_from_name(), Some(YAML));
     assert_eq!(Path::new("test.yml").get_filetype_from_name(), Some(YAML));
     assert_eq!(Path::new("test.php").get_filetype_from_name(), Some(Php));

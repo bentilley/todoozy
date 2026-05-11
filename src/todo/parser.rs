@@ -18,6 +18,7 @@ impl TodoParser {
         match file_type {
             Bash | Ksh | Sh | Zsh => Box::new(Parser::new(&self.todo_token, &sh::SH)),
             C => Box::new(Parser::new(&self.todo_token, &c::C)),
+            Css => Box::new(Parser::new(&self.todo_token, &css::CSS)),
             Cpp => Box::new(Parser::new(&self.todo_token, &cpp::CPP)),
             Dockerfile => Box::new(Parser::new(&self.todo_token, &dockerfile::DOCKERFILE)),
             Go => Box::new(Parser::new(&self.todo_token, &go::GO)),
@@ -29,11 +30,13 @@ impl TodoParser {
             Protobuf => Box::new(Parser::new(&self.todo_token, &protobuf::PROTOBUF)),
             Python => Box::new(Parser::new(&self.todo_token, &python::PYTHON)),
             Rust => Box::new(Parser::new(&self.todo_token, &rust::RUST)),
+            Scss => Box::new(Parser::new(&self.todo_token, &css::SCSS)),
             Sql => Box::new(Parser::new(&self.todo_token, &sql::SQL)),
             Terraform => Box::new(Parser::new(&self.todo_token, &terraform::TERRAFORM)),
             Todoozy => Box::new(tdz::Parser::new(&self.todo_token)),
             Typescript => Box::new(Parser::new(&self.todo_token, &javascript::JAVASCRIPT)),
             YAML => Box::new(Parser::new(&self.todo_token, &yaml::YAML)),
+            Less => Box::new(Parser::new(&self.todo_token, &css::LESS)),
         }
     }
 
