@@ -11,6 +11,7 @@ pub enum FileType {
     Dockerfile,
     Go,
     Html,
+    Java,
     JavaScript,
     Ksh,
     Less,
@@ -50,6 +51,7 @@ impl FileType {
             "*.htm",
             "*.html",
             "*.hxx",
+            "*.java",
             "*.js",
             "*.jsx",
             "*.ksh",
@@ -101,6 +103,7 @@ impl FileTypeAwarePath for std::path::Path {
             Some("dockerfile") => Some(Dockerfile),
             Some("go") => Some(Go),
             Some("html") | Some("htm") => Some(Html),
+            Some("java") => Some(Java),
             Some("js") | Some("jsx") => Some(JavaScript),
             Some("ksh") => Some(Ksh),
             Some("less") => Some(Less),
@@ -170,6 +173,7 @@ fn test_get_filetype_from_name() {
     assert_eq!(Path::new("test.rs").get_filetype_from_name(), Some(Rust));
     assert_eq!(Path::new("test.go").get_filetype_from_name(), Some(Go));
     assert_eq!(Path::new("test.md").get_filetype_from_name(), Some(Markdown));
+    assert_eq!(Path::new("test.java").get_filetype_from_name(), Some(Java));
     assert_eq!(Path::new("test.py").get_filetype_from_name(), Some(Python));
     assert_eq!(Path::new("test.tf").get_filetype_from_name(), Some(Terraform));
     assert_eq!(Path::new("test.css").get_filetype_from_name(), Some(Css));

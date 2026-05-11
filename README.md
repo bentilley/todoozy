@@ -10,7 +10,7 @@ CLI for managing todo comment based project management.
 
 ## Features
 
-- **Multi-language support** - Parse TODO comments from 17+ languages including
+- **Multi-language support** - Parse TODO comments from 18+ languages including
   Rust, Go, Python, TypeScript, CSS, SCSS, LESS, Bash, Terraform, and more
 - **Rich TODO metadata** - IDs, priorities (A-Z), dates, projects (`+project`),
   contexts (`@context`), and custom key:value pairs
@@ -140,6 +140,7 @@ Multiline in block comment:
 | CSS        | `.css`                      |
 | Dockerfile | `Dockerfile`, `.dockerfile` |
 | Go         | `.go`                       |
+| Java       | `.java`                     |
 | Ksh        | `.ksh`                      |
 | LESS       | `.less`                     |
 | Makefile   | `Makefile`, `.mk`           |
