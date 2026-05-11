@@ -25,6 +25,7 @@ impl TodoParser {
             JavaScript => Box::new(Parser::new(&self.todo_token, &javascript::JAVASCRIPT)),
             Makefile => Box::new(Parser::new(&self.todo_token, &makefile::MAKEFILE)),
             Markdown => Box::new(Parser::new(&self.todo_token, &markdown::MARKDOWN)),
+            Php => Box::new(Parser::new(&self.todo_token, &php::PHP)),
             Protobuf => Box::new(Parser::new(&self.todo_token, &protobuf::PROTOBUF)),
             Python => Box::new(Parser::new(&self.todo_token, &python::PYTHON)),
             Rust => Box::new(Parser::new(&self.todo_token, &rust::RUST)),

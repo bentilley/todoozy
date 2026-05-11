@@ -6,6 +6,7 @@ pub mod html;
 pub mod javascript;
 pub mod makefile;
 pub mod markdown;
+pub mod php;
 pub mod protobuf;
 pub mod python;
 pub mod rust;

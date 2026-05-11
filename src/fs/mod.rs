@@ -14,6 +14,7 @@ pub enum FileType {
     Ksh,
     Makefile,
     Markdown,
+    Php,
     Protobuf,
     Python,
     Rust,
@@ -50,6 +51,7 @@ impl FileType {
             "*.ksh",
             "*.md",
             "*.mk",
+            "*.php",
             "*.proto",
             "*.py",
             "*.rs",
@@ -96,6 +98,7 @@ impl FileTypeAwarePath for std::path::Path {
             Some("ksh") => Some(Ksh),
             Some("md") => Some(Markdown),
             Some("mk") => Some(Makefile),
+            Some("php") => Some(Php),
             Some("proto") => Some(Protobuf),
             Some("py") => Some(Python),
             Some("rs") => Some(Rust),
@@ -162,6 +165,7 @@ fn test_get_filetype_from_name() {
     assert_eq!(Path::new("test.tf").get_filetype_from_name(), Some(Terraform));
     assert_eq!(Path::new("test.yaml").get_filetype_from_name(), Some(YAML));
     assert_eq!(Path::new("test.yml").get_filetype_from_name(), Some(YAML));
+    assert_eq!(Path::new("test.php").get_filetype_from_name(), Some(Php));
     assert_eq!(Path::new("test.proto").get_filetype_from_name(), Some(Protobuf));
     assert_eq!(Path::new("test.sql").get_filetype_from_name(), Some(Sql));
     assert_eq!(Path::new("test.mk").get_filetype_from_name(), Some(Makefile));
