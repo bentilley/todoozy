@@ -128,7 +128,7 @@ pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<Ex
     let todos =
         FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone()).get_todos()?;
 
-    let store = LocalStore::new();
+    let store = LocalStore::new()?;
 
     let mut added_count = 0;
 
