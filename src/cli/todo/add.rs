@@ -6,7 +6,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 use todoozy::provider::{FileSystemProvider, Provider};
 use todoozy::todo::{
-    store::{LocalStore, Store},
+    store::{SqliteStore, Store},
     Todo,
 };
 
@@ -128,7 +128,7 @@ pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<Ex
     let todos =
         FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone()).get_todos()?;
 
-    let store = LocalStore::new()?;
+    let store = SqliteStore::new()?;
 
     let mut added_count = 0;
 

@@ -8,7 +8,7 @@ use super::error::Result;
 use super::Store;
 use crate::todo::{Location, Metadata, Todo, TodoIdentifier};
 
-pub struct LocalStore {
+pub struct SqliteStore {
     conn: RefCell<Connection>,
 }
 
@@ -42,7 +42,7 @@ const SCHEMA: &str = "PRAGMA foreign_keys = ON;
          end_line_num   INTEGER NOT NULL DEFAULT 0
      );";
 
-impl LocalStore {
+impl SqliteStore {
     pub fn new() -> Result<Self> {
         let repo = git2::Repository::open_from_env()?;
         let db_path = repo.commondir().join("todoozy/store.db");
@@ -188,7 +188,7 @@ impl LocalStore {
     }
 }
 
-impl Store for LocalStore {
+impl Store for SqliteStore {
     fn get_todo(&self, id: u32) -> Option<Todo> {
         self.fetch_todo(id).ok().flatten()
     }
@@ -278,10 +278,10 @@ impl Store for LocalStore {
 mod tests {
     use super::*;
 
-    fn store() -> LocalStore {
+    fn store() -> SqliteStore {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(SCHEMA).unwrap();
-        LocalStore {
+        SqliteStore {
             conn: RefCell::new(conn),
         }
     }

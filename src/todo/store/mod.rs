@@ -4,7 +4,7 @@ mod local;
 use super::Todo;
 use error::Result;
 
-pub use local::LocalStore;
+pub use local::SqliteStore;
 
 pub struct Query {}
 
