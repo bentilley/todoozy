@@ -142,7 +142,7 @@ pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<Ex
         conf.num_todos += 1;
         let id = conf.num_todos;
 
-        match todo.import(id) {
+        match todo.add(id) {
             Ok(_) => {
                 println!("Added: #{} {}", id, todo.title);
                 added_count += 1;

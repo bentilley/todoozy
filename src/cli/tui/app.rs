@@ -368,7 +368,7 @@ impl App {
             self.config.num_todos += 1;
             let id = self.config.num_todos;
 
-            match todo.import(id) {
+            match todo.add(id) {
                 Ok(_) => {
                     self.config.save().unwrap();
                     self.message = Some(format!("Todo imported with ID {}", id));
@@ -392,7 +392,7 @@ impl App {
             self.config.num_todos += 1;
             let id = self.config.num_todos;
 
-            match todo.import(id) {
+            match todo.add(id) {
                 Ok(_) => {
                     num_imported += 1;
                     self.config.save().unwrap();
@@ -403,8 +403,8 @@ impl App {
             }
         }
         match num_imported {
-            0 => self.message = Some("No todos to import".to_string()),
-            n => self.message = Some(format!("{} todos imported", n)),
+            0 => self.message = Some("No todos to add".to_string()),
+            n => self.message = Some(format!("{} todos added", n)),
         }
     }
 

@@ -384,13 +384,13 @@ impl Todo {
         Ok(())
     }
 
-    pub fn import(&mut self, id: u32) -> Result<()> {
+    pub fn add(&mut self, id: u32) -> Result<()> {
         match &self.id {
             Some(TodoIdentifier::Primary(existing)) => {
                 return Err(format!("Todo already has ID #{}", existing).into())
             }
             Some(TodoIdentifier::Reference(ref_id)) => {
-                return Err(format!("Cannot import reference todo &{}", ref_id).into())
+                return Err(format!("Cannot add reference todo &{}", ref_id).into())
             }
             None => {}
         }
