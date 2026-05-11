@@ -144,7 +144,6 @@ pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<Ex
             }
         }
 
-        // TODO &99 (A) Make sure the set_todo method is working as expected
         let id = store.set_todo(&todo)?;
 
         // conf.num_todos += 1;
@@ -160,6 +159,15 @@ pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<Ex
                 conf.num_todos -= 1; // Roll back
             }
         }
+        // TODO #102 (A) Add todo to vcs once ID added
+        //
+        // After todo.add has added an ID to the TODO comment, we need to commit just the patch
+        // containing the TODO comment. The todo has been added to the store at this point, so we
+        // need to commit the ID to ensure that everything stays in sync. It's like a database
+        // transaction - make sure that the store ID and the TODO comment ID end up in sync. If
+        // a user wants to go and mess around with it later that's on them, our responsibility is to
+        // make sure that at this moment, the moment of adding the todo, that everything ends up
+        // nice and in sync.
     }
 
     if added_count > 0 {
