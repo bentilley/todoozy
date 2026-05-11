@@ -6,6 +6,7 @@ pub mod sort;
 pub mod store;
 pub mod syntax;
 
+use derive_builder::Builder;
 use std::fs::File;
 use std::io::{self, prelude::*, BufReader, BufWriter};
 use std::path::PathBuf;
@@ -209,21 +210,31 @@ impl Location {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Builder, Clone, Debug, Default, PartialEq)]
 pub struct Todo {
+    #[builder(default)]
     pub id: Option<TodoIdentifier>,
 
+    #[builder(default)]
     pub priority: Option<char>,
+    #[builder(default)]
     pub completion_date: Option<chrono::NaiveDate>,
+    #[builder(default)]
     pub creation_date: Option<chrono::NaiveDate>,
 
+    #[builder(default)]
     pub title: String,
+    #[builder(default)]
     pub description: Option<String>,
 
+    #[builder(default)]
     pub tags: Vec<String>,
+    #[builder(default)]
     pub metadata: Metadata,
 
+    #[builder(default)]
     pub location: Location,
+    #[builder(default)]
     pub references: Vec<Todo>,
 }
 

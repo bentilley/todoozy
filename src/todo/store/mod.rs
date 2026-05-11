@@ -1,10 +1,10 @@
 mod error;
-mod local;
+mod sqlite;
 
 use super::Todo;
 use error::Result;
 
-pub use local::SqliteStore;
+pub use sqlite::SqliteStore;
 
 pub struct Query {}
 

@@ -285,21 +285,7 @@ impl Store for SqliteStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn make_todo(title: &str) -> Todo {
-        Todo {
-            id: None,
-            priority: None,
-            completion_date: None,
-            creation_date: None,
-            title: title.to_string(),
-            description: None,
-            tags: Vec::new(),
-            metadata: Metadata::new(),
-            location: Location::default(),
-            references: Vec::new(),
-        }
-    }
+    use crate::todo::TodoBuilder;
 
     #[test]
     fn get_todo_returns_none_for_missing_id() {
@@ -310,8 +296,12 @@ mod tests {
     #[test]
     fn set_todo_returns_incrementing_ids() {
         let store = SqliteStore::in_memory().unwrap();
-        let id1 = store.set_todo(&make_todo("First")).unwrap();
-        let id2 = store.set_todo(&make_todo("Second")).unwrap();
+        let id1 = store
+            .set_todo(&TodoBuilder::default().title("First".to_string()).build().unwrap())
+            .unwrap();
+        let id2 = store
+            .set_todo(&TodoBuilder::default().title("Second".to_string()).build().unwrap())
+            .unwrap();
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
     }
@@ -319,12 +309,13 @@ mod tests {
     #[test]
     fn set_and_get_todo_roundtrip() {
         let store = SqliteStore::in_memory().unwrap();
-        let t = Todo {
-            priority: Some('A'),
-            description: Some("Fix the thing".to_string()),
-            location: Location::new(Some("src/main.rs"), 10, 15),
-            ..make_todo("Fix bug")
-        };
+        let t = TodoBuilder::default()
+            .title("Fix bug".to_string())
+            .priority(Some('A'))
+            .description(Some("Fix the thing".to_string()))
+            .location(Location::new(Some("src/main.rs"), 10, 15))
+            .build()
+            .unwrap();
         let id = store.set_todo(&t).unwrap();
         let got = store.get_todo(id).unwrap();
         assert_eq!(got.id, Some(TodoIdentifier::Primary(id)));
@@ -342,10 +333,11 @@ mod tests {
     #[test]
     fn set_todo_persists_tags() {
         let store = SqliteStore::in_memory().unwrap();
-        let t = Todo {
-            tags: vec!["feat".to_string(), "urgent".to_string()],
-            ..make_todo("Tagged")
-        };
+        let t = TodoBuilder::default()
+            .title("Tagged".to_string())
+            .tags(vec!["feat".to_string(), "urgent".to_string()])
+            .build()
+            .unwrap();
         let id = store.set_todo(&t).unwrap();
         let got = store.get_todo(id).unwrap();
         assert_eq!(got.tags.len(), 2);
@@ -360,10 +352,11 @@ mod tests {
         meta.set("owner", "alice");
         meta.set("depends", "42");
         meta.set("depends", "43");
-        let t = Todo {
-            metadata: meta,
-            ..make_todo("With metadata")
-        };
+        let t = TodoBuilder::default()
+            .title("With metadata".to_string())
+            .metadata(meta)
+            .build()
+            .unwrap();
         let id = store.set_todo(&t).unwrap();
         let got = store.get_todo(id).unwrap();
         assert_eq!(
@@ -379,16 +372,18 @@ mod tests {
     #[test]
     fn set_todo_persists_references() {
         let store = SqliteStore::in_memory().unwrap();
-        let reference = Todo {
-            id: Some(TodoIdentifier::Reference(0)),
-            description: Some("Extra detail".to_string()),
-            location: Location::new(Some("src/lib.rs"), 5, 8),
-            ..make_todo("Reference note")
-        };
-        let t = Todo {
-            references: vec![reference],
-            ..make_todo("Primary")
-        };
+        let reference = TodoBuilder::default()
+            .title("Reference note".to_string())
+            .id(Some(TodoIdentifier::Reference(0)))
+            .description(Some("Extra detail".to_string()))
+            .location(Location::new(Some("src/lib.rs"), 5, 8))
+            .build()
+            .unwrap();
+        let t = TodoBuilder::default()
+            .title("Primary".to_string())
+            .references(vec![reference])
+            .build()
+            .unwrap();
         let id = store.set_todo(&t).unwrap();
         let got = store.get_todo(id).unwrap();
         assert_eq!(got.references.len(), 1);
@@ -404,9 +399,15 @@ mod tests {
     #[test]
     fn get_todos_returns_all() {
         let store = SqliteStore::in_memory().unwrap();
-        store.set_todo(&make_todo("Alpha")).unwrap();
-        store.set_todo(&make_todo("Beta")).unwrap();
-        store.set_todo(&make_todo("Gamma")).unwrap();
+        store
+            .set_todo(&TodoBuilder::default().title("Alpha".to_string()).build().unwrap())
+            .unwrap();
+        store
+            .set_todo(&TodoBuilder::default().title("Beta".to_string()).build().unwrap())
+            .unwrap();
+        store
+            .set_todo(&TodoBuilder::default().title("Gamma".to_string()).build().unwrap())
+            .unwrap();
         let todos = store.get_todos();
         assert_eq!(todos.len(), 3);
         let titles: Vec<&str> = todos.iter().map(|t| t.title.as_str()).collect();
@@ -418,12 +419,15 @@ mod tests {
     #[test]
     fn update_todo_changes_fields() {
         let store = SqliteStore::in_memory().unwrap();
-        let id = store.set_todo(&make_todo("Original")).unwrap();
-        let updated = Todo {
-            priority: Some('B'),
-            description: Some("Now with description".to_string()),
-            ..make_todo("Updated")
-        };
+        let id = store
+            .set_todo(&TodoBuilder::default().title("Original".to_string()).build().unwrap())
+            .unwrap();
+        let updated = TodoBuilder::default()
+            .title("Updated".to_string())
+            .priority(Some('B'))
+            .description(Some("Now with description".to_string()))
+            .build()
+            .unwrap();
         store.update_todo(id, updated).unwrap();
         let got = store.get_todo(id).unwrap();
         assert_eq!(got.title, "Updated");
@@ -435,18 +439,22 @@ mod tests {
     fn update_todo_replaces_tags() {
         let store = SqliteStore::in_memory().unwrap();
         let id = store
-            .set_todo(&Todo {
-                tags: vec!["old".to_string()],
-                ..make_todo("Tagged")
-            })
+            .set_todo(
+                &TodoBuilder::default()
+                    .title("Tagged".to_string())
+                    .tags(vec!["old".to_string()])
+                    .build()
+                    .unwrap(),
+            )
             .unwrap();
         store
             .update_todo(
                 id,
-                Todo {
-                    tags: vec!["new".to_string()],
-                    ..make_todo("Tagged")
-                },
+                TodoBuilder::default()
+                    .title("Tagged".to_string())
+                    .tags(vec!["new".to_string()])
+                    .build()
+                    .unwrap(),
             )
             .unwrap();
         let got = store.get_todo(id).unwrap();
@@ -456,28 +464,34 @@ mod tests {
     #[test]
     fn update_todo_replaces_references() {
         let store = SqliteStore::in_memory().unwrap();
-        let ref1 = Todo {
-            id: Some(TodoIdentifier::Reference(0)),
-            ..make_todo("Old ref")
-        };
+        let ref1 = TodoBuilder::default()
+            .title("Old ref".to_string())
+            .id(Some(TodoIdentifier::Reference(0)))
+            .build()
+            .unwrap();
         let id = store
-            .set_todo(&Todo {
-                references: vec![ref1],
-                ..make_todo("Primary")
-            })
+            .set_todo(
+                &TodoBuilder::default()
+                    .title("Primary".to_string())
+                    .references(vec![ref1])
+                    .build()
+                    .unwrap(),
+            )
             .unwrap();
 
-        let ref2 = Todo {
-            id: Some(TodoIdentifier::Reference(0)),
-            ..make_todo("New ref")
-        };
+        let ref2 = TodoBuilder::default()
+            .title("New ref".to_string())
+            .id(Some(TodoIdentifier::Reference(0)))
+            .build()
+            .unwrap();
         store
             .update_todo(
                 id,
-                Todo {
-                    references: vec![ref2],
-                    ..make_todo("Primary")
-                },
+                TodoBuilder::default()
+                    .title("Primary".to_string())
+                    .references(vec![ref2])
+                    .build()
+                    .unwrap(),
             )
             .unwrap();
 
