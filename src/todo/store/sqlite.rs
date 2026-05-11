@@ -56,6 +56,14 @@ impl SqliteStore {
         })
     }
 
+    pub fn in_memory() -> Result<Self> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(SCHEMA)?;
+        Ok(Self {
+            conn: RefCell::new(conn),
+        })
+    }
+
     fn fetch_todo(&self, id: u32) -> Result<Option<Todo>> {
         let conn = self.conn.borrow();
         let result = conn.query_row(
@@ -278,14 +286,6 @@ impl Store for SqliteStore {
 mod tests {
     use super::*;
 
-    fn store() -> SqliteStore {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(SCHEMA).unwrap();
-        SqliteStore {
-            conn: RefCell::new(conn),
-        }
-    }
-
     fn make_todo(title: &str) -> Todo {
         Todo {
             id: None,
@@ -303,13 +303,13 @@ mod tests {
 
     #[test]
     fn get_todo_returns_none_for_missing_id() {
-        let store = store();
+        let store = SqliteStore::in_memory().unwrap();
         assert!(store.get_todo(99).is_none());
     }
 
     #[test]
     fn set_todo_returns_incrementing_ids() {
-        let store = store();
+        let store = SqliteStore::in_memory().unwrap();
         let id1 = store.set_todo(&make_todo("First")).unwrap();
         let id2 = store.set_todo(&make_todo("Second")).unwrap();
         assert_eq!(id1, 1);
@@ -318,7 +318,7 @@ mod tests {
 
     #[test]
     fn set_and_get_todo_roundtrip() {
-        let store = store();
+        let store = SqliteStore::in_memory().unwrap();
         let t = Todo {
             priority: Some('A'),
             description: Some("Fix the thing".to_string()),
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     fn set_todo_persists_tags() {
-        let store = store();
+        let store = SqliteStore::in_memory().unwrap();
         let t = Todo {
             tags: vec!["feat".to_string(), "urgent".to_string()],
             ..make_todo("Tagged")
@@ -355,7 +355,7 @@ mod tests {
 
     #[test]
     fn set_todo_persists_metadata_including_multi_value() {
-        let store = store();
+        let store = SqliteStore::in_memory().unwrap();
         let mut meta = Metadata::new();
         meta.set("owner", "alice");
         meta.set("depends", "42");
@@ -378,7 +378,7 @@ mod tests {
 
     #[test]
     fn set_todo_persists_references() {
-        let store = store();
+        let store = SqliteStore::in_memory().unwrap();
         let reference = Todo {
             id: Some(TodoIdentifier::Reference(0)),
             description: Some("Extra detail".to_string()),
@@ -403,7 +403,7 @@ mod tests {
 
     #[test]
     fn get_todos_returns_all() {
-        let store = store();
+        let store = SqliteStore::in_memory().unwrap();
         store.set_todo(&make_todo("Alpha")).unwrap();
         store.set_todo(&make_todo("Beta")).unwrap();
         store.set_todo(&make_todo("Gamma")).unwrap();
@@ -417,7 +417,7 @@ mod tests {
 
     #[test]
     fn update_todo_changes_fields() {
-        let store = store();
+        let store = SqliteStore::in_memory().unwrap();
         let id = store.set_todo(&make_todo("Original")).unwrap();
         let updated = Todo {
             priority: Some('B'),
@@ -433,7 +433,7 @@ mod tests {
 
     #[test]
     fn update_todo_replaces_tags() {
-        let store = store();
+        let store = SqliteStore::in_memory().unwrap();
         let id = store
             .set_todo(&Todo {
                 tags: vec!["old".to_string()],
@@ -455,7 +455,7 @@ mod tests {
 
     #[test]
     fn update_todo_replaces_references() {
-        let store = store();
+        let store = SqliteStore::in_memory().unwrap();
         let ref1 = Todo {
             id: Some(TodoIdentifier::Reference(0)),
             ..make_todo("Old ref")
