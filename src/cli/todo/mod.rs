@@ -1,6 +1,6 @@
 pub mod edit;
 pub mod get;
-pub mod import;
+pub mod add;
 pub mod list;
 pub mod remove;
 
@@ -14,7 +14,7 @@ Usage: tdz todo <COMMAND>
 Commands:
     list      List todos in compact table format
     get       Show full details for a specific todo
-    import    Import untracked todos (assign IDs)
+    add       Add untracked todos (assign IDs)
     edit      Open todo in $EDITOR at its file location
     remove    Delete a todo comment from its source file
 
@@ -25,14 +25,14 @@ Options:
 pub enum TodoCommand {
     List(list::TodoListOptions),
     Get(get::TodoGetOptions),
-    Import(import::TodoImportOptions),
+    Add(add::TodoAddOptions),
     Edit(edit::TodoEditOptions),
     Remove(remove::TodoRemoveOptions),
 }
 
 pub use edit::edit;
 pub use get::get;
-pub use import::import;
+pub use add::add;
 pub use list::list;
 pub use remove::remove;
 
@@ -42,7 +42,7 @@ pub fn parse_cmd(mut parser: lexopt::Parser) -> error::Result<Mode> {
     match parser.next()? {
         Some(Value(val)) if val == "list" => list::parse_opts(parser),
         Some(Value(val)) if val == "get" => get::parse_opts(parser),
-        Some(Value(val)) if val == "import" => import::parse_opts(parser),
+        Some(Value(val)) if val == "add" => add::parse_opts(parser),
         Some(Value(val)) if val == "edit" => edit::parse_opts(parser),
         Some(Value(val)) if val == "remove" => remove::parse_opts(parser),
         Some(Long("help")) => Ok(Mode::Help(USAGE)),

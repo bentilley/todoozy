@@ -22,7 +22,7 @@ use todoozy::todo::sort;
 //   tdz cache build       # crawl git history, cache used IDs
 //   tdz cache clear       # clear the cache
 //
-// The cache is used by `tdz todo import` to determine next available ID:
+// The cache is used by `tdz todo add` to determine next available ID:
 //   next_id = max(all_ids_ever_used) + 1
 //
 // Cache is stored in local state (not git) keyed by commit SHA, so:
@@ -67,7 +67,7 @@ Usage: tdz [OPTIONS] [COMMAND]
 Commands:
     lint      Validate todo structure
     summary   Show summary statistics
-    todo      Manage todos (list, get, import, edit, remove)
+    todo      Manage todos (list, get, add, edit, remove)
     tag       Manage tags
 
 Options:
@@ -515,6 +515,17 @@ mod tests {
     fn todo_get_invalid_id_returns_error() {
         let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "get", "abc"]));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn todo_add_returns_cli_mode() {
+        let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "add", "--all"]));
+        assert!(matches!(
+            result,
+            Ok(Mode::Cli(Command::Todo(
+                TodoCommand::Add(_)
+            )))
+        ));
     }
 
     #[test]

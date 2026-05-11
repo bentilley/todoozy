@@ -7,23 +7,23 @@ use std::process::ExitCode;
 use todoozy::provider::{FileSystemProvider, Provider};
 use todoozy::todo::Todo;
 
-pub const USAGE: &str = r#"Import untracked todos (assign IDs)
+pub const USAGE: &str = r#"Add untracked todos (assign IDs)
 
-Usage: tdz todo import [OPTIONS]
+Usage: tdz todo add [OPTIONS]
 
 Options:
-    --all                          Import all untracked todos
-    --location <DIR|FILE[:LINE]>   Import todo at specific location
+    --all                          Add all untracked todos
+    --location <DIR|FILE[:LINE]>   Add todo at specific location
     --help                         Print help
 
 Examples:
-    tdz todo import --all
-    tdz todo import --location src/main.rs
-    tdz todo import --location src/main.rs:42
-    tdz todo import --location src/         Import all todos in src/ directory
+    tdz todo add --all
+    tdz todo add --location src/main.rs
+    tdz todo add --location src/main.rs:42
+    tdz todo add --location src/         Add all todos in src/ directory
 "#;
 
-pub struct TodoImportOptions {
+pub struct TodoAddOptions {
     pub all: bool,
     pub location: Option<LocationSpec>,
 }
@@ -34,7 +34,7 @@ pub enum LocationSpec {
     Dir(PathBuf),
 }
 
-impl TodoImportOptions {
+impl TodoAddOptions {
     pub fn new() -> Self {
         Self {
             all: false,
@@ -46,7 +46,7 @@ impl TodoImportOptions {
 pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     use lexopt::prelude::*;
 
-    let mut opts = TodoImportOptions::new();
+    let mut opts = TodoAddOptions::new();
 
     while let Some(arg) = parser.next()? {
         match arg {
@@ -68,7 +68,7 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
         return Err("cannot specify both --all and --location".into());
     }
 
-    Ok(Mode::Cli(Command::Todo(TodoCommand::Import(opts))))
+    Ok(Mode::Cli(Command::Todo(TodoCommand::Add(opts))))
 }
 
 impl TryFrom<String> for LocationSpec {
@@ -121,11 +121,11 @@ fn normalize_location_path(path: impl AsRef<Path>) -> PathBuf {
         })
 }
 
-pub fn import(conf: &mut config::Config, opts: &TodoImportOptions) -> error::Result<ExitCode> {
+pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<ExitCode> {
     let todos =
         FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone()).get_todos()?;
 
-    let mut imported_count = 0;
+    let mut added_count = 0;
 
     for mut todo in todos {
         if todo.id.is_some() {
@@ -144,23 +144,23 @@ pub fn import(conf: &mut config::Config, opts: &TodoImportOptions) -> error::Res
 
         match todo.import(id) {
             Ok(_) => {
-                println!("Imported: #{} {}", id, todo.title);
-                imported_count += 1;
+                println!("Added: #{} {}", id, todo.title);
+                added_count += 1;
             }
             Err(e) => {
-                eprintln!("Error importing '{}': {}", todo.title, e);
+                eprintln!("Error adding '{}': {}", todo.title, e);
                 conf.num_todos -= 1; // Roll back
             }
         }
     }
 
-    if imported_count > 0 {
+    if added_count > 0 {
         if let Err(e) = conf.save() {
             eprintln!("Error saving config: {}", e);
         }
     }
 
-    if imported_count == 0 {
+    if added_count == 0 {
         println!("No untracked todos found matching the criteria.");
     }
 

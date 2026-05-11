@@ -44,8 +44,8 @@ tdz --list-projects
 # List all contexts found in TODOs
 tdz --list-contexts
 
-# Import all untracked TODOs (assigns IDs)
-tdz --import-all
+# Add all untracked TODOs (assign IDs)
+tdz todo add --all
 
 # Filter TODOs
 tdz -f "priority=A"
