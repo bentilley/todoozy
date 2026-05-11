@@ -227,6 +227,32 @@ impl Store for SqliteStore {
         Ok(id)
     }
 
+    fn import_todo(&self, id: u32, todo: &Todo) -> Result<()> {
+        let mut conn = self.conn.borrow_mut();
+        let tx = conn.transaction()?;
+
+        tx.execute(
+            "INSERT INTO todo (id, priority, completion_date, creation_date, title, description,
+             file_path, start_line_num, end_line_num) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                id,
+                todo.priority.map(|c| c.to_string()),
+                todo.completion_date.map(|d| d.to_string()),
+                todo.creation_date.map(|d| d.to_string()),
+                todo.title,
+                todo.description,
+                todo.location.file_path_string(),
+                todo.location.start_line_num as i64,
+                todo.location.end_line_num as i64,
+            ],
+        )?;
+
+        self.insert_todo_data(&tx, id, todo)?;
+
+        tx.commit()?;
+        Ok(())
+    }
+
     fn update_todo(&self, id: u32, todo: Todo) -> Result<()> {
         let mut conn = self.conn.borrow_mut();
         let tx = conn.transaction()?;
@@ -394,6 +420,36 @@ mod tests {
         );
         assert_eq!(got.references[0].location.start_line_num, 5);
         assert_eq!(got.references[0].location.end_line_num, 8);
+    }
+
+    #[test]
+    fn import_todo_preserves_explicit_id() {
+        let store = SqliteStore::in_memory().unwrap();
+        let t = TodoBuilder::default().title("Imported".to_string()).build().unwrap();
+        store.import_todo(50, &t).unwrap();
+        let got = store.get_todo(50).unwrap();
+        assert_eq!(got.id, Some(TodoIdentifier::Primary(50)));
+        assert_eq!(got.title, "Imported");
+    }
+
+    #[test]
+    fn import_todo_fails_on_duplicate() {
+        let store = SqliteStore::in_memory().unwrap();
+        let t = TodoBuilder::default().title("First".to_string()).build().unwrap();
+        store.import_todo(50, &t).unwrap();
+        let t2 = TodoBuilder::default().title("Second".to_string()).build().unwrap();
+        assert!(store.import_todo(50, &t2).is_err());
+    }
+
+    #[test]
+    fn set_todo_after_import_continues_from_high_water_mark() {
+        let store = SqliteStore::in_memory().unwrap();
+        let t = TodoBuilder::default().title("Imported".to_string()).build().unwrap();
+        store.import_todo(50, &t).unwrap();
+        let next_id = store
+            .set_todo(&TodoBuilder::default().title("New".to_string()).build().unwrap())
+            .unwrap();
+        assert_eq!(next_id, 51);
     }
 
     #[test]

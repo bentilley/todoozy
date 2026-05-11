@@ -11,6 +11,7 @@ pub struct Query {}
 pub trait Store {
     fn get_todo(&self, id: u32) -> Option<Todo>;
     fn set_todo(&self, todo: &Todo) -> Result<u32>;
+    fn import_todo(&self, id: u32, todo: &Todo) -> Result<()>;
     fn update_todo(&self, id: u32, todo: Todo) -> Result<()>;
 
     fn get_todos(&self) -> Vec<Todo>;

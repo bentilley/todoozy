@@ -1,6 +1,7 @@
 pub mod edit;
 pub mod get;
 pub mod add;
+pub mod import;
 pub mod list;
 pub mod remove;
 
@@ -15,6 +16,7 @@ Commands:
     list      List todos in compact table format
     get       Show full details for a specific todo
     add       Add untracked todos (assign IDs)
+    import    Restore the todo store from VCS history
     edit      Open todo in $EDITOR at its file location
     remove    Delete a todo comment from its source file
 
@@ -26,6 +28,7 @@ pub enum TodoCommand {
     List(list::TodoListOptions),
     Get(get::TodoGetOptions),
     Add(add::TodoAddOptions),
+    Import(import::TodoImportOptions),
     Edit(edit::TodoEditOptions),
     Remove(remove::TodoRemoveOptions),
 }
@@ -33,6 +36,7 @@ pub enum TodoCommand {
 pub use edit::edit;
 pub use get::get;
 pub use add::add;
+pub use import::import;
 pub use list::list;
 pub use remove::remove;
 
@@ -44,6 +48,7 @@ pub fn parse_cmd(mut parser: lexopt::Parser) -> error::Result<Mode> {
         Some(Value(val)) if val == "get" => get::parse_opts(parser),
         Some(Value(val)) if val == "add" => add::parse_opts(parser),
         Some(Value(val)) if val == "edit" => edit::parse_opts(parser),
+        Some(Value(val)) if val == "import" => import::parse_opts(parser),
         Some(Value(val)) if val == "remove" => remove::parse_opts(parser),
         Some(Long("help")) => Ok(Mode::Help(USAGE)),
         Some(Value(other)) => {
