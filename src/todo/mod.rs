@@ -3,6 +3,7 @@ pub mod error;
 pub mod filter;
 pub mod parser;
 pub mod sort;
+pub mod store;
 pub mod syntax;
 
 use std::fs::File;

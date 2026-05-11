@@ -5,7 +5,10 @@ use crate::cli::error;
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 use todoozy::provider::{FileSystemProvider, Provider};
-use todoozy::todo::Todo;
+use todoozy::todo::{
+    store::{LocalStore, Store},
+    Todo,
+};
 
 pub const USAGE: &str = r#"Add untracked todos (assign IDs)
 
@@ -125,6 +128,8 @@ pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<Ex
     let todos =
         FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone()).get_todos()?;
 
+    let store = LocalStore::new();
+
     let mut added_count = 0;
 
     for mut todo in todos {
@@ -139,8 +144,11 @@ pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<Ex
             }
         }
 
-        conf.num_todos += 1;
-        let id = conf.num_todos;
+        // TODO &99 (A) Make sure the set_todo method is working as expected
+        let id = store.set_todo(&todo)?;
+
+        // conf.num_todos += 1;
+        // let id = conf.num_todos;
 
         match todo.add(id) {
             Ok(_) => {
