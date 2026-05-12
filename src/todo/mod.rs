@@ -396,7 +396,7 @@ impl Todo {
         Ok(())
     }
 
-    pub fn add(&mut self, id: u32) -> Result<()> {
+    pub fn add_id(&mut self, id: u32) -> Result<()> {
         match &self.id {
             Some(TodoIdentifier::Primary(existing)) => {
                 return Err(format!("Todo already has ID #{}", existing).into())

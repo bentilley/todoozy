@@ -2,10 +2,9 @@ use super::TodoCommand;
 use crate::cli::args::{Command, Mode};
 use crate::cli::config;
 use crate::cli::error;
-use git2::{ApplyLocation, ApplyOptions, DiffOptions, Repository};
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
-use todoozy::provider::{FileSystemProvider, Provider};
+use todoozy::provider::{vcs::create_vcs_backend, FileSystemProvider, Provider};
 use todoozy::todo::{
     store::{SqliteStore, Store},
     Todo,
@@ -125,52 +124,14 @@ fn normalize_location_path(path: impl AsRef<Path>) -> PathBuf {
         })
 }
 
-fn commit_todo_id(todo: &Todo, id: u32) -> Result<(), Box<dyn std::error::Error>> {
-    let repo = Repository::open_from_env()?;
-
-    let file_path = todo
-        .location
-        .file_path
-        .as_ref()
-        .ok_or("no file path on todo")?;
-    let line_num = todo.location.start_line_num as u32;
-
-    let mut diff_opts = DiffOptions::new();
-    diff_opts.pathspec(file_path);
-    let diff = repo.diff_index_to_workdir(None, Some(&mut diff_opts))?;
-
-    let mut apply_opts = ApplyOptions::new();
-    apply_opts.hunk_callback(move |hunk| {
-        hunk.map_or(false, |h| {
-            let start = h.new_start();
-            line_num >= start && line_num < start + h.new_lines()
-        })
-    });
-
-    repo.apply(&diff, ApplyLocation::Index, Some(&mut apply_opts))?;
-
-    let mut index = repo.index()?;
-    let tree_id = index.write_tree()?;
-    let tree = repo.find_tree(tree_id)?;
-    let sig = repo.signature()?;
-    let parent = repo.head()?.peel_to_commit()?;
-    repo.commit(
-        Some("HEAD"),
-        &sig,
-        &sig,
-        &format!("chore: add todo #{id}"),
-        &tree,
-        &[&parent],
-    )?;
-
-    Ok(())
-}
-
 pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<ExitCode> {
     let todos =
         FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone()).get_todos()?;
 
     let store = SqliteStore::new()?;
+
+    let cwd = std::env::current_dir()?;
+    let mut vcs = create_vcs_backend(&cwd, &conf.get_todo_token(), None)?;
 
     let mut added_count = 0;
 
@@ -188,27 +149,25 @@ pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<Ex
 
         let id = store.set_todo(&todo)?;
 
-        // conf.num_todos += 1;
-        // let id = conf.num_todos;
+        if let Err(e) = todo.add_id(id) {
+            // TODO (B) A way to rollback the store (if possible)
+            //
+            // If we can't add the ID to the todo, or the todo to the VCS, we should try and
+            // undo the store state change if we can.
+            //
+            // store.rollback()?;
+            return Err(format!("Error adding '{}': {}", todo.title, e).into());
+        }
 
-        match todo.add(id) {
+        match vcs.add_todo(&todo) {
             Ok(_) => {
                 println!("Added: #{} {}", id, todo.title);
                 added_count += 1;
-                if let Err(e) = commit_todo_id(&todo, id) {
-                    eprintln!("Warning: could not commit todo #{id} to vcs: {e}");
-                }
             }
             Err(e) => {
-                eprintln!("Error adding '{}': {}", todo.title, e);
-                conf.num_todos -= 1; // Roll back
+                // store.rollback()?;
+                eprintln!("Warning: could not commit todo #{id} to vcs: {e}");
             }
-        }
-    }
-
-    if added_count > 0 {
-        if let Err(e) = conf.save() {
-            eprintln!("Error saving config: {}", e);
         }
     }
 

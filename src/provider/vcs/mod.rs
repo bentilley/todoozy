@@ -24,6 +24,7 @@ pub trait VcsBackend: Send {
     /// Scan the entire VCS history for all TODOs
     fn get_all_todos(&self) -> Result<Todos>;
 
+    /// Get TODOs by ID for a specific version (commit/tag/branch).
     fn get_todo_for_version(&self, id: u32, version: &str) -> Result<Todo> {
         self.get_todos_for_version(&[id], version)?
             .get(&id)
@@ -36,7 +37,11 @@ pub trait VcsBackend: Send {
             })
     }
 
+    /// Get multiple TODOs by ID for a specific version (commit/tag/branch).
     fn get_todos_for_version(&self, id: &[u32], version: &str) -> Result<Todos>;
+
+    /// Add a new TODO to the VCS.
+    fn add_todo(&mut self, todo: &Todo) -> Result<()>;
 
     // fn get_all_todos_for_version(&self, version: String) -> Result<Todos>;
     // fn hydrate_todo(&self, todo: &mut Todo) -> Result<()>;

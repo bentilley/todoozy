@@ -7,7 +7,7 @@ use super::{
 use crate::fs::{FileType, FileTypeAwarePath};
 use crate::todo::{parser::TodoParser, Todo, TodoIdentifier, Todos};
 use chrono::{DateTime, TimeZone, Utc};
-use git2::{Commit, DiffOptions, Oid, Repository};
+use git2::{ApplyLocation, ApplyOptions, Commit, DiffOptions, Oid, Repository};
 use itertools::Itertools;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -366,6 +366,57 @@ impl VcsBackend for GitBackend {
             })
             .collect::<Vec<_>>()
             .into())
+    }
+
+    fn add_todo(&mut self, todo: &Todo) -> Result<()> {
+        let id = match todo.id {
+            Some(TodoIdentifier::Primary(id)) => id,
+            _ => {
+                return Err(Error::Custom(
+                    "TODO must have a primary ID to be added".to_string(),
+                ))
+            }
+        };
+
+        let file_path = todo
+            .location
+            .file_path
+            .as_ref()
+            .ok_or("no file path on todo")?;
+        let line_num = todo.location.start_line_num as u32;
+
+        let mut diff_opts = DiffOptions::new();
+        diff_opts.pathspec(file_path);
+        let diff = self
+            .repo
+            .diff_index_to_workdir(None, Some(&mut diff_opts))?;
+
+        let mut apply_opts = ApplyOptions::new();
+        apply_opts.hunk_callback(move |hunk| {
+            hunk.map_or(false, |h| {
+                let start = h.new_start();
+                line_num >= start && line_num < start + h.new_lines()
+            })
+        });
+
+        self.repo
+            .apply(&diff, ApplyLocation::Index, Some(&mut apply_opts))?;
+
+        let mut index = self.repo.index()?;
+        let tree_id = index.write_tree()?;
+        let tree = self.repo.find_tree(tree_id)?;
+        let sig = self.repo.signature()?;
+        let parent = self.repo.head()?.peel_to_commit()?;
+        self.repo.commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            &format!("chore: add todo #{id}"),
+            &tree,
+            &[&parent],
+        )?;
+
+        Ok(())
     }
 }
 
