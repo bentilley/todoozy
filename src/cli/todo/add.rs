@@ -2,6 +2,7 @@ use super::TodoCommand;
 use crate::cli::args::{Command, Mode};
 use crate::cli::config;
 use crate::cli::error;
+use git2::{ApplyLocation, ApplyOptions, DiffOptions, Repository};
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 use todoozy::provider::{FileSystemProvider, Provider};
@@ -124,6 +125,47 @@ fn normalize_location_path(path: impl AsRef<Path>) -> PathBuf {
         })
 }
 
+fn commit_todo_id(todo: &Todo, id: u32) -> Result<(), Box<dyn std::error::Error>> {
+    let repo = Repository::open_from_env()?;
+
+    let file_path = todo
+        .location
+        .file_path
+        .as_ref()
+        .ok_or("no file path on todo")?;
+    let line_num = todo.location.start_line_num as u32;
+
+    let mut diff_opts = DiffOptions::new();
+    diff_opts.pathspec(file_path);
+    let diff = repo.diff_index_to_workdir(None, Some(&mut diff_opts))?;
+
+    let mut apply_opts = ApplyOptions::new();
+    apply_opts.hunk_callback(move |hunk| {
+        hunk.map_or(false, |h| {
+            let start = h.new_start();
+            line_num >= start && line_num < start + h.new_lines()
+        })
+    });
+
+    repo.apply(&diff, ApplyLocation::Index, Some(&mut apply_opts))?;
+
+    let mut index = repo.index()?;
+    let tree_id = index.write_tree()?;
+    let tree = repo.find_tree(tree_id)?;
+    let sig = repo.signature()?;
+    let parent = repo.head()?.peel_to_commit()?;
+    repo.commit(
+        Some("HEAD"),
+        &sig,
+        &sig,
+        &format!("chore: add todo #{id}"),
+        &tree,
+        &[&parent],
+    )?;
+
+    Ok(())
+}
+
 pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<ExitCode> {
     let todos =
         FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone()).get_todos()?;
@@ -153,21 +195,15 @@ pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<Ex
             Ok(_) => {
                 println!("Added: #{} {}", id, todo.title);
                 added_count += 1;
+                if let Err(e) = commit_todo_id(&todo, id) {
+                    eprintln!("Warning: could not commit todo #{id} to vcs: {e}");
+                }
             }
             Err(e) => {
                 eprintln!("Error adding '{}': {}", todo.title, e);
                 conf.num_todos -= 1; // Roll back
             }
         }
-        // TODO #102 (A) Add todo to vcs once ID added
-        //
-        // After todo.add has added an ID to the TODO comment, we need to commit just the patch
-        // containing the TODO comment. The todo has been added to the store at this point, so we
-        // need to commit the ID to ensure that everything stays in sync. It's like a database
-        // transaction - make sure that the store ID and the TODO comment ID end up in sync. If
-        // a user wants to go and mess around with it later that's on them, our responsibility is to
-        // make sure that at this moment, the moment of adding the todo, that everything ends up
-        // nice and in sync.
     }
 
     if added_count > 0 {
