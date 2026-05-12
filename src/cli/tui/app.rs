@@ -129,7 +129,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(mut config: Config) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(config: Config) -> Result<Self, Box<dyn std::error::Error>> {
         // Start up admin
         let fs_provider = todoozy::provider::FileSystemProvider::new(
             &config.get_todo_token(),
@@ -140,11 +140,6 @@ impl App {
         let store = todoozy::todo::store::SqliteStore::new()?;
 
         let todos = fs_provider.get_todos().unwrap();
-        let max_id = std::cmp::max(todos.get_max_id(), config.num_todos);
-        if max_id > config.num_todos {
-            config.num_todos = max_id;
-            config.save()?;
-        }
 
         let todo_view: Vec<Rc<RefCell<Todo>>> = todos
             .into_iter()
