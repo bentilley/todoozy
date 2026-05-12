@@ -26,6 +26,7 @@ use super::input::{Input, InputFor};
 use todoozy::provider::Provider;
 use todoozy::todo::filter;
 use todoozy::todo::sort;
+use todoozy::todo::store::Store;
 use todoozy::todo::TodoIdentifier;
 use todoozy::Todo;
 
@@ -107,9 +108,6 @@ use crate::cli::config::Config;
 pub struct App {
     should_exit: bool,
 
-    /// The configuration object for the app.
-    config: Config,
-
     /// The complete list of todos that this app manages.
     todo_view: Vec<Rc<RefCell<Todo>>>,
 
@@ -126,6 +124,8 @@ pub struct App {
     message: Option<String>,
 
     fs_provider: todoozy::provider::FileSystemProvider,
+    vcs: Box<dyn todoozy::provider::vcs::VcsBackend>,
+    store: todoozy::todo::store::SqliteStore,
 }
 
 impl App {
@@ -135,6 +135,9 @@ impl App {
             &config.get_todo_token(),
             config.exclude.clone(),
         );
+        let cwd = std::env::current_dir()?;
+        let vcs = todoozy::provider::vcs::create_vcs_backend(&cwd, &config.get_todo_token(), None)?;
+        let store = todoozy::todo::store::SqliteStore::new()?;
 
         let todos = fs_provider.get_todos().unwrap();
         let max_id = std::cmp::max(todos.get_max_id(), config.num_todos);
@@ -159,7 +162,6 @@ impl App {
 
         let mut app = Self {
             should_exit: false,
-            config,
             todo_view,
             todo_list: TodoList::default(),
             selected: None,
@@ -169,6 +171,8 @@ impl App {
             input_for: None,
             message: None,
             fs_provider,
+            vcs,
+            store,
         };
 
         app.todo_list = TodoList::new(app.todo_view.clone(), &app.filter, &app.sorter);
@@ -362,44 +366,45 @@ impl App {
         self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
     }
 
-    fn import_selected(&mut self) {
-        if let Some(todo_item) = self.todo_list.selected() {
-            let mut todo = todo_item.todo.borrow_mut();
-            self.config.num_todos += 1;
-            let id = self.config.num_todos;
+    fn import_todo(&mut self, todo: &mut Todo) -> Result<(), Box<dyn std::error::Error>> {
+        let id = self.store.set_todo(&todo)?;
 
-            match todo.add_id(id) {
-                Ok(_) => {
-                    self.config.save().unwrap();
-                    self.message = Some(format!("Todo imported with ID {}", id));
-                }
-                Err(e) => {
-                    self.config.num_todos -= 1; // Roll back
-                    self.message = Some(format!("{}", e));
-                }
-            }
+        if let Err(e) = todo.add_id(id) {
+            // self.store.rollback()?;
+            return Err(format!("Error adding ID to todo: {}", e).into());
+        }
+
+        if let Err(e) = self.vcs.add_todo(&todo) {
+            // self.store.rollback()?;
+            return Err(format!("Error adding todo to vcs: {}", e).into());
+        }
+
+        Ok(())
+    }
+
+    fn import_selected(&mut self) {
+        let Some(todo_rc) = self.todo_list.selected().map(|item| Rc::clone(&item.todo)) else {
+            return;
+        };
+        let mut todo = todo_rc.borrow_mut();
+        match self.import_todo(&mut todo) {
+            Ok(_) => self.message = Some("Todo added".to_string()),
+            Err(e) => self.message = Some(format!("Error adding todo: {}", e)),
         }
     }
 
     fn import_all(&mut self) {
         let mut num_imported = 0;
-        for todo in &self.todo_view {
-            let mut todo = todo.borrow_mut();
+        let todos: Vec<_> = self.todo_view.iter().map(Rc::clone).collect();
+        for todo_rc in &todos {
+            let mut todo = todo_rc.borrow_mut();
             if todo.id.is_some() {
                 continue;
             }
 
-            self.config.num_todos += 1;
-            let id = self.config.num_todos;
-
-            match todo.add_id(id) {
-                Ok(_) => {
-                    num_imported += 1;
-                    self.config.save().unwrap();
-                }
-                Err(_) => {
-                    self.config.num_todos -= 1; // Roll back
-                }
+            match self.import_todo(&mut todo) {
+                Ok(_) => num_imported += 1,
+                Err(e) => self.message = Some(format!("Error adding todo: {}", e)),
             }
         }
         match num_imported {
