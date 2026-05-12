@@ -6,6 +6,7 @@ pub use walk::{Walk, WalkConfig};
 pub enum FileType {
     Bash,
     C,
+    Csharp,
     Css,
     Cpp,
     Dockerfile,
@@ -41,6 +42,7 @@ impl FileType {
             "*.bash",
             "*.c",
             "*.cc",
+            "*.cs",
             "*.css",
             "*.cpp",
             "*.cxx",
@@ -98,6 +100,7 @@ impl FileTypeAwarePath for std::path::Path {
         match self.extension().and_then(std::ffi::OsStr::to_str) {
             Some("bash") => Some(Bash),
             Some("c") | Some("h") => Some(C),
+            Some("cs") => Some(Csharp),
             Some("css") => Some(Css),
             Some("cc") | Some("cpp") | Some("cxx") | Some("hh") | Some("hpp") | Some("hxx") => {
                 Some(Cpp)
@@ -212,6 +215,8 @@ fn test_get_filetype_from_name() {
     assert_eq!(Path::new("test.hh").get_filetype_from_name(), Some(Cpp));
     assert_eq!(Path::new("test.hpp").get_filetype_from_name(), Some(Cpp));
     assert_eq!(Path::new("test.hxx").get_filetype_from_name(), Some(Cpp));
+    // C# files
+    assert_eq!(Path::new("test.cs").get_filetype_from_name(), Some(Csharp));
     // HTML files
     assert_eq!(Path::new("test.html").get_filetype_from_name(), Some(Html));
     assert_eq!(Path::new("test.htm").get_filetype_from_name(), Some(Html));

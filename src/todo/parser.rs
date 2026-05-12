@@ -18,6 +18,7 @@ impl TodoParser {
         match file_type {
             Bash | Ksh | Sh | Zsh => Box::new(Parser::new(&self.todo_token, &sh::SH)),
             C => Box::new(Parser::new(&self.todo_token, &c::C)),
+            Csharp => Box::new(Parser::new(&self.todo_token, &csharp::CSHARP)),
             Css => Box::new(Parser::new(&self.todo_token, &css::CSS)),
             Cpp => Box::new(Parser::new(&self.todo_token, &cpp::CPP)),
             Dockerfile => Box::new(Parser::new(&self.todo_token, &dockerfile::DOCKERFILE)),
