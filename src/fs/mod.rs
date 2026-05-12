@@ -24,6 +24,7 @@ pub enum FileType {
     Scss,
     Sql,
     Sh,
+    Swift,
     Terraform,
     Todoozy,
     Typescript,
@@ -65,6 +66,7 @@ impl FileType {
             "*.scss",
             "*.sql",
             "*.sh",
+            "*.swift",
             "*.tdz",
             "*.tf",
             "*.ts",
@@ -116,6 +118,7 @@ impl FileTypeAwarePath for std::path::Path {
             Some("scss") => Some(Scss),
             Some("sql") => Some(Sql),
             Some("sh") => Some(Sh),
+            Some("swift") => Some(Swift),
             Some("tdz") => Some(Todoozy),
             Some("tf") => Some(Terraform),
             Some("ts") | Some("tsx") => Some(Typescript),
@@ -191,6 +194,7 @@ fn test_get_filetype_from_name() {
     assert_eq!(Path::new("Dockerfile").get_filetype_from_name(), Some(Dockerfile));
     assert_eq!(Path::new("test.dockerfile").get_filetype_from_name(), Some(Dockerfile));
     assert_eq!(Path::new("test.sh").get_filetype_from_name(), Some(Sh));
+    assert_eq!(Path::new("test.swift").get_filetype_from_name(), Some(Swift));
     assert_eq!(Path::new("test.bash").get_filetype_from_name(), Some(Bash));
     assert_eq!(Path::new("test.zsh").get_filetype_from_name(), Some(Zsh));
     assert_eq!(Path::new("test.ksh").get_filetype_from_name(), Some(Ksh));

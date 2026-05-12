@@ -14,6 +14,7 @@ pub mod python;
 pub mod rust;
 pub mod sh;
 pub mod sql;
+pub mod swift;
 pub mod tdz;
 pub mod terraform;
 pub mod yaml;
