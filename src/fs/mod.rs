@@ -14,6 +14,7 @@ pub enum FileType {
     Html,
     Java,
     JavaScript,
+    Kotlin,
     Ksh,
     Less,
     Makefile,
@@ -58,7 +59,9 @@ impl FileType {
             "*.java",
             "*.js",
             "*.jsx",
+            "*.kt",
             "*.ksh",
+            "*.kts",
             "*.less",
             "*.md",
             "*.mk",
@@ -112,6 +115,7 @@ impl FileTypeAwarePath for std::path::Path {
             Some("html") | Some("htm") => Some(Html),
             Some("java") => Some(Java),
             Some("js") | Some("jsx") => Some(JavaScript),
+            Some("kt") | Some("kts") => Some(Kotlin),
             Some("ksh") => Some(Ksh),
             Some("less") => Some(Less),
             Some("md") => Some(Markdown),
@@ -183,6 +187,8 @@ fn test_get_filetype_from_name() {
     assert_eq!(Path::new("test.go").get_filetype_from_name(), Some(Go));
     assert_eq!(Path::new("test.md").get_filetype_from_name(), Some(Markdown));
     assert_eq!(Path::new("test.java").get_filetype_from_name(), Some(Java));
+    assert_eq!(Path::new("test.kt").get_filetype_from_name(), Some(Kotlin));
+    assert_eq!(Path::new("test.kts").get_filetype_from_name(), Some(Kotlin));
     assert_eq!(Path::new("test.rb").get_filetype_from_name(), Some(Ruby));
     assert_eq!(Path::new("test.py").get_filetype_from_name(), Some(Python));
     assert_eq!(Path::new("test.tf").get_filetype_from_name(), Some(Terraform));

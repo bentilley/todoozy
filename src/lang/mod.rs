@@ -7,6 +7,7 @@ pub mod go;
 pub mod html;
 pub mod java;
 pub mod javascript;
+pub mod kotlin;
 pub mod makefile;
 pub mod markdown;
 pub mod php;

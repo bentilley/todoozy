@@ -26,6 +26,7 @@ impl TodoParser {
             Html => Box::new(Parser::new(&self.todo_token, &html::HTML)),
             Java => Box::new(Parser::new(&self.todo_token, &java::JAVA)),
             JavaScript => Box::new(Parser::new(&self.todo_token, &javascript::JAVASCRIPT)),
+            Kotlin => Box::new(Parser::new(&self.todo_token, &kotlin::KOTLIN)),
             Makefile => Box::new(Parser::new(&self.todo_token, &makefile::MAKEFILE)),
             Markdown => Box::new(Parser::new(&self.todo_token, &markdown::MARKDOWN)),
             Php => Box::new(Parser::new(&self.todo_token, &php::PHP)),
