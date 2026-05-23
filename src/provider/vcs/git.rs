@@ -362,7 +362,12 @@ impl GitBackend {
 ///
 /// All other changed lines in the hunk follow the single-line staging spec:
 /// non-target ADDs are omitted; non-target DELs become context.
-fn build_single_todo_patch(diff: &Diff<'_>, start_line: u32, end_line: u32) -> Result<Vec<u8>> {
+fn build_single_todo_patch(
+    diff: &Diff<'_>,
+    start_line: u32,
+    end_line: u32,
+    parser: &TodoParser,
+) -> Result<Vec<u8>> {
     use git2::DiffLineType::*;
     use std::io::Write as _;
 
@@ -424,7 +429,7 @@ fn build_single_todo_patch(diff: &Diff<'_>, start_line: u32, end_line: u32) -> R
                 if line.new_lineno() == Some(start_line) {
                     old_insertion_pos = last_old_lineno;
                     if let Some((ty, content, _)) = &prev_line {
-                        if *ty == Deletion {
+                        if *ty == Deletion && parser.contains_token(content) {
                             num_deletions += 1;
                             lines.push(b'-');
                             lines.extend_from_slice(content);
@@ -511,6 +516,7 @@ impl VcsBackend for GitBackend {
             &workdir_diff,
             todo.location.start_line_num as u32,
             todo.location.end_line_num as u32,
+            &self.parser,
         )?;
         let synthetic_diff = Diff::from_buffer(&patch)?;
         self.repo

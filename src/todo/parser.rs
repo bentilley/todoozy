@@ -12,6 +12,12 @@ impl TodoParser {
         }
     }
 
+    pub fn contains_token(&self, content: &[u8]) -> bool {
+        content
+            .windows(self.todo_token.len())
+            .any(|w| w == self.todo_token.as_bytes())
+    }
+
     fn get_parser_for_file_type(&self, file_type: crate::fs::FileType) -> Box<dyn RawParser + '_> {
         use crate::fs::FileType::*;
         use crate::lang::*;
