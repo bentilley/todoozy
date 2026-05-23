@@ -12,6 +12,7 @@ pub mod markdown;
 pub mod php;
 pub mod protobuf;
 pub mod python;
+pub mod ruby;
 pub mod rust;
 pub mod sh;
 pub mod sql;

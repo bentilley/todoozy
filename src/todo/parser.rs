@@ -31,6 +31,7 @@ impl TodoParser {
             Php => Box::new(Parser::new(&self.todo_token, &php::PHP)),
             Protobuf => Box::new(Parser::new(&self.todo_token, &protobuf::PROTOBUF)),
             Python => Box::new(Parser::new(&self.todo_token, &python::PYTHON)),
+            Ruby => Box::new(Parser::new(&self.todo_token, &ruby::RUBY)),
             Rust => Box::new(Parser::new(&self.todo_token, &rust::RUST)),
             Scss => Box::new(Parser::new(&self.todo_token, &css::SCSS)),
             Sql => Box::new(Parser::new(&self.todo_token, &sql::SQL)),

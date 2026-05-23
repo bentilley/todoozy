@@ -21,6 +21,7 @@ pub enum FileType {
     Php,
     Protobuf,
     Python,
+    Ruby,
     Rust,
     Scss,
     Sql,
@@ -63,6 +64,7 @@ impl FileType {
             "*.mk",
             "*.php",
             "*.proto",
+            "*.rb",
             "*.py",
             "*.rs",
             "*.scss",
@@ -116,6 +118,7 @@ impl FileTypeAwarePath for std::path::Path {
             Some("mk") => Some(Makefile),
             Some("php") => Some(Php),
             Some("proto") => Some(Protobuf),
+            Some("rb") => Some(Ruby),
             Some("py") => Some(Python),
             Some("rs") => Some(Rust),
             Some("scss") => Some(Scss),
@@ -180,6 +183,7 @@ fn test_get_filetype_from_name() {
     assert_eq!(Path::new("test.go").get_filetype_from_name(), Some(Go));
     assert_eq!(Path::new("test.md").get_filetype_from_name(), Some(Markdown));
     assert_eq!(Path::new("test.java").get_filetype_from_name(), Some(Java));
+    assert_eq!(Path::new("test.rb").get_filetype_from_name(), Some(Ruby));
     assert_eq!(Path::new("test.py").get_filetype_from_name(), Some(Python));
     assert_eq!(Path::new("test.tf").get_filetype_from_name(), Some(Terraform));
     assert_eq!(Path::new("test.css").get_filetype_from_name(), Some(Css));
