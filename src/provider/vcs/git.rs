@@ -354,14 +354,12 @@ impl GitBackend {
 ///
 /// Two cases are handled:
 /// - Pure addition (case 1): all lines in the range are brand-new `+` lines.
-///   Every one is included verbatim. `adj_new = old_lines + N`.
+///   Every one is included verbatim.
 /// - Modification (case 2): the first ADD line in the range is immediately
-///   preceded by a `-` line (the old TODO without an ID). Both that `-` and
-///   the first `+` are included; the rest of the comment was already committed.
-///   `adj_new = old_lines` (DEL and ADD cancel).
+///   preceded by a `-` line whose content contains the TODO token (the old TODO
+///   without an ID). Both that `-` and all `+` lines in the range are included.
 ///
-/// All other changed lines in the hunk follow the single-line staging spec:
-/// non-target ADDs are omitted; non-target DELs become context.
+/// All other changed lines in the diff are ignored.
 fn build_single_todo_patch(
     diff: &Diff<'_>,
     start_line: u32,
@@ -402,7 +400,7 @@ fn build_single_todo_patch(
 
             write!(
                 &mut out,
-                "diff --git i/{} w/{} \nindex {}..{} {:o}\n--- i/{}\n+++ w/{}\n",
+                "diff --git i/{} w/{}\nindex {}..{} {:o}\n--- i/{}\n+++ w/{}\n",
                 index_path,
                 workdir_path,
                 &index_oid[..7],
