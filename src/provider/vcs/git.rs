@@ -11,6 +11,7 @@ use git2::{ApplyLocation, Commit, Diff, DiffOptions, Oid, Repository};
 use itertools::Itertools;
 use rayon::prelude::*;
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// Metadata extracted from a commit.
@@ -347,126 +348,115 @@ impl GitBackend {
 
         Ok(todos.into_values().collect::<Vec<_>>().into())
     }
-}
 
-/// Build a synthetic unified-diff patch that stages exactly the TODO comment
-/// spanning `[start_line, end_line]` (1-based, inclusive, in the new file).
-///
-/// Two cases are handled:
-/// - Pure addition (case 1): all lines in the range are brand-new `+` lines.
-///   Every one is included verbatim.
-/// - Modification (case 2): the first ADD line in the range is immediately
-///   preceded by a `-` line whose content contains the TODO token (the old TODO
-///   without an ID). Both that `-` and all `+` lines in the range are included.
-///
-/// All other changed lines in the diff are ignored.
-fn build_single_todo_patch(
-    diff: &Diff<'_>,
-    start_line: u32,
-    end_line: u32,
-    parser: &TodoParser,
-) -> Result<Vec<u8>> {
-    use git2::DiffLineType::*;
-    use std::io::Write as _;
+    /// Build a synthetic unified-diff patch that stages exactly the TODO comment.
+    ///
+    /// Diff spans `[start_line, end_line]`. All other changed lines are ignored.
+    fn build_single_todo_patch(
+        &self,
+        diff: &Diff<'_>,
+        start_line: u32,
+        end_line: u32,
+    ) -> Result<Vec<u8>> {
+        let mut patch: Vec<u8> = Vec::new();
+        let mut lines: Vec<u8> = Vec::new();
 
-    let mut out: Vec<u8> = Vec::new();
-    let mut lines: Vec<u8> = Vec::new();
+        let mut num_additions: u32 = 0;
+        let mut num_deletions: u32 = 0;
+        let mut old_insertion_pos: u32 = end_line;
+        let mut new_insertion_pos: u32 = end_line;
 
-    let mut prev_line: Option<(git2::DiffLineType, Vec<u8>, Option<u32>)> = None;
-    let mut num_additions: u32 = 0;
-    let mut num_deletions: u32 = 0;
-    // Last old-file line number seen (updated for context and deletion lines).
-    // When we encounter the first addition in the target range this equals the
-    // old-file position just before that insertion point.
-    let mut last_old_lineno: u32 = 0;
-    let mut old_insertion_pos: u32 = start_line; // overwritten in line callback
-    diff.foreach(
-        &mut |delta, _| {
-            let index_file = delta.old_file();
-            let workdir_file = delta.new_file();
+        diff.foreach(
+            &mut |delta, _| {
+                let index_file = delta.old_file();
+                let workdir_file = delta.new_file();
 
-            let index_path = match index_file.path() {
-                Some(p) => p.display().to_string(),
-                None => return false,
-            };
-            let workdir_path = match workdir_file.path() {
-                Some(p) => p.display().to_string(),
-                None => return false,
-            };
+                let index_path = match index_file.path() {
+                    Some(p) => p.display().to_string(),
+                    None => return false,
+                };
+                let workdir_path = match workdir_file.path() {
+                    Some(p) => p.display().to_string(),
+                    None => return false,
+                };
 
-            let index_oid = index_file.id().to_string();
-            let workdir_oid = workdir_file.id().to_string();
-            let mode = u32::from(workdir_file.mode());
+                let index_oid = index_file.id().to_string();
+                let workdir_oid = workdir_file.id().to_string();
+                let mode = u32::from(workdir_file.mode());
 
-            write!(
-                &mut out,
-                "diff --git i/{} w/{}\nindex {}..{} {:o}\n--- i/{}\n+++ w/{}\n",
-                index_path,
-                workdir_path,
-                &index_oid[..7],
-                &workdir_oid[..7],
-                mode,
-                index_path,
-                workdir_path,
-            )
-            .unwrap();
+                write!(
+                    &mut patch,
+                    "diff --git i/{} w/{}\nindex {}..{} {:o}\n--- i/{}\n+++ w/{}\n",
+                    index_path,
+                    workdir_path,
+                    &index_oid[..7],
+                    &workdir_oid[..7],
+                    mode,
+                    index_path,
+                    workdir_path,
+                )
+                .unwrap();
 
-            true
-        },
-        None,
-        None,
-        Some(&mut |_delta, _hunk, line| {
-            if let Some(n) = line.old_lineno() {
-                last_old_lineno = n;
-            }
-            if line.origin_value() == Addition
-                && line
-                    .new_lineno()
-                    .map_or(false, |n| n >= start_line && n <= end_line)
-            {
-                if line.new_lineno() == Some(start_line) {
-                    old_insertion_pos = last_old_lineno;
-                    if let Some((ty, content, _)) = &prev_line {
-                        if *ty == Deletion && parser.contains_token(content) {
-                            num_deletions += 1;
-                            lines.push(b'-');
-                            lines.extend_from_slice(content);
+                true
+            },
+            None,
+            None,
+            Some(&mut |_delta, _hunk, line| {
+                let in_todo = |n| n >= start_line && n <= end_line;
+
+                use git2::DiffLineType::*;
+                match line.origin_value() {
+                    Addition if line.new_lineno().map_or(false, in_todo) => {
+                        if line.new_lineno().unwrap() < new_insertion_pos {
+                            new_insertion_pos = line.new_lineno().unwrap();
                         }
+                        num_additions += 1;
+                        lines.push(b'+');
+                        lines.extend_from_slice(line.content());
                     }
+                    Deletion if line.old_lineno().map_or(false, in_todo) => {
+                        if line.old_lineno().unwrap() < old_insertion_pos {
+                            old_insertion_pos = line.old_lineno().unwrap();
+                        }
+                        num_deletions += 1;
+                        lines.push(b'-');
+                        lines.extend_from_slice(line.content());
+                    }
+                    Context => {
+                        if line.new_lineno().unwrap() < new_insertion_pos {
+                            new_insertion_pos = line.new_lineno().unwrap();
+                        }
+                        if line.old_lineno().unwrap() < old_insertion_pos {
+                            old_insertion_pos = line.old_lineno().unwrap();
+                        }
+                        num_additions += 1;
+                        num_deletions += 1;
+                        lines.push(b' ');
+                        lines.extend_from_slice(line.content());
+                    }
+                    _ => return true,
                 }
-                num_additions += 1;
-                lines.push(b'+');
-                lines.extend_from_slice(line.content());
-            }
-            prev_line = Some((
-                line.origin_value(),
-                line.content().to_vec(),
-                line.new_lineno(),
-            ));
-            true
-        }),
-    )?;
 
-    if num_additions == 0 {
-        return Err(Error::Custom(format!(
-            "TODO at lines {start_line}\u{2013}{end_line} not found in unstaged diff"
-        )));
+                true
+            }),
+        )?;
+
+        if num_additions == 0 {
+            return Err(Error::Custom(format!(
+                "TODO at lines {start_line}\u{2013}{end_line} not found in unstaged diff"
+            )));
+        }
+
+        write!(
+            &mut patch,
+            "@@ -{},{} +{},{} @@\n",
+            old_insertion_pos, num_deletions, new_insertion_pos, num_additions,
+        )
+        .unwrap();
+        patch.extend(lines);
+
+        Ok(patch)
     }
-
-    // The new-file line number in "@@ -old,count +new,count @@" must be the position
-    // of the inserted block in the index after applying, not the workdir position.
-    // Without context lines libgit2 uses this number directly to find the insert point,
-    // so using the workdir line number causes it to insert at the wrong location.
-    let new_pos = old_insertion_pos + 1 - num_deletions;
-    write!(
-        &mut out,
-        "@@ -{},{} +{},{} @@\n",
-        old_insertion_pos, num_deletions, new_pos, num_additions,
-    )
-    .unwrap();
-    out.extend(lines);
-
-    Ok(out)
 }
 
 impl VcsBackend for GitBackend {
@@ -510,12 +500,12 @@ impl VcsBackend for GitBackend {
             .repo
             .diff_index_to_workdir(None, Some(&mut diff_opts))?;
 
-        let patch = build_single_todo_patch(
+        let patch = self.build_single_todo_patch(
             &workdir_diff,
             todo.location.start_line_num as u32,
             todo.location.end_line_num as u32,
-            &self.parser,
         )?;
+        println!("{}", String::from_utf8_lossy(&patch));
         let synthetic_diff = Diff::from_buffer(&patch)?;
         self.repo
             .apply(&synthetic_diff, ApplyLocation::Index, None)?;
@@ -626,16 +616,8 @@ mod tests {
     fn head_file_content(dir: &Path, filename: &str) -> String {
         let repo = Repository::open(dir).expect("failed to open repo");
         let head = repo.head().unwrap().peel_to_commit().unwrap();
-        let entry = head
-            .tree()
-            .unwrap()
-            .get_path(Path::new(filename))
-            .unwrap();
-        let blob = entry
-            .to_object(&repo)
-            .unwrap()
-            .peel_to_blob()
-            .unwrap();
+        let entry = head.tree().unwrap().get_path(Path::new(filename)).unwrap();
+        let blob = entry.to_object(&repo).unwrap().peel_to_blob().unwrap();
         String::from_utf8_lossy(blob.content()).to_string()
     }
 
@@ -687,7 +669,7 @@ mod tests {
     // ====== add_todo tests ======
 
     #[test]
-    fn test_add_todo_case1_single_line_stages_only_the_todo() {
+    fn test_add_todo_single_line_stages_only_the_todo() {
         let (dir, _repo) = create_test_repo();
         commit_file(dir.path(), "main.rs", "fn main() {}\n", "Initial");
 
@@ -713,7 +695,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_todo_case1_multiline_stages_entire_comment_block() {
+    fn test_add_todo_multiline_stages_entire_comment_block() {
         let (dir, _repo) = create_test_repo();
         commit_file(dir.path(), "main.rs", "fn main() {}\n", "Initial");
 
@@ -739,7 +721,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_todo_case2_modification_stages_only_the_id_change() {
+    fn test_add_todo_modification_stages_only_the_id_change() {
         let (dir, _repo) = create_test_repo();
         // Commit the TODO without an ID.
         commit_file(
@@ -775,16 +757,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_todo_case1_with_preceding_unstaged_additions() {
-        // Bug: the hunk header uses new-file start_line for the old (-) side.
-        // When there are unstaged additions before the TODO the old-side position
-        // must be smaller than start_line, otherwise the patch inserts at the
-        // wrong place (or fails to apply because the position is past EOF).
-        //
-        // Index:       fn a / fn b / fn c  (3 lines)
-        // Working tree: fn a / fn new / fn b / TODO / fn c  (5 lines)
-        // Correct old pos: 2 (after fn b). Buggy old pos: 4 (past end of index).
-        // Expected committed content: TODO appears between fn b and fn c.
+    fn test_add_todo_with_preceding_unstaged_additions() {
         let (dir, _repo) = create_test_repo();
         commit_file(
             dir.path(),
@@ -819,9 +792,6 @@ mod tests {
 
     #[test]
     fn test_add_todo_errors_when_todo_not_in_diff() {
-        // Bug: when no ADD lines match the target range the function silently
-        // applies a 0-addition patch rather than returning a descriptive error.
-        // The fix should return Error::Custom("... not found in unstaged diff").
         let (dir, _repo) = create_test_repo();
         commit_file(dir.path(), "main.rs", "fn main() {}\n", "Initial");
         // Nothing is unstaged — the TODO is not in the workdir diff.
@@ -840,36 +810,71 @@ mod tests {
     }
 
     #[test]
-    fn test_add_todo_case1_does_not_stage_preceding_unrelated_deletion() {
-        // Bug: when unrelated old code is deleted at the same position as the new TODO,
-        // prev_line is a Deletion immediately before the start-of-range Addition, which
-        // triggers false Case 2 detection and stages the unrelated deletion alongside
-        // the TODO. Only the TODO addition should be committed.
+    fn test_add_todo_stage_preceding_unrelated_deletion() {
         let (dir, _repo) = create_test_repo();
         commit_file(
             dir.path(),
             "main.rs",
-            "old_code_to_delete\nfn main() {}\n",
+            "unrelated_code\ndeleted_when_todo_staged\nfn main() {}\n",
             "Initial",
         );
 
         // Working tree: old_code_to_delete removed, TODO added at line 1 (same position).
         fs::write(
             dir.path().join("main.rs"),
-            "// TODO #1 Fix bug\nfn main() {}\n",
+            "// TODO #1 Fix bug\n//\n// more info\nfn main() {}\n",
         )
         .unwrap();
 
-        let todo = make_todo(1, "main.rs", 1, 1);
+        let todo = make_todo(1, "main.rs", 1, 3);
         let mut backend =
             GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
         backend.add_todo(&todo).expect("add_todo failed");
 
         let (added, removed) = head_commit_diff(dir.path());
-        assert_eq!(added, vec!["// TODO #1 Fix bug"], "only the TODO should be staged");
-        assert!(
-            removed.is_empty(),
-            "unrelated deletion should not be staged, got: {removed:?}"
+        assert_eq!(
+            added,
+            vec!["// TODO #1 Fix bug", "//", "// more info"],
+            "only the TODO should be staged"
+        );
+        assert_eq!(
+            removed,
+            vec!["unrelated_code", "deleted_when_todo_staged"],
+            "only the TODO should be staged"
+        );
+    }
+
+    #[test]
+    fn test_add_todo_does_stage_preceding_todo_deletion() {
+        let (dir, _repo) = create_test_repo();
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO old todo\n//\n// stale info\nfn main() {}\n",
+            "Initial",
+        );
+
+        fs::write(
+            dir.path().join("main.rs"),
+            "// TODO #1 Fix bug\n//\n// more info\nfn main() {}\n",
+        )
+        .unwrap();
+
+        let todo = make_todo(1, "main.rs", 1, 3);
+        let mut backend =
+            GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        backend.add_todo(&todo).expect("add_todo failed");
+
+        let (added, removed) = head_commit_diff(dir.path());
+        assert_eq!(
+            added,
+            vec!["// TODO #1 Fix bug", "// more info"],
+            "only the TODO should be staged"
+        );
+        assert_eq!(
+            removed,
+            vec!["// TODO old todo", "// stale info"],
+            "old TODO deletion should be staged, got: {removed:?}"
         );
     }
 
