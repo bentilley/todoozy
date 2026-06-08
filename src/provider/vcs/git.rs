@@ -13,6 +13,8 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// Metadata extracted from a commit.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -349,6 +351,118 @@ impl GitBackend {
         Ok(todos.into_values().collect::<Vec<_>>().into())
     }
 
+    fn make_credentials_callback() -> git2::RemoteCallbacks<'static> {
+        let mut callbacks = git2::RemoteCallbacks::new();
+        let mut tried = false;
+
+        callbacks.credentials(move |url, username, allowed| {
+            if tried {
+                return Err(git2::Error::from_str("authentication failed"));
+            }
+            tried = true;
+            if allowed.contains(git2::CredentialType::SSH_KEY) {
+                if let Ok(cred) = git2::Cred::ssh_key_from_agent(username.unwrap_or("git")) {
+                    return Ok(cred);
+                }
+            }
+            if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
+                if let Ok(cfg) = git2::Config::open_default() {
+                    if let Ok(cred) = git2::Cred::credential_helper(&cfg, url, username) {
+                        return Ok(cred);
+                    }
+                }
+            }
+            if allowed.contains(git2::CredentialType::DEFAULT) {
+                return git2::Cred::default();
+            }
+            Err(git2::Error::from_str("no suitable credentials available"))
+        });
+
+        callbacks
+    }
+
+    fn fetch_id_tags(&self, remote_name: &str) -> Result<()> {
+        let mut remote = self
+            .repo
+            .find_remote(remote_name)
+            .map_err(|_| Error::Custom(format!("no remote '{remote_name}' configured")))?;
+        let mut opts = git2::FetchOptions::new();
+        opts.remote_callbacks(Self::make_credentials_callback());
+        opts.download_tags(git2::AutotagOption::None);
+        // Ignore errors: remote may have no tdz/* tags yet
+        let _ = remote.fetch(&["refs/tags/tdz/*:refs/tags/tdz/*"], Some(&mut opts), None);
+        Ok(())
+    }
+
+    fn max_local_tag_id(&self) -> u32 {
+        let Ok(refs) = self.repo.references_glob("refs/tags/tdz/*") else {
+            return 0;
+        };
+        refs.flatten()
+            .filter_map(|r| {
+                let name = r.name()?;
+                let suffix = name.strip_prefix("refs/tags/tdz/")?;
+                suffix.parse::<u32>().ok()
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn try_push_tag(&self, remote_name: &str, id: u32) -> Result<bool> {
+        let tag_name = format!("tdz/{id}");
+        let tag_ref = format!("refs/tags/{tag_name}");
+
+        // If the tag was fetched from the remote it already exists locally — skip it.
+        if self.repo.find_reference(&tag_ref).is_ok() {
+            return Ok(false);
+        }
+
+        let head = self.repo.head()?.peel_to_commit()?;
+        self.repo
+            .tag_lightweight(&tag_name, head.as_object(), false)?;
+
+        let rejected = Arc::new(AtomicBool::new(false));
+        let rejected_clone = Arc::clone(&rejected);
+        let mut callbacks = Self::make_credentials_callback();
+        callbacks.push_update_reference(move |_, status| {
+            if status.is_some() {
+                rejected_clone.store(true, Ordering::Relaxed);
+            }
+            Ok(())
+        });
+
+        let mut opts = git2::PushOptions::new();
+        opts.remote_callbacks(callbacks);
+
+        let refspec = format!("refs/tags/{tag_name}:refs/tags/{tag_name}");
+        let mut remote = self.repo.find_remote(remote_name)?;
+        match remote.push(&[refspec.as_str()], Some(&mut opts)) {
+            Ok(()) => {}
+            Err(e) => {
+                let _ = self.repo.tag_delete(&tag_name);
+                return Err(Error::from(e));
+            }
+        }
+
+        if rejected.load(Ordering::Relaxed) {
+            let _ = self.repo.tag_delete(&tag_name);
+            Ok(false)
+        } else {
+            Ok(true)
+        }
+    }
+
+    fn claim_next_id(&self, remote_name: &str) -> Result<u32> {
+        self.fetch_id_tags(remote_name)?;
+        let start = self.max_local_tag_id() + 1;
+        for id in start.. {
+            if self.try_push_tag(remote_name, id)? {
+                return Ok(id);
+            }
+        }
+        unreachable!()
+    }
+
     /// Build a synthetic unified-diff patch that stages exactly the TODO comment.
     ///
     /// Diff spans `[start_line, end_line]`. All other changed lines are ignored.
@@ -478,15 +592,10 @@ impl VcsBackend for GitBackend {
             .into())
     }
 
-    fn add_todo(&mut self, todo: &Todo) -> Result<()> {
-        let id = match todo.id {
-            Some(TodoIdentifier::Primary(id)) => id,
-            _ => {
-                return Err(Error::Custom(
-                    "TODO must have a primary ID to be added".to_string(),
-                ))
-            }
-        };
+    fn add_todo(&mut self, todo: &mut Todo) -> Result<()> {
+        let id = self.claim_next_id("origin")?;
+
+        todo.add_id(id).map_err(|e| Error::Custom(e.to_string()))?;
 
         let file_path = todo
             .location
@@ -494,8 +603,12 @@ impl VcsBackend for GitBackend {
             .as_ref()
             .ok_or("no file path on todo")?;
 
+        // pathspec must be relative to the repo root; strip prefix if absolute
+        let repo_root = self.get_repo_path();
+        let diff_path = file_path.strip_prefix(&repo_root).unwrap_or(file_path);
+
         let mut diff_opts = DiffOptions::new();
-        diff_opts.pathspec(file_path);
+        diff_opts.pathspec(diff_path);
         let workdir_diff = self
             .repo
             .diff_index_to_workdir(None, Some(&mut diff_opts))?;
@@ -505,7 +618,6 @@ impl VcsBackend for GitBackend {
             todo.location.start_line_num as u32,
             todo.location.end_line_num as u32,
         )?;
-        println!("{}", String::from_utf8_lossy(&patch));
         let synthetic_diff = Diff::from_buffer(&patch)?;
         self.repo
             .apply(&synthetic_diff, ApplyLocation::Index, None)?;
@@ -535,36 +647,43 @@ mod tests {
     use std::process::Command;
     use tempfile::TempDir;
 
+    use crate::provider::FileSystemProvider;
+
     /// Helper to create a test git repository.
-    fn create_test_repo() -> (TempDir, Repository) {
+    fn create_test_repo() -> TempDir {
         let dir = TempDir::new().expect("failed to create temp dir");
 
-        Command::new("git")
-            .args(["init"])
-            .current_dir(dir.path())
-            .output()
-            .expect("failed to init repo");
+        let repo = Repository::init(dir.path()).expect("failed to init repo");
+        let mut config = repo.config().expect("failed to get config");
+        config
+            .set_str("user.email", "test@example.com")
+            .expect("failed email");
+        config
+            .set_str("user.name", "Test User")
+            .expect("failed name");
+        config
+            .set_bool("commit.gpgsign", false)
+            .expect("failed gpgsign");
 
-        Command::new("git")
-            .args(["config", "user.email", "test@example.com"])
-            .current_dir(dir.path())
-            .output()
-            .expect("failed to set email");
+        dir
+    }
 
-        Command::new("git")
-            .args(["config", "user.name", "Test User"])
-            .current_dir(dir.path())
-            .output()
-            .expect("failed to set name");
+    fn create_local_remote() -> TempDir {
+        let dir = TempDir::new().expect("failed to create remote dir");
+        Repository::init_bare(&dir).expect("failed to init remote");
+        dir
+    }
 
-        Command::new("git")
-            .args(["config", "commit.gpgsign", "false"])
-            .current_dir(dir.path())
-            .output()
-            .expect("failed to disable gpg signing");
+    fn create_test_repo_with_remote() -> (TempDir, TempDir) {
+        let dir = create_test_repo();
+        let repo = Repository::open(&dir).expect("fail to open repo");
+        let remote_dir = create_local_remote();
 
-        let repo = Repository::open(dir.path()).expect("failed to open repo");
-        (dir, repo)
+        let remote_url = format!("file://{}", remote_dir.path().display());
+        repo.remote("origin", &remote_url)
+            .expect("failed to add remote");
+
+        (dir, remote_dir)
     }
 
     /// Helper to commit a file.
@@ -577,18 +696,23 @@ mod tests {
             fs::write(&file_path, content).expect("failed to write file");
         }
 
-        let mut add = Command::new("git");
-        add.arg("add");
-        for (filename, _) in files {
-            add.arg(filename);
-        }
-        add.current_dir(dir).output().expect("failed to add files");
+        let repo = Repository::open(dir).expect("failed to open repo");
+        let mut index = repo.index().expect("failed to get index");
+        index
+            .add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)
+            .expect("failed to add files to index");
+        index.write().expect("failed to write index");
 
-        Command::new("git")
-            .args(["commit", "-m", message])
-            .current_dir(dir)
-            .output()
-            .expect("failed to commit");
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let sig = repo.signature().unwrap();
+        let parents: Vec<git2::Commit> = match repo.head() {
+            Ok(head) => vec![head.peel_to_commit().unwrap()],
+            Err(_) => vec![],
+        };
+        let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
+        repo.commit(Some("HEAD"), &sig, &sig, &message, &tree, &parent_refs)
+            .unwrap();
     }
 
     fn commit_file(dir: &Path, filename: &str, content: &str, message: &str) {
@@ -655,35 +779,28 @@ mod tests {
         (added, removed)
     }
 
-    fn make_todo(id: u32, file: &str, start_line: usize, end_line: usize) -> Todo {
-        use crate::todo::{Location, TodoInfoBuilder};
-        let info = TodoInfoBuilder::default()
-            .id(Some(TodoIdentifier::Primary(id)))
-            .title(format!("test todo {id}"))
-            .build()
-            .unwrap();
-        let location = Location::new(Some(file), start_line, end_line);
-        Todo::new(info, location)
-    }
-
     // ====== add_todo tests ======
 
     #[test]
     fn test_add_todo_single_line_stages_only_the_todo() {
-        let (dir, _repo) = create_test_repo();
+        let (dir, _remote_dir) = create_test_repo_with_remote();
         commit_file(dir.path(), "main.rs", "fn main() {}\n", "Initial");
 
-        // Working tree: TODO added at line 1, plus an unrelated extra line.
+        // Working tree: TODO (no ID yet) added at line 1, plus an unrelated extra line.
         fs::write(
             dir.path().join("main.rs"),
-            "// TODO #1 Fix bug\nfn main() {}\nfn extra() {}\n",
+            "// TODO Fix bug\nfn main() {}\nfn extra() {}\n",
         )
         .unwrap();
 
-        let todo = make_todo(1, "main.rs", 1, 1);
+        let fsp = FileSystemProvider::new("TODO", Vec::new());
+        let mut todos = fsp
+            .parse_file(&dir.path().join("main.rs"))
+            .expect("failed to parse file");
+        let mut todo = &mut todos[0];
         let mut backend =
             GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        backend.add_todo(&todo).expect("add_todo failed");
+        backend.add_todo(&mut todo).expect("add_todo failed");
 
         let (added, removed) = head_commit_diff(dir.path());
         assert_eq!(
@@ -696,20 +813,24 @@ mod tests {
 
     #[test]
     fn test_add_todo_multiline_stages_entire_comment_block() {
-        let (dir, _repo) = create_test_repo();
+        let (dir, _remote_dir) = create_test_repo_with_remote();
         commit_file(dir.path(), "main.rs", "fn main() {}\n", "Initial");
 
-        // Working tree: a three-line TODO comment added at lines 1–3.
+        // Working tree: a three-line TODO comment (no ID) at lines 1–3.
         fs::write(
             dir.path().join("main.rs"),
-            "// TODO #1 Fix bug\n// Detail line 1\n// Detail line 2\nfn main() {}\n",
+            "// TODO Fix bug\n// Detail line 1\n// Detail line 2\nfn main() {}\n",
         )
         .unwrap();
 
-        let todo = make_todo(1, "main.rs", 1, 3);
+        let fsp = FileSystemProvider::new("TODO", Vec::new());
+        let todos = fsp
+            .parse_file(&dir.path().join("main.rs"))
+            .expect("failed to parse file");
+        let mut todo = todos.into_iter().next().expect("should have a todo");
         let mut backend =
             GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        backend.add_todo(&todo).expect("add_todo failed");
+        backend.add_todo(&mut todo).expect("add_todo failed");
 
         let (added, removed) = head_commit_diff(dir.path());
         assert_eq!(
@@ -722,8 +843,7 @@ mod tests {
 
     #[test]
     fn test_add_todo_modification_stages_only_the_id_change() {
-        let (dir, _repo) = create_test_repo();
-        // Commit the TODO without an ID.
+        let (dir, _remote_dir) = create_test_repo_with_remote();
         commit_file(
             dir.path(),
             "main.rs",
@@ -731,17 +851,21 @@ mod tests {
             "Add TODO without ID",
         );
 
-        // Working tree: ID added to the first line; unrelated extra line appended.
+        // Working tree: unrelated extra line appended; ID will be inserted by add_todo.
         fs::write(
             dir.path().join("main.rs"),
-            "// TODO #1 Fix bug\nfn main() {}\nfn extra() {}\n",
+            "// TODO Fix bug\nfn main() {}\nfn extra() {}\n",
         )
         .unwrap();
 
-        let todo = make_todo(1, "main.rs", 1, 1);
+        let fsp = FileSystemProvider::new("TODO", Vec::new());
+        let todos = fsp
+            .parse_file(&dir.path().join("main.rs"))
+            .expect("failed to parse file");
+        let mut todo = todos.into_iter().next().expect("should have a todo");
         let mut backend =
             GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        backend.add_todo(&todo).expect("add_todo failed");
+        backend.add_todo(&mut todo).expect("add_todo failed");
 
         let (added, removed) = head_commit_diff(dir.path());
         assert_eq!(
@@ -758,7 +882,7 @@ mod tests {
 
     #[test]
     fn test_add_todo_with_preceding_unstaged_additions() {
-        let (dir, _repo) = create_test_repo();
+        let (dir, _remote_dir) = create_test_repo_with_remote();
         commit_file(
             dir.path(),
             "main.rs",
@@ -766,16 +890,21 @@ mod tests {
             "Initial",
         );
 
+        // Unrelated fn new() inserted at line 2; TODO (no ID) at line 4.
         fs::write(
             dir.path().join("main.rs"),
-            "fn a() {}\nfn new() {}\nfn b() {}\n// TODO #1 Fix bug\nfn c() {}\n",
+            "fn a() {}\nfn new() {}\nfn b() {}\n// TODO Fix bug\nfn c() {}\n",
         )
         .unwrap();
 
-        let todo = make_todo(1, "main.rs", 4, 4);
+        let fsp = FileSystemProvider::new("TODO", Vec::new());
+        let todos = fsp
+            .parse_file(&dir.path().join("main.rs"))
+            .expect("failed to parse file");
+        let mut todo = todos.into_iter().next().expect("should have a todo");
         let mut backend =
             GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        backend.add_todo(&todo).expect("add_todo failed");
+        backend.add_todo(&mut todo).expect("add_todo failed");
 
         let content = head_file_content(dir.path(), "main.rs");
         let todo_pos = content
@@ -791,27 +920,63 @@ mod tests {
     }
 
     #[test]
-    fn test_add_todo_errors_when_todo_not_in_diff() {
-        let (dir, _repo) = create_test_repo();
+    fn test_add_todo_errors_when_source_file_deleted() {
+        let (dir, _remote_dir) = create_test_repo_with_remote();
         commit_file(dir.path(), "main.rs", "fn main() {}\n", "Initial");
-        // Nothing is unstaged — the TODO is not in the workdir diff.
 
-        let todo = make_todo(1, "main.rs", 1, 1);
+        fs::write(
+            dir.path().join("main.rs"),
+            "// TODO Fix bug\nfn main() {}\n",
+        )
+        .unwrap();
+
+        let fsp = FileSystemProvider::new("TODO", Vec::new());
+        let todos = fsp
+            .parse_file(&dir.path().join("main.rs"))
+            .expect("failed to parse file");
+        let mut todo = todos.into_iter().next().expect("should have a todo");
+
+        fs::remove_file(dir.path().join("main.rs")).expect("failed to delete file");
+
         let mut backend =
             GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        match backend.add_todo(&todo) {
-            Err(Error::Custom(msg)) => assert!(
-                msg.contains("not found"),
-                "error should mention 'not found', got: {msg}"
-            ),
-            Err(e) => panic!("expected Error::Custom with 'not found', got: {e:?}"),
-            Ok(()) => panic!("should return Err when the TODO is not in the unstaged diff"),
-        }
+        assert!(
+            backend.add_todo(&mut todo).is_err(),
+            "should return Err when the source file no longer exists"
+        );
+    }
+
+    #[test]
+    fn test_add_todo_errors_when_todo_removed_from_file() {
+        let (dir, _remote_dir) = create_test_repo_with_remote();
+        commit_file(dir.path(), "main.rs", "fn main() {}\n", "Initial");
+
+        fs::write(
+            dir.path().join("main.rs"),
+            "// TODO Fix bug\nfn main() {}\n",
+        )
+        .unwrap();
+
+        let fsp = FileSystemProvider::new("TODO", Vec::new());
+        let todos = fsp
+            .parse_file(&dir.path().join("main.rs"))
+            .expect("failed to parse file");
+        let mut todo = todos.into_iter().next().expect("should have a todo");
+
+        // Overwrite the file — the TODO comment at line 1 is gone.
+        fs::write(dir.path().join("main.rs"), "fn main() {}\n").unwrap();
+
+        let mut backend =
+            GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        assert!(
+            backend.add_todo(&mut todo).is_err(),
+            "should return Err when the TODO comment has been removed from the file"
+        );
     }
 
     #[test]
     fn test_add_todo_stage_preceding_unrelated_deletion() {
-        let (dir, _repo) = create_test_repo();
+        let (dir, _remote_dir) = create_test_repo_with_remote();
         commit_file(
             dir.path(),
             "main.rs",
@@ -819,17 +984,21 @@ mod tests {
             "Initial",
         );
 
-        // Working tree: old_code_to_delete removed, TODO added at line 1 (same position).
+        // Working tree: two old lines removed, TODO (no ID) at line 1.
         fs::write(
             dir.path().join("main.rs"),
-            "// TODO #1 Fix bug\n//\n// more info\nfn main() {}\n",
+            "// TODO Fix bug\n//\n// more info\nfn main() {}\n",
         )
         .unwrap();
 
-        let todo = make_todo(1, "main.rs", 1, 3);
+        let fsp = FileSystemProvider::new("TODO", Vec::new());
+        let todos = fsp
+            .parse_file(&dir.path().join("main.rs"))
+            .expect("failed to parse file");
+        let mut todo = todos.into_iter().next().expect("should have a todo");
         let mut backend =
             GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        backend.add_todo(&todo).expect("add_todo failed");
+        backend.add_todo(&mut todo).expect("add_todo failed");
 
         let (added, removed) = head_commit_diff(dir.path());
         assert_eq!(
@@ -846,7 +1015,7 @@ mod tests {
 
     #[test]
     fn test_add_todo_does_stage_preceding_todo_deletion() {
-        let (dir, _repo) = create_test_repo();
+        let (dir, _remote_dir) = create_test_repo_with_remote();
         commit_file(
             dir.path(),
             "main.rs",
@@ -854,16 +1023,21 @@ mod tests {
             "Initial",
         );
 
+        // Working tree: old TODO replaced with new TODO (no ID yet).
         fs::write(
             dir.path().join("main.rs"),
-            "// TODO #1 Fix bug\n//\n// more info\nfn main() {}\n",
+            "// TODO Fix bug\n//\n// more info\nfn main() {}\n",
         )
         .unwrap();
 
-        let todo = make_todo(1, "main.rs", 1, 3);
+        let fsp = FileSystemProvider::new("TODO", Vec::new());
+        let todos = fsp
+            .parse_file(&dir.path().join("main.rs"))
+            .expect("failed to parse file");
+        let mut todo = todos.into_iter().next().expect("should have a todo");
         let mut backend =
             GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        backend.add_todo(&todo).expect("add_todo failed");
+        backend.add_todo(&mut todo).expect("add_todo failed");
 
         let (added, removed) = head_commit_diff(dir.path());
         assert_eq!(
@@ -878,6 +1052,110 @@ mod tests {
         );
     }
 
+    // ====== tag-push ID claiming tests ======
+
+    #[test]
+    fn test_add_todo_pushes_claim_tag_to_remote() {
+        let (dir, remote_dir) = create_test_repo_with_remote();
+        commit_file(dir.path(), "main.rs", "fn main() {}\n", "Initial");
+
+        fs::write(
+            dir.path().join("main.rs"),
+            "// TODO Fix bug\nfn main() {}\n",
+        )
+        .unwrap();
+
+        let fsp = FileSystemProvider::new("TODO", Vec::new());
+        let todos = fsp
+            .parse_file(&dir.path().join("main.rs"))
+            .expect("failed to parse file");
+        let mut todo = todos.into_iter().next().expect("should have a todo");
+        let mut backend =
+            GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        backend.add_todo(&mut todo).expect("add_todo failed");
+
+        let remote_repo = Repository::open(remote_dir.path()).expect("failed to open remote repo");
+        assert!(
+            remote_repo.find_reference("refs/tags/tdz/1").is_ok(),
+            "refs/tags/tdz/1 should exist on the remote after add_todo"
+        );
+    }
+
+    #[test]
+    fn test_add_todo_skips_already_claimed_id() {
+        let (dir, remote_dir) = create_test_repo_with_remote();
+
+        // Claim id=1 via the backend itself so libgit2 is used end-to-end.
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO First todo\nfn main() {}\n",
+            "Initial",
+        );
+        let fsp = FileSystemProvider::new("TODO", Vec::new());
+        let mut backend =
+            GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        let todos1 = fsp
+            .parse_file(&dir.path().join("main.rs"))
+            .expect("failed to parse file");
+        let mut todo1 = todos1.into_iter().next().expect("should have a todo");
+        backend.add_todo(&mut todo1).expect("first add_todo failed");
+
+        // Now add a second todo — must claim tdz/2 since tdz/1 already exists on the remote.
+        fs::write(
+            dir.path().join("main.rs"),
+            "// TODO Second todo\nfn main() {}\n",
+        )
+        .unwrap();
+        let todos2 = fsp
+            .parse_file(&dir.path().join("main.rs"))
+            .expect("failed to parse file");
+        let mut todo2 = todos2.into_iter().next().expect("should have a todo");
+        backend
+            .add_todo(&mut todo2)
+            .expect("second add_todo failed");
+
+        let remote_repo = Repository::open(remote_dir.path()).expect("failed to open remote repo");
+        assert!(
+            remote_repo.find_reference("refs/tags/tdz/2").is_ok(),
+            "refs/tags/tdz/2 should be claimed when tdz/1 was already taken"
+        );
+
+        let content = head_file_content(dir.path(), "main.rs");
+        assert!(
+            content.contains("// TODO #2 Second todo"),
+            "committed file should contain #2, got:\n{content}"
+        );
+    }
+
+    #[test]
+    fn test_add_todo_errors_without_remote() {
+        let dir = create_test_repo();
+        commit_file(dir.path(), "main.rs", "fn main() {}\n", "Initial");
+
+        fs::write(
+            dir.path().join("main.rs"),
+            "// TODO Fix bug\nfn main() {}\n",
+        )
+        .unwrap();
+
+        let fsp = FileSystemProvider::new("TODO", Vec::new());
+        let todos = fsp
+            .parse_file(&dir.path().join("main.rs"))
+            .expect("failed to parse file");
+        let mut todo = todos.into_iter().next().expect("should have a todo");
+        let mut backend =
+            GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        match backend.add_todo(&mut todo) {
+            Err(Error::Custom(msg)) => assert!(
+                msg.contains("no remote"),
+                "error should mention 'no remote', got: {msg}"
+            ),
+            Err(e) => panic!("expected Error::Custom mentioning 'no remote', got: {e:?}"),
+            Ok(()) => panic!("should return Err when no remote is configured"),
+        }
+    }
+
     #[test]
     fn test_git_backend_not_a_repo() {
         let dir = TempDir::new().expect("failed to create temp dir");
@@ -887,7 +1165,7 @@ mod tests {
 
     #[test]
     fn test_git_backend_detects_todo_creation() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(
             dir.path(),
@@ -909,7 +1187,7 @@ mod tests {
 
     #[test]
     fn test_git_backend_detects_todo_removal() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(
             dir.path(),
@@ -932,7 +1210,7 @@ mod tests {
 
     #[test]
     fn test_git_backend_multiple_todos() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(
             dir.path(),
@@ -952,7 +1230,7 @@ mod tests {
 
     #[test]
     fn test_git_backend_ignores_references() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(
             dir.path(),
@@ -972,7 +1250,7 @@ mod tests {
 
     #[test]
     fn test_git_backend_extracts_todo_content() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(
             dir.path(),
@@ -993,7 +1271,7 @@ mod tests {
 
     #[test]
     fn test_git_backend_starts_from_history_ref() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(
             dir.path(),
@@ -1034,7 +1312,7 @@ mod tests {
 
     #[test]
     fn test_git_backend_missing_history_ref_includes_full_history() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(
             dir.path(),
@@ -1067,7 +1345,7 @@ mod tests {
 
     #[test]
     fn test_git_backend_tracks_latest_todo_location() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(
             dir.path(),
@@ -1105,7 +1383,7 @@ mod tests {
 
     #[test]
     fn test_git_backend_loads_removed_todo_from_last_seen_location() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(
             dir.path(),
@@ -1134,7 +1412,7 @@ mod tests {
 
     #[test]
     fn test_revparse_detects_todo_in_initial_commit() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(
             dir.path(),
@@ -1153,7 +1431,7 @@ mod tests {
 
     #[test]
     fn test_revparse_detects_todo_added_in_subsequent_commit() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(dir.path(), "main.rs", "fn main() {}", "Initial commit");
 
@@ -1175,7 +1453,7 @@ mod tests {
 
     #[test]
     fn test_revparse_detects_todo_removal() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(
             dir.path(),
@@ -1199,7 +1477,7 @@ mod tests {
 
     #[test]
     fn test_revparse_modified_todo_not_duplicated() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(
             dir.path(),
@@ -1228,7 +1506,7 @@ mod tests {
 
     #[test]
     fn test_revparse_sets_file_path_on_todo() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(
             dir.path(),
@@ -1257,7 +1535,7 @@ mod tests {
 
     #[test]
     fn test_revparse_multiple_todos_in_single_commit() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(
             dir.path(),
@@ -1277,7 +1555,7 @@ mod tests {
 
     #[test]
     fn test_revparse_todo_in_deleted_file() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(
             dir.path(),
@@ -1312,7 +1590,7 @@ mod tests {
 
     #[test]
     fn test_revparse_todo_moved_between_files() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(
             dir.path(),
@@ -1344,7 +1622,7 @@ mod tests {
 
     #[test]
     fn test_revparse_respects_cutoff() {
-        let (dir, _repo) = create_test_repo();
+        let dir = create_test_repo();
 
         commit_file(
             dir.path(),

@@ -40,8 +40,11 @@ pub trait VcsBackend: Send {
     /// Get multiple TODOs by ID for a specific version (commit/tag/branch).
     fn get_todos_for_version(&self, id: &[u32], version: &str) -> Result<Todos>;
 
-    /// Add a new TODO to the VCS.
-    fn add_todo(&mut self, todo: &Todo) -> Result<()>;
+    /// Add a new TODO to the VCS, claiming a globally unique ID via the remote.
+    ///
+    /// Claims the next available ID by pushing `refs/tags/tdz/<N>` to the remote,
+    /// writes the ID into the source file, stages the change, and commits.
+    fn add_todo(&mut self, todo: &mut Todo) -> Result<()>;
 
     // fn get_all_todos_for_version(&self, version: String) -> Result<Todos>;
     // fn hydrate_todo(&self, todo: &mut Todo) -> Result<()>;

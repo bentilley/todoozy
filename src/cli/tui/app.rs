@@ -26,7 +26,6 @@ use super::input::{Input, InputFor};
 use todoozy::provider::Provider;
 use todoozy::todo::filter;
 use todoozy::todo::sort;
-use todoozy::todo::store::Store;
 use todoozy::todo::TodoIdentifier;
 use todoozy::Todo;
 
@@ -125,7 +124,6 @@ pub struct App {
 
     fs_provider: todoozy::provider::FileSystemProvider,
     vcs: Box<dyn todoozy::provider::vcs::VcsBackend>,
-    store: todoozy::todo::store::SqliteStore,
 }
 
 impl App {
@@ -137,7 +135,6 @@ impl App {
         );
         let cwd = std::env::current_dir()?;
         let vcs = todoozy::provider::vcs::create_vcs_backend(&cwd, &config.get_todo_token(), None)?;
-        let store = todoozy::todo::store::SqliteStore::new()?;
 
         let todos = fs_provider.get_todos().unwrap();
 
@@ -167,7 +164,6 @@ impl App {
             message: None,
             fs_provider,
             vcs,
-            store,
         };
 
         app.todo_list = TodoList::new(app.todo_view.clone(), &app.filter, &app.sorter);
@@ -362,18 +358,7 @@ impl App {
     }
 
     fn import_todo(&mut self, todo: &mut Todo) -> Result<(), Box<dyn std::error::Error>> {
-        let id = self.store.set_todo(&todo)?;
-
-        if let Err(e) = todo.add_id(id) {
-            // self.store.rollback()?;
-            return Err(format!("Error adding ID to todo: {}", e).into());
-        }
-
-        if let Err(e) = self.vcs.add_todo(&todo) {
-            // self.store.rollback()?;
-            return Err(format!("Error adding todo to vcs: {}", e).into());
-        }
-
+        self.vcs.add_todo(todo)?;
         Ok(())
     }
 

@@ -5,10 +5,7 @@ use crate::cli::error;
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 use todoozy::provider::{vcs::create_vcs_backend, FileSystemProvider, Provider};
-use todoozy::todo::{
-    store::{SqliteStore, Store},
-    Todo,
-};
+use todoozy::todo::Todo;
 
 pub const USAGE: &str = r#"Add untracked todos (assign IDs)
 
@@ -128,8 +125,6 @@ pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<Ex
     let todos =
         FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone()).get_todos()?;
 
-    let store = SqliteStore::new()?;
-
     let cwd = std::env::current_dir()?;
     let mut vcs = create_vcs_backend(&cwd, &conf.get_todo_token(), None)?;
 
@@ -147,26 +142,17 @@ pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<Ex
             }
         }
 
-        let id = store.set_todo(&todo)?;
-
-        if let Err(e) = todo.add_id(id) {
-            // TODO (B) A way to rollback the store (if possible)
-            //
-            // If we can't add the ID to the todo, or the todo to the VCS, we should try and
-            // undo the store state change if we can.
-            //
-            // store.rollback()?;
-            return Err(format!("Error adding '{}': {}", todo.title, e).into());
-        }
-
-        match vcs.add_todo(&todo) {
+        match vcs.add_todo(&mut todo) {
             Ok(_) => {
+                let id = match todo.id {
+                    Some(todoozy::todo::TodoIdentifier::Primary(id)) => id,
+                    _ => unreachable!("add_todo assigns a primary ID"),
+                };
                 println!("Added: #{} {}", id, todo.title);
                 added_count += 1;
             }
             Err(e) => {
-                // store.rollback()?;
-                eprintln!("Warning: could not commit todo #{id} to vcs: {e}");
+                eprintln!("Warning: could not commit todo to vcs: {e}");
             }
         }
     }
