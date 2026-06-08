@@ -5,6 +5,7 @@ pub const RUST: [SyntaxRule; 7] = [
     SyntaxRule::LineComment(b"///"),
     SyntaxRule::LineComment(b"//"),
     SyntaxRule::BlockComment(b"/*", b"*/"),
+    // TODO #103 (C) Add a Custom rule for raw strings that can handle any number of #s
     SyntaxRule::SkipDelimited(b"r#\"", b"\"#"),
     SyntaxRule::SkipDelimited(b"r##\"", b"\"##"),
     SyntaxRule::SkipDelimitedWithEscape(b"\"", b"\"", b'\\'),
