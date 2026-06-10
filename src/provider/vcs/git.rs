@@ -463,6 +463,28 @@ impl GitBackend {
         unreachable!()
     }
 
+    /// Move the claim tag for `id` to the current HEAD and force-push it.
+    ///
+    /// This is best-effort: the ID reservation was already established by
+    /// `try_push_tag`, so a failure here leaves the tag at the wrong commit
+    /// but does not affect correctness.
+    fn move_tag_to_head(&self, remote_name: &str, id: u32) -> Result<()> {
+        let tag_name = format!("tdz/{id}");
+        let head = self.repo.head()?.peel_to_commit()?;
+        self.repo
+            .tag_lightweight(&tag_name, head.as_object(), true)?;
+
+        let mut callbacks = Self::make_credentials_callback();
+        let mut opts = git2::PushOptions::new();
+        opts.remote_callbacks(callbacks);
+
+        let refspec = format!("+refs/tags/{tag_name}:refs/tags/{tag_name}");
+        let mut remote = self.repo.find_remote(remote_name)?;
+        // Ignore push errors: reservation is already established.
+        let _ = remote.push(&[refspec.as_str()], Some(&mut opts));
+        Ok(())
+    }
+
     /// Build a synthetic unified-diff patch that stages exactly the TODO comment.
     ///
     /// Diff spans `[start_line, end_line]`. All other changed lines are ignored.
@@ -603,9 +625,17 @@ impl VcsBackend for GitBackend {
             .as_ref()
             .ok_or("no file path on todo")?;
 
-        // pathspec must be relative to the repo root; strip prefix if absolute
+        // pathspec must be relative to the repo root; canonicalize first so that
+        // relative paths (e.g. "./src/lib.rs" from Walk) are resolved to absolute
+        // before stripping the prefix, otherwise git2 pathspec matching fails.
         let repo_root = self.get_repo_path();
-        let diff_path = file_path.strip_prefix(&repo_root).unwrap_or(file_path);
+        let abs_file = file_path
+            .canonicalize()
+            .map_err(|e| Error::Custom(e.to_string()))?;
+        let diff_path = match abs_file.strip_prefix(&repo_root) {
+            Ok(rel) => rel.to_path_buf(),
+            Err(_) => abs_file,
+        };
 
         let mut diff_opts = DiffOptions::new();
         diff_opts.pathspec(diff_path);
