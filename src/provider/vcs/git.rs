@@ -5,6 +5,7 @@ use super::{
     VcsBackend,
 };
 use crate::fs::{FileType, FileTypeAwarePath};
+use crate::todo::id::IDStrategy;
 use crate::todo::{parser::TodoParser, Todo, TodoIdentifier, Todos};
 use chrono::{DateTime, TimeZone, Utc};
 use git2::{ApplyLocation, Commit, Diff, DiffOptions, Oid, Repository};
@@ -381,19 +382,6 @@ impl GitBackend {
         callbacks
     }
 
-    fn fetch_id_tags(&self, remote_name: &str) -> Result<()> {
-        let mut remote = self
-            .repo
-            .find_remote(remote_name)
-            .map_err(|_| Error::Custom(format!("no remote '{remote_name}' configured")))?;
-        let mut opts = git2::FetchOptions::new();
-        opts.remote_callbacks(Self::make_credentials_callback());
-        opts.download_tags(git2::AutotagOption::None);
-        // Ignore errors: remote may have no tdz/* tags yet
-        let _ = remote.fetch(&["refs/tags/tdz/*:refs/tags/tdz/*"], Some(&mut opts), None);
-        Ok(())
-    }
-
     fn max_local_tag_id(&self) -> u32 {
         let Ok(refs) = self.repo.references_glob("refs/tags/tdz/*") else {
             return 0;
@@ -450,17 +438,6 @@ impl GitBackend {
         } else {
             Ok(true)
         }
-    }
-
-    fn claim_next_id(&self, remote_name: &str) -> Result<u32> {
-        self.fetch_id_tags(remote_name)?;
-        let start = self.max_local_tag_id() + 1;
-        for id in start.. {
-            if self.try_push_tag(remote_name, id)? {
-                return Ok(id);
-            }
-        }
-        unreachable!()
     }
 
     /// Move the claim tag for `id` to the current HEAD and force-push it.
@@ -615,10 +592,6 @@ impl VcsBackend for GitBackend {
     }
 
     fn add_todo(&mut self, todo: &mut Todo) -> Result<()> {
-        let id = self.claim_next_id("origin")?;
-
-        todo.add_id(id).map_err(|e| Error::Custom(e.to_string()))?;
-
         let file_path = todo
             .location
             .file_path

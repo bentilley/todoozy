@@ -1,6 +1,7 @@
 pub mod editor;
 pub mod error;
 pub mod filter;
+pub mod id;
 pub mod parser;
 pub mod sort;
 pub mod store;

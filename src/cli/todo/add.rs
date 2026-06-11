@@ -142,6 +142,8 @@ pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<Ex
             }
         }
 
+        todo.add_id(id_strategy.next()?).map_err(|e| Error::Custom(e.to_string()))?;
+
         match vcs.add_todo(&mut todo) {
             Ok(_) => {
                 let id = match todo.id {
