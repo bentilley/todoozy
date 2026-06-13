@@ -25,8 +25,7 @@ pub struct Config {
     #[serde(skip_serializing, default)]
     file_name: std::path::PathBuf,
 
-    #[serde(rename = "_num_todos")]
-    pub num_todos: u32,
+    id_file_path: Option<std::path::PathBuf>,
 
     pub exclude: Vec<String>,
 
@@ -57,7 +56,7 @@ impl Config {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 let config = Config {
                     file_name: config_file,
-                    num_todos: 0,
+                    id_file_path: None,
                     exclude: Vec::new(),
                     filter: None,
                     sorter: Some(Box::new(todoozy::todo::sort::SortPipeline::app_default())),
@@ -68,6 +67,12 @@ impl Config {
             }
             Err(e) => Err(e.into()),
         }
+    }
+
+    pub fn get_id_file_path(&self) -> std::path::PathBuf {
+        self.id_file_path
+            .clone()
+            .unwrap_or_else(|| ".tdz/ids".into())
     }
 
     pub fn get_todo_token(&self) -> String {

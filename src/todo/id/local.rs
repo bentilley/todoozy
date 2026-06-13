@@ -84,6 +84,10 @@ impl IDStrategy for MergeFileIDStrategy {
         self.write_id(max_id, todo)?;
         Ok(max_id)
     }
+
+    fn file_path(&self) -> Option<&std::path::Path> {
+        Some(&self.file_path)
+    }
 }
 
 // TODO #104 (C) Add tests for MergeFileIDStrategy +test

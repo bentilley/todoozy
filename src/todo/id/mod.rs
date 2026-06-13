@@ -10,4 +10,8 @@ pub use local::MergeFileIDStrategy;
 
 pub trait IDStrategy {
     fn next(&mut self, todo: &Todo) -> Result<u32>;
+
+    fn file_path(&self) -> Option<&std::path::Path> {
+        None
+    }
 }
