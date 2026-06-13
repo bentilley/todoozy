@@ -157,7 +157,6 @@ mod tests {
     fn test_config() -> config::Config {
         serde_json::from_str(
             r#"{
-                "_num_todos": 0,
                 "exclude": [],
                 "filter": null,
                 "sorter": null,

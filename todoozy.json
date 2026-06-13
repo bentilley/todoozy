@@ -1,5 +1,4 @@
 {
-  "_num_todos": 100,
   "exclude": [],
   "filter": "priority>=z",
   "sorter": "priority:asc > creation_date:desc",

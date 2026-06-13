@@ -161,7 +161,6 @@ Todoozy uses a `todoozy.json` file in your repository root:
 
 ```json
 {
-  "_num_todos": 51,
   "exclude": ["vendor", "node_modules"],
   "filter": "priority>Z",
   "sorter": "priority:asc > creation_date:desc"
@@ -170,7 +169,6 @@ Todoozy uses a `todoozy.json` file in your repository root:
 
 | Field        | Description                    |
 |--------------|--------------------------------|
-| `_num_todos` | Counter for auto-assigned IDs  |
 | `exclude`    | Paths to exclude from scanning |
 | `filter`     | Default filter expression      |
 | `sorter`     | Default sort expression        |

@@ -29,8 +29,6 @@ use todoozy::todo::sort;
 // - Incremental: only scans new commits
 // - Accurate: knows IDs from all branches/history
 // - Fast: cached results reused
-//
-// See also: TODO for moving _num_todos to local state in config.rs
 
 // TODO #63 (E) 2026-03-22 Implement `tdz file convert` command +cli +tdz
 //
