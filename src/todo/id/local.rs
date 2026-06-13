@@ -78,5 +78,6 @@ impl IDStrategy for MergeFileIDStrategy {
     }
 }
 
+// TODO #104 (C) Add tests for MergeFileIDStrategy +test
 #[cfg(test)]
 mod tests {}
