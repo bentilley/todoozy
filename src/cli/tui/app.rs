@@ -358,6 +358,7 @@ impl App {
     }
 
     fn import_todo(&mut self, todo: &mut Todo) -> Result<(), Box<dyn std::error::Error>> {
+        // TODO #106 (C) Update this to match add.rs using IDStrategy
         self.vcs.stage_todo(todo)?;
         self.vcs
             .commit(&format!("chore: add todo {}", todo.display_id()))?;
