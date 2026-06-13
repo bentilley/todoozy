@@ -5,7 +5,6 @@ use super::{
     VcsBackend,
 };
 use crate::fs::{FileType, FileTypeAwarePath};
-use crate::todo::id::IDStrategy;
 use crate::todo::{parser::TodoParser, Todo, TodoIdentifier, Todos};
 use chrono::{DateTime, TimeZone, Utc};
 use git2::{ApplyLocation, Commit, Diff, DiffOptions, Oid, Repository};
@@ -14,8 +13,6 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 
 /// Metadata extracted from a commit.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -352,116 +349,6 @@ impl GitBackend {
         Ok(todos.into_values().collect::<Vec<_>>().into())
     }
 
-    fn make_credentials_callback() -> git2::RemoteCallbacks<'static> {
-        let mut callbacks = git2::RemoteCallbacks::new();
-        let mut tried = false;
-
-        callbacks.credentials(move |url, username, allowed| {
-            if tried {
-                return Err(git2::Error::from_str("authentication failed"));
-            }
-            tried = true;
-            if allowed.contains(git2::CredentialType::SSH_KEY) {
-                if let Ok(cred) = git2::Cred::ssh_key_from_agent(username.unwrap_or("git")) {
-                    return Ok(cred);
-                }
-            }
-            if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
-                if let Ok(cfg) = git2::Config::open_default() {
-                    if let Ok(cred) = git2::Cred::credential_helper(&cfg, url, username) {
-                        return Ok(cred);
-                    }
-                }
-            }
-            if allowed.contains(git2::CredentialType::DEFAULT) {
-                return git2::Cred::default();
-            }
-            Err(git2::Error::from_str("no suitable credentials available"))
-        });
-
-        callbacks
-    }
-
-    fn max_local_tag_id(&self) -> u32 {
-        let Ok(refs) = self.repo.references_glob("refs/tags/tdz/*") else {
-            return 0;
-        };
-        refs.flatten()
-            .filter_map(|r| {
-                let name = r.name()?;
-                let suffix = name.strip_prefix("refs/tags/tdz/")?;
-                suffix.parse::<u32>().ok()
-            })
-            .max()
-            .unwrap_or(0)
-    }
-
-    fn try_push_tag(&self, remote_name: &str, id: u32) -> Result<bool> {
-        let tag_name = format!("tdz/{id}");
-        let tag_ref = format!("refs/tags/{tag_name}");
-
-        // If the tag was fetched from the remote it already exists locally — skip it.
-        if self.repo.find_reference(&tag_ref).is_ok() {
-            return Ok(false);
-        }
-
-        let head = self.repo.head()?.peel_to_commit()?;
-        self.repo
-            .tag_lightweight(&tag_name, head.as_object(), false)?;
-
-        let rejected = Arc::new(AtomicBool::new(false));
-        let rejected_clone = Arc::clone(&rejected);
-        let mut callbacks = Self::make_credentials_callback();
-        callbacks.push_update_reference(move |_, status| {
-            if status.is_some() {
-                rejected_clone.store(true, Ordering::Relaxed);
-            }
-            Ok(())
-        });
-
-        let mut opts = git2::PushOptions::new();
-        opts.remote_callbacks(callbacks);
-
-        let refspec = format!("refs/tags/{tag_name}:refs/tags/{tag_name}");
-        let mut remote = self.repo.find_remote(remote_name)?;
-        match remote.push(&[refspec.as_str()], Some(&mut opts)) {
-            Ok(()) => {}
-            Err(e) => {
-                let _ = self.repo.tag_delete(&tag_name);
-                return Err(Error::from(e));
-            }
-        }
-
-        if rejected.load(Ordering::Relaxed) {
-            let _ = self.repo.tag_delete(&tag_name);
-            Ok(false)
-        } else {
-            Ok(true)
-        }
-    }
-
-    /// Move the claim tag for `id` to the current HEAD and force-push it.
-    ///
-    /// This is best-effort: the ID reservation was already established by
-    /// `try_push_tag`, so a failure here leaves the tag at the wrong commit
-    /// but does not affect correctness.
-    fn move_tag_to_head(&self, remote_name: &str, id: u32) -> Result<()> {
-        let tag_name = format!("tdz/{id}");
-        let head = self.repo.head()?.peel_to_commit()?;
-        self.repo
-            .tag_lightweight(&tag_name, head.as_object(), true)?;
-
-        let mut callbacks = Self::make_credentials_callback();
-        let mut opts = git2::PushOptions::new();
-        opts.remote_callbacks(callbacks);
-
-        let refspec = format!("+refs/tags/{tag_name}:refs/tags/{tag_name}");
-        let mut remote = self.repo.find_remote(remote_name)?;
-        // Ignore push errors: reservation is already established.
-        let _ = remote.push(&[refspec.as_str()], Some(&mut opts));
-        Ok(())
-    }
-
     /// Build a synthetic unified-diff patch that stages exactly the TODO comment.
     ///
     /// Diff spans `[start_line, end_line]`. All other changed lines are ignored.
@@ -634,7 +521,7 @@ impl VcsBackend for GitBackend {
             Some("HEAD"),
             &sig,
             &sig,
-            &format!("chore: add todo #{id}"),
+            &format!("chore: add todo {}", &todo.display_id()),
             &tree,
             &[&parent],
         )?;
@@ -792,7 +679,7 @@ mod tests {
         // Working tree: TODO (no ID yet) added at line 1, plus an unrelated extra line.
         fs::write(
             dir.path().join("main.rs"),
-            "// TODO Fix bug\nfn main() {}\nfn extra() {}\n",
+            "// TODO #1 Fix bug\nfn main() {}\nfn extra() {}\n",
         )
         .unwrap();
 
@@ -822,7 +709,7 @@ mod tests {
         // Working tree: a three-line TODO comment (no ID) at lines 1–3.
         fs::write(
             dir.path().join("main.rs"),
-            "// TODO Fix bug\n// Detail line 1\n// Detail line 2\nfn main() {}\n",
+            "// TODO #1 Fix bug\n// Detail line 1\n// Detail line 2\nfn main() {}\n",
         )
         .unwrap();
 
@@ -857,7 +744,7 @@ mod tests {
         // Working tree: unrelated extra line appended; ID will be inserted by add_todo.
         fs::write(
             dir.path().join("main.rs"),
-            "// TODO Fix bug\nfn main() {}\nfn extra() {}\n",
+            "// TODO #1 Fix bug\nfn main() {}\nfn extra() {}\n",
         )
         .unwrap();
 
@@ -896,7 +783,7 @@ mod tests {
         // Unrelated fn new() inserted at line 2; TODO (no ID) at line 4.
         fs::write(
             dir.path().join("main.rs"),
-            "fn a() {}\nfn new() {}\nfn b() {}\n// TODO Fix bug\nfn c() {}\n",
+            "fn a() {}\nfn new() {}\nfn b() {}\n// TODO #1 Fix bug\nfn c() {}\n",
         )
         .unwrap();
 
@@ -990,7 +877,7 @@ mod tests {
         // Working tree: two old lines removed, TODO (no ID) at line 1.
         fs::write(
             dir.path().join("main.rs"),
-            "// TODO Fix bug\n//\n// more info\nfn main() {}\n",
+            "// TODO #1 Fix bug\n//\n// more info\nfn main() {}\n",
         )
         .unwrap();
 
@@ -1029,7 +916,7 @@ mod tests {
         // Working tree: old TODO replaced with new TODO (no ID yet).
         fs::write(
             dir.path().join("main.rs"),
-            "// TODO Fix bug\n//\n// more info\nfn main() {}\n",
+            "// TODO #1 Fix bug\n//\n// more info\nfn main() {}\n",
         )
         .unwrap();
 
@@ -1053,110 +940,6 @@ mod tests {
             vec!["// TODO old todo", "// stale info"],
             "old TODO deletion should be staged, got: {removed:?}"
         );
-    }
-
-    // ====== tag-push ID claiming tests ======
-
-    #[test]
-    fn test_add_todo_pushes_claim_tag_to_remote() {
-        let (dir, remote_dir) = create_test_repo_with_remote();
-        commit_file(dir.path(), "main.rs", "fn main() {}\n", "Initial");
-
-        fs::write(
-            dir.path().join("main.rs"),
-            "// TODO Fix bug\nfn main() {}\n",
-        )
-        .unwrap();
-
-        let fsp = FileSystemProvider::new("TODO", Vec::new());
-        let todos = fsp
-            .parse_file(&dir.path().join("main.rs"))
-            .expect("failed to parse file");
-        let mut todo = todos.into_iter().next().expect("should have a todo");
-        let mut backend =
-            GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        backend.add_todo(&mut todo).expect("add_todo failed");
-
-        let remote_repo = Repository::open(remote_dir.path()).expect("failed to open remote repo");
-        assert!(
-            remote_repo.find_reference("refs/tags/tdz/1").is_ok(),
-            "refs/tags/tdz/1 should exist on the remote after add_todo"
-        );
-    }
-
-    #[test]
-    fn test_add_todo_skips_already_claimed_id() {
-        let (dir, remote_dir) = create_test_repo_with_remote();
-
-        // Claim id=1 via the backend itself so libgit2 is used end-to-end.
-        commit_file(
-            dir.path(),
-            "main.rs",
-            "// TODO First todo\nfn main() {}\n",
-            "Initial",
-        );
-        let fsp = FileSystemProvider::new("TODO", Vec::new());
-        let mut backend =
-            GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        let todos1 = fsp
-            .parse_file(&dir.path().join("main.rs"))
-            .expect("failed to parse file");
-        let mut todo1 = todos1.into_iter().next().expect("should have a todo");
-        backend.add_todo(&mut todo1).expect("first add_todo failed");
-
-        // Now add a second todo — must claim tdz/2 since tdz/1 already exists on the remote.
-        fs::write(
-            dir.path().join("main.rs"),
-            "// TODO Second todo\nfn main() {}\n",
-        )
-        .unwrap();
-        let todos2 = fsp
-            .parse_file(&dir.path().join("main.rs"))
-            .expect("failed to parse file");
-        let mut todo2 = todos2.into_iter().next().expect("should have a todo");
-        backend
-            .add_todo(&mut todo2)
-            .expect("second add_todo failed");
-
-        let remote_repo = Repository::open(remote_dir.path()).expect("failed to open remote repo");
-        assert!(
-            remote_repo.find_reference("refs/tags/tdz/2").is_ok(),
-            "refs/tags/tdz/2 should be claimed when tdz/1 was already taken"
-        );
-
-        let content = head_file_content(dir.path(), "main.rs");
-        assert!(
-            content.contains("// TODO #2 Second todo"),
-            "committed file should contain #2, got:\n{content}"
-        );
-    }
-
-    #[test]
-    fn test_add_todo_errors_without_remote() {
-        let dir = create_test_repo();
-        commit_file(dir.path(), "main.rs", "fn main() {}\n", "Initial");
-
-        fs::write(
-            dir.path().join("main.rs"),
-            "// TODO Fix bug\nfn main() {}\n",
-        )
-        .unwrap();
-
-        let fsp = FileSystemProvider::new("TODO", Vec::new());
-        let todos = fsp
-            .parse_file(&dir.path().join("main.rs"))
-            .expect("failed to parse file");
-        let mut todo = todos.into_iter().next().expect("should have a todo");
-        let mut backend =
-            GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        match backend.add_todo(&mut todo) {
-            Err(Error::Custom(msg)) => assert!(
-                msg.contains("no remote"),
-                "error should mention 'no remote', got: {msg}"
-            ),
-            Err(e) => panic!("expected Error::Custom mentioning 'no remote', got: {e:?}"),
-            Ok(()) => panic!("should return Err when no remote is configured"),
-        }
     }
 
     #[test]

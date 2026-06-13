@@ -5,7 +5,10 @@ use crate::cli::error;
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 use todoozy::provider::{vcs::create_vcs_backend, FileSystemProvider, Provider};
-use todoozy::todo::Todo;
+use todoozy::todo::{
+    id::{IDStrategy, MergeFileIDStrategy},
+    Todo,
+};
 
 pub const USAGE: &str = r#"Add untracked todos (assign IDs)
 
@@ -127,6 +130,7 @@ pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<Ex
 
     let cwd = std::env::current_dir()?;
     let mut vcs = create_vcs_backend(&cwd, &conf.get_todo_token(), None)?;
+    let mut id_strategy = MergeFileIDStrategy::new(cwd.join(".tdzids").clone());
 
     let mut added_count = 0;
 
@@ -142,7 +146,8 @@ pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<Ex
             }
         }
 
-        todo.add_id(id_strategy.next()?).map_err(|e| Error::Custom(e.to_string()))?;
+        todo.add_id(id_strategy.next(&todo)?)
+            .map_err(|e| -> error::Error { e.to_string().into() })?;
 
         match vcs.add_todo(&mut todo) {
             Ok(_) => {
