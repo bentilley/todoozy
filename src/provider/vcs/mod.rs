@@ -40,11 +40,21 @@ pub trait VcsBackend: Send {
     /// Get multiple TODOs by ID for a specific version (commit/tag/branch).
     fn get_todos_for_version(&self, id: &[u32], version: &str) -> Result<Todos>;
 
-    /// Add a new TODO to the VCS, claiming a globally unique ID via the remote.
+    /// Stage a TODO's source-line change into the VCS index.
     ///
-    /// Claims the next available ID by pushing `refs/tags/tdz/<N>` to the remote,
-    /// writes the ID into the source file, stages the change, and commits.
-    fn add_todo(&mut self, todo: &mut Todo) -> Result<()>;
+    /// Builds a synthetic patch covering exactly the TODO's comment lines
+    /// (as currently written in the working tree) and applies it to the
+    /// index, without touching any other unstaged changes in the file.
+    fn stage_todo(&mut self, todo: &mut Todo) -> Result<()>;
+
+    /// Stage the full current working-tree contents of `path` into the index.
+    ///
+    /// Equivalent to `git add <path>`. Used to additionally stage files that
+    /// are not part of a TODO's source change (e.g. an ID-tracking file)
+    fn stage_file(&mut self, path: &Path) -> Result<()>;
+
+    /// Commit the currently staged index contents on top of HEAD.
+    fn commit(&mut self, message: &str) -> Result<()>;
 
     // fn get_all_todos_for_version(&self, version: String) -> Result<Todos>;
     // fn hydrate_todo(&self, todo: &mut Todo) -> Result<()>;

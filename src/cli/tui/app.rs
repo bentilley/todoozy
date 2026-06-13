@@ -358,7 +358,9 @@ impl App {
     }
 
     fn import_todo(&mut self, todo: &mut Todo) -> Result<(), Box<dyn std::error::Error>> {
-        self.vcs.add_todo(todo)?;
+        self.vcs.stage_todo(todo)?;
+        self.vcs
+            .commit(&format!("chore: add todo {}", todo.display_id()))?;
         Ok(())
     }
 

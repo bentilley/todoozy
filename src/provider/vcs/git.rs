@@ -89,6 +89,24 @@ impl GitBackend {
             .to_path_buf()
     }
 
+    /// Resolve `path` to a path relative to the repository root, suitable for
+    /// use as a git2 pathspec or `Index::add_path` argument.
+    ///
+    /// Canonicalizes `path` first so that relative paths (e.g. `./src/lib.rs`
+    /// from `Walk`) are resolved to absolute before stripping the repo-root
+    /// prefix, otherwise git2 pathspec matching fails. If the canonicalized
+    /// path does not live under the repo root, it is returned unchanged.
+    fn to_repo_relative_path(&self, path: &Path) -> Result<PathBuf> {
+        let repo_root = self.get_repo_path();
+        let abs_path = path
+            .canonicalize()
+            .map_err(|e| Error::Custom(e.to_string()))?;
+        Ok(match abs_path.strip_prefix(&repo_root) {
+            Ok(rel) => rel.to_path_buf(),
+            Err(_) => abs_path,
+        })
+    }
+
     /// Resolve the cutoff commit if one was specified.
     fn get_cutoff_commit(&self) -> Result<Option<Commit<'_>>> {
         if let Some(ref cutoff) = self.cutoff {
@@ -364,7 +382,6 @@ impl GitBackend {
         let mut num_additions: u32 = 0;
         let mut num_deletions: u32 = 0;
         let mut old_insertion_pos: u32 = end_line;
-        let mut new_insertion_pos: u32 = end_line;
 
         diff.foreach(
             &mut |delta, _| {
@@ -403,13 +420,11 @@ impl GitBackend {
             None,
             Some(&mut |_delta, _hunk, line| {
                 let in_todo = |n| n >= start_line && n <= end_line;
+                let in_todo_context = |n| n >= start_line - 1 && n <= end_line + 1;
 
                 use git2::DiffLineType::*;
                 match line.origin_value() {
                     Addition if line.new_lineno().map_or(false, in_todo) => {
-                        if line.new_lineno().unwrap() < new_insertion_pos {
-                            new_insertion_pos = line.new_lineno().unwrap();
-                        }
                         num_additions += 1;
                         lines.push(b'+');
                         lines.extend_from_slice(line.content());
@@ -423,9 +438,12 @@ impl GitBackend {
                         lines.extend_from_slice(line.content());
                     }
                     Context => {
-                        if line.new_lineno().unwrap() < new_insertion_pos {
-                            new_insertion_pos = line.new_lineno().unwrap();
+                        if !line.new_lineno().map_or(false, in_todo_context)
+                            && !line.old_lineno().map_or(false, in_todo_context)
+                        {
+                            return true;
                         }
+
                         if line.old_lineno().unwrap() < old_insertion_pos {
                             old_insertion_pos = line.old_lineno().unwrap();
                         }
@@ -447,10 +465,13 @@ impl GitBackend {
             )));
         }
 
+        // This is always a single-hunk patch applied to the index, so the
+        // new-file start matches the old-file start: nothing before this
+        // hunk shifts line numbers.
         write!(
             &mut patch,
-            "@@ -{},{} +{},{} @@\n",
-            old_insertion_pos, num_deletions, new_insertion_pos, num_additions,
+            "@@ -{0},{1} +{0},{2} @@\n",
+            old_insertion_pos, num_deletions, num_additions,
         )
         .unwrap();
         patch.extend(lines);
@@ -478,24 +499,14 @@ impl VcsBackend for GitBackend {
             .into())
     }
 
-    fn add_todo(&mut self, todo: &mut Todo) -> Result<()> {
+    fn stage_todo(&mut self, todo: &mut Todo) -> Result<()> {
         let file_path = todo
             .location
             .file_path
             .as_ref()
             .ok_or("no file path on todo")?;
 
-        // pathspec must be relative to the repo root; canonicalize first so that
-        // relative paths (e.g. "./src/lib.rs" from Walk) are resolved to absolute
-        // before stripping the prefix, otherwise git2 pathspec matching fails.
-        let repo_root = self.get_repo_path();
-        let abs_file = file_path
-            .canonicalize()
-            .map_err(|e| Error::Custom(e.to_string()))?;
-        let diff_path = match abs_file.strip_prefix(&repo_root) {
-            Ok(rel) => rel.to_path_buf(),
-            Err(_) => abs_file,
-        };
+        let diff_path = self.to_repo_relative_path(file_path)?;
 
         let mut diff_opts = DiffOptions::new();
         diff_opts.pathspec(diff_path);
@@ -512,6 +523,20 @@ impl VcsBackend for GitBackend {
         self.repo
             .apply(&synthetic_diff, ApplyLocation::Index, None)?;
 
+        Ok(())
+    }
+
+    fn stage_file(&mut self, path: &Path) -> Result<()> {
+        let rel_path = self.to_repo_relative_path(path)?;
+
+        let mut index = self.repo.index()?;
+        index.add_path(&rel_path)?;
+        index.write()?;
+
+        Ok(())
+    }
+
+    fn commit(&mut self, message: &str) -> Result<()> {
         let mut index = self.repo.index()?;
         let tree_id = index.write_tree()?;
         let tree = self.repo.find_tree(tree_id)?;
@@ -521,7 +546,7 @@ impl VcsBackend for GitBackend {
             Some("HEAD"),
             &sig,
             &sig,
-            &format!("chore: add todo {}", &todo.display_id()),
+            message,
             &tree,
             &[&parent],
         )?;
@@ -669,7 +694,7 @@ mod tests {
         (added, removed)
     }
 
-    // ====== add_todo tests ======
+    // ====== stage_todo / stage_file / commit tests ======
 
     #[test]
     fn test_add_todo_single_line_stages_only_the_todo() {
@@ -690,7 +715,10 @@ mod tests {
         let mut todo = &mut todos[0];
         let mut backend =
             GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        backend.add_todo(&mut todo).expect("add_todo failed");
+        backend.stage_todo(&mut todo).expect("stage_todo failed");
+        backend
+            .commit(&format!("chore: add todo {}", todo.display_id()))
+            .expect("commit failed");
 
         let (added, removed) = head_commit_diff(dir.path());
         assert_eq!(
@@ -720,7 +748,10 @@ mod tests {
         let mut todo = todos.into_iter().next().expect("should have a todo");
         let mut backend =
             GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        backend.add_todo(&mut todo).expect("add_todo failed");
+        backend.stage_todo(&mut todo).expect("stage_todo failed");
+        backend
+            .commit(&format!("chore: add todo {}", todo.display_id()))
+            .expect("commit failed");
 
         let (added, removed) = head_commit_diff(dir.path());
         assert_eq!(
@@ -741,7 +772,7 @@ mod tests {
             "Add TODO without ID",
         );
 
-        // Working tree: unrelated extra line appended; ID will be inserted by add_todo.
+        // Working tree: unrelated extra line appended; ID will be inserted by stage_todo.
         fs::write(
             dir.path().join("main.rs"),
             "// TODO #1 Fix bug\nfn main() {}\nfn extra() {}\n",
@@ -755,7 +786,10 @@ mod tests {
         let mut todo = todos.into_iter().next().expect("should have a todo");
         let mut backend =
             GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        backend.add_todo(&mut todo).expect("add_todo failed");
+        backend.stage_todo(&mut todo).expect("stage_todo failed");
+        backend
+            .commit(&format!("chore: add todo {}", todo.display_id()))
+            .expect("commit failed");
 
         let (added, removed) = head_commit_diff(dir.path());
         assert_eq!(
@@ -794,7 +828,10 @@ mod tests {
         let mut todo = todos.into_iter().next().expect("should have a todo");
         let mut backend =
             GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        backend.add_todo(&mut todo).expect("add_todo failed");
+        backend.stage_todo(&mut todo).expect("stage_todo failed");
+        backend
+            .commit(&format!("chore: add todo {}", todo.display_id()))
+            .expect("commit failed");
 
         let content = head_file_content(dir.path(), "main.rs");
         let todo_pos = content
@@ -831,7 +868,7 @@ mod tests {
         let mut backend =
             GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
         assert!(
-            backend.add_todo(&mut todo).is_err(),
+            backend.stage_todo(&mut todo).is_err(),
             "should return Err when the source file no longer exists"
         );
     }
@@ -859,7 +896,7 @@ mod tests {
         let mut backend =
             GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
         assert!(
-            backend.add_todo(&mut todo).is_err(),
+            backend.stage_todo(&mut todo).is_err(),
             "should return Err when the TODO comment has been removed from the file"
         );
     }
@@ -888,7 +925,10 @@ mod tests {
         let mut todo = todos.into_iter().next().expect("should have a todo");
         let mut backend =
             GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        backend.add_todo(&mut todo).expect("add_todo failed");
+        backend.stage_todo(&mut todo).expect("stage_todo failed");
+        backend
+            .commit(&format!("chore: add todo {}", todo.display_id()))
+            .expect("commit failed");
 
         let (added, removed) = head_commit_diff(dir.path());
         assert_eq!(
@@ -927,7 +967,10 @@ mod tests {
         let mut todo = todos.into_iter().next().expect("should have a todo");
         let mut backend =
             GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
-        backend.add_todo(&mut todo).expect("add_todo failed");
+        backend.stage_todo(&mut todo).expect("stage_todo failed");
+        backend
+            .commit(&format!("chore: add todo {}", todo.display_id()))
+            .expect("commit failed");
 
         let (added, removed) = head_commit_diff(dir.path());
         assert_eq!(
@@ -939,6 +982,57 @@ mod tests {
             removed,
             vec!["// TODO old todo", "// stale info"],
             "old TODO deletion should be staged, got: {removed:?}"
+        );
+    }
+
+    #[test]
+    fn test_stage_file_and_stage_todo_commit_together() {
+        let (dir, _remote_dir) = create_test_repo_with_remote();
+        commit_file(dir.path(), "main.rs", "fn main() {}\n", "Initial");
+
+        // Working tree: TODO (with ID already assigned) added at line 1.
+        fs::write(
+            dir.path().join("main.rs"),
+            "// TODO #1 Fix bug\nfn main() {}\n",
+        )
+        .unwrap();
+
+        // Simulate `.tdz/ids`: a brand-new, untracked file written by
+        // MergeFileIDStrategy::write_id.
+        let ids_dir = dir.path().join(".tdz");
+        fs::create_dir_all(&ids_dir).unwrap();
+        fs::write(ids_dir.join("ids"), "#1 Fix bug\n").unwrap();
+
+        let fsp = FileSystemProvider::new("TODO", Vec::new());
+        let todos = fsp
+            .parse_file(&dir.path().join("main.rs"))
+            .expect("failed to parse file");
+        let mut todo = todos.into_iter().next().expect("should have a todo");
+
+        let mut backend =
+            GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+
+        backend.stage_todo(&mut todo).expect("stage_todo failed");
+        backend
+            .stage_file(&dir.path().join(".tdz/ids"))
+            .expect("stage_file failed");
+        backend
+            .commit(&format!("chore: add todo {}", todo.display_id()))
+            .expect("commit failed");
+
+        // The TODO line should be part of the commit's diff against main.rs.
+        let (added, removed) = head_commit_diff(dir.path());
+        assert!(
+            added.contains(&"// TODO #1 Fix bug".to_string()),
+            "TODO line should be staged and committed, got added: {added:?}"
+        );
+        assert!(removed.is_empty(), "nothing should be removed from main.rs");
+
+        // The .tdz/ids file should also be present in HEAD with its full content.
+        let ids_content = head_file_content(dir.path(), ".tdz/ids");
+        assert_eq!(
+            ids_content, "#1 Fix bug\n",
+            ".tdz/ids should be committed alongside the TODO"
         );
     }
 

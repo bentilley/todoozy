@@ -150,17 +150,30 @@ pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<Ex
         todo.add_id(id_strategy.next(&todo)?)
             .map_err(|e| -> error::Error { e.to_string().into() })?;
 
-        match vcs.add_todo(&mut todo) {
+        match vcs.stage_todo(&mut todo) {
             Ok(_) => {
-                let id = match todo.id {
-                    Some(todoozy::todo::TodoIdentifier::Primary(id)) => id,
-                    _ => unreachable!("add_todo assigns a primary ID"),
-                };
-                println!("Added: #{} {}", id, todo.title);
-                added_count += 1;
+                if let Some(id_file) = id_strategy.file_path() {
+                    if let Err(e) = vcs.stage_file(id_file) {
+                        eprintln!("Warning: could not stage id file: {e}");
+                    }
+                }
+
+                match vcs.commit(&format!("chore: add todo {}", todo.display_id())) {
+                    Ok(_) => {
+                        let id = match todo.id {
+                            Some(todoozy::todo::TodoIdentifier::Primary(id)) => id,
+                            _ => unreachable!("add_id assigns a primary ID"),
+                        };
+                        println!("Added: #{} {}", id, todo.title);
+                        added_count += 1;
+                    }
+                    Err(e) => {
+                        eprintln!("Warning: could not commit todo to vcs: {e}");
+                    }
+                }
             }
             Err(e) => {
-                eprintln!("Warning: could not commit todo to vcs: {e}");
+                eprintln!("Warning: could not stage todo: {e}");
             }
         }
     }
