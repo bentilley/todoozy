@@ -7,8 +7,17 @@ pub struct MergeFileIDStrategy {
 }
 
 impl MergeFileIDStrategy {
-    pub fn new(file_path: std::path::PathBuf) -> Self {
-        Self { file_path }
+    pub fn open(file_path: std::path::PathBuf) -> Result<Self> {
+        match file_path.parent() {
+            Some(parent) => {
+                if !parent.exists() {
+                    std::fs::create_dir_all(parent)?;
+                }
+            }
+            None => (),
+        }
+
+        Ok(Self { file_path })
     }
 
     fn read_max_id(&self) -> Result<u32> {
@@ -38,9 +47,9 @@ impl MergeFileIDStrategy {
 
         let max_id = max_id_str.parse::<u32>().map_err(|e| {
             format!(
-            "failed to parse max ID from file {}: {}",
-            self.file_path.display(),
-            e
+                "failed to parse max ID from file {}: {}",
+                self.file_path.display(),
+                e
             )
         })?;
 
@@ -50,8 +59,7 @@ impl MergeFileIDStrategy {
     fn write_id(&self, max_id: u32, todo: &Todo) -> Result<()> {
         let f = std::fs::OpenOptions::new()
             .create(true)
-            .write(true)
-            .truncate(true)
+            .append(true)
             .open(&self.file_path)
             .map_err(|e| format!("failed to open file {}: {}", self.file_path.display(), e))?;
 
