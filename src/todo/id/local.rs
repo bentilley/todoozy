@@ -90,6 +90,112 @@ impl IDStrategy for MergeFileIDStrategy {
     }
 }
 
-// TODO #104 (C) Add tests for MergeFileIDStrategy +test
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+
+    fn todo(title: &str) -> Todo {
+        Todo {
+            title: title.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_next_creates_file_and_returns_one_when_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let id_file = dir.path().join(".tdzids");
+        let mut strategy = MergeFileIDStrategy::open(id_file.clone()).unwrap();
+
+        let id = strategy.next(&todo("First todo")).unwrap();
+
+        assert_eq!(id, 1);
+        assert_eq!(
+            std::fs::read_to_string(&id_file).unwrap(),
+            "#1 First todo\n"
+        );
+    }
+
+    #[test]
+    fn test_next_increments_sequentially_and_appends_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let id_file = dir.path().join(".tdzids");
+        let mut strategy = MergeFileIDStrategy::open(id_file.clone()).unwrap();
+
+        let id1 = strategy.next(&todo("First")).unwrap();
+        let id2 = strategy.next(&todo("Second")).unwrap();
+        let id3 = strategy.next(&todo("Third")).unwrap();
+
+        assert_eq!((id1, id2, id3), (1, 2, 3));
+        assert_eq!(
+            std::fs::read_to_string(&id_file).unwrap(),
+            "#1 First\n#2 Second\n#3 Third\n"
+        );
+    }
+
+    #[test]
+    fn test_next_continues_from_existing_max_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let id_file = dir.path().join(".tdzids");
+        std::fs::write(&id_file, "#41 Existing todo\n").unwrap();
+        let mut strategy = MergeFileIDStrategy::open(id_file.clone()).unwrap();
+
+        let id = strategy.next(&todo("Next todo")).unwrap();
+
+        assert_eq!(id, 42);
+        assert_eq!(
+            std::fs::read_to_string(&id_file).unwrap(),
+            "#41 Existing todo\n#42 Next todo\n"
+        );
+    }
+
+    #[test]
+    fn test_next_uses_only_last_line_of_existing_multiline_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let id_file = dir.path().join(".tdzids");
+        std::fs::write(&id_file, "#5 Old\n#10 Newer\n").unwrap();
+        let mut strategy = MergeFileIDStrategy::open(id_file.clone()).unwrap();
+
+        let id = strategy.next(&todo("Latest")).unwrap();
+
+        assert_eq!(id, 11);
+        assert_eq!(
+            std::fs::read_to_string(&id_file).unwrap(),
+            "#5 Old\n#10 Newer\n#11 Latest\n"
+        );
+    }
+
+    #[test]
+    fn test_next_errors_when_file_is_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let id_file = dir.path().join(".tdzids");
+        std::fs::write(&id_file, "").unwrap();
+        let mut strategy = MergeFileIDStrategy::open(id_file.clone()).unwrap();
+
+        assert!(strategy.next(&todo("Anything")).is_err());
+    }
+
+    #[test]
+    fn test_next_errors_on_non_numeric_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let id_file = dir.path().join(".tdzids");
+        std::fs::write(&id_file, "#abc Bad line\n").unwrap();
+        let mut strategy = MergeFileIDStrategy::open(id_file.clone()).unwrap();
+
+        assert!(strategy.next(&todo("Anything")).is_err());
+    }
+
+    #[test]
+    fn test_open_creates_missing_parent_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let id_file = dir.path().join("nested/dir/.tdzids");
+
+        let mut strategy = MergeFileIDStrategy::open(id_file.clone()).unwrap();
+
+        assert!(id_file.parent().unwrap().is_dir());
+
+        let id = strategy.next(&todo("First")).unwrap();
+        assert_eq!(id, 1);
+        assert_eq!(std::fs::read_to_string(&id_file).unwrap(), "#1 First\n");
+    }
+}
