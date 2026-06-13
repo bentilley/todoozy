@@ -129,6 +129,7 @@ pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<Ex
         FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone()).get_todos()?;
 
     let cwd = std::env::current_dir()?;
+    // TODO #105 (C) Make the VCS and ID strategy configurable in the config file
     let mut vcs = create_vcs_backend(&cwd, &conf.get_todo_token(), None)?;
     let mut id_strategy = MergeFileIDStrategy::new(cwd.join(".tdzids").clone());
 
