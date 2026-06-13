@@ -25,6 +25,7 @@ use ratatui::{
 use super::input::{Input, InputFor};
 use todoozy::provider::Provider;
 use todoozy::todo::filter;
+use todoozy::todo::id::{IDStrategy, MergeFileIDStrategy};
 use todoozy::todo::sort;
 use todoozy::todo::TodoIdentifier;
 use todoozy::Todo;
@@ -124,6 +125,7 @@ pub struct App {
 
     fs_provider: todoozy::provider::FileSystemProvider,
     vcs: Box<dyn todoozy::provider::vcs::VcsBackend>,
+    id_strategy: MergeFileIDStrategy,
 }
 
 impl App {
@@ -135,6 +137,7 @@ impl App {
         );
         let cwd = std::env::current_dir()?;
         let vcs = todoozy::provider::vcs::create_vcs_backend(&cwd, &config.get_todo_token(), None)?;
+        let id_strategy = MergeFileIDStrategy::open(config.get_id_file_path())?;
 
         let todos = fs_provider.get_todos().unwrap();
 
@@ -164,6 +167,7 @@ impl App {
             message: None,
             fs_provider,
             vcs,
+            id_strategy,
         };
 
         app.todo_list = TodoList::new(app.todo_view.clone(), &app.filter, &app.sorter);
@@ -358,8 +362,12 @@ impl App {
     }
 
     fn import_todo(&mut self, todo: &mut Todo) -> Result<(), Box<dyn std::error::Error>> {
-        // TODO #106 (C) Update this to match add.rs using IDStrategy
+        todo.add_id(self.id_strategy.next(todo)?)?;
+
         self.vcs.stage_todo(todo)?;
+        if let Some(id_file) = self.id_strategy.file_path() {
+            self.vcs.stage_file(id_file)?;
+        }
         self.vcs
             .commit(&format!("chore: add todo {}", todo.display_id()))?;
         Ok(())
