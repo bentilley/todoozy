@@ -501,6 +501,10 @@ mod tests {
         }
     }
 
+    // TODO #107 (B) Test for `todo get` with hash style ID
+    //
+    // Currently only testing `todo get 123` numeric IDs, need to also add some arg parsing tests
+    // for hexidecimal hash IDs.
     #[test]
     fn todo_get_missing_id_returns_error() {
         let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "get"]));

@@ -1,3 +1,4 @@
 #104 Add tests for MergeFileIDStrategy
 #105 Make the VCS and ID strategy configurable in the config file
 #106 Update this to match add.rs using IDStrategy
+#107 Test for `todo get` with hash style ID
