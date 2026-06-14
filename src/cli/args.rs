@@ -197,7 +197,7 @@ fn parse_tui_args(mut parser: lexopt::Parser) -> error::Result<Mode> {
 #[cfg(test)]
 mod tests {
     use super::tag::TagCommand;
-    use super::todo::{OutputFormat, TodoCommand};
+    use super::todo::{get::TodoID, OutputFormat, TodoCommand};
     use super::*;
 
     #[test]
@@ -281,9 +281,7 @@ mod tests {
         let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "list"]));
         assert!(matches!(
             result,
-            Ok(Mode::Cli(Command::Todo(
-                TodoCommand::List(_)
-            )))
+            Ok(Mode::Cli(Command::Todo(TodoCommand::List(_))))
         ));
     }
 
@@ -457,7 +455,7 @@ mod tests {
     fn todo_get_basic() {
         let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "get", "54"]));
         if let Ok(Mode::Cli(Command::Todo(TodoCommand::Get(opts)))) = result {
-            assert_eq!(opts.id, 54);
+            assert_eq!(opts.id, TodoID::Legacy(54));
             assert_eq!(opts.format, OutputFormat::Raw);
         } else {
             panic!("expected Ok(Cli(Todo(Get)))");
@@ -470,7 +468,7 @@ mod tests {
             "tdz", "todo", "get", "54", "--format", "json",
         ]));
         if let Ok(Mode::Cli(Command::Todo(TodoCommand::Get(opts)))) = result {
-            assert_eq!(opts.id, 54);
+            assert_eq!(opts.id, TodoID::Legacy(54));
             assert_eq!(opts.format, OutputFormat::Json);
         } else {
             panic!("expected Ok(Cli(Todo(Get)))");
@@ -483,7 +481,7 @@ mod tests {
             "tdz", "todo", "get", "42", "--format", "raw",
         ]));
         if let Ok(Mode::Cli(Command::Todo(TodoCommand::Get(opts)))) = result {
-            assert_eq!(opts.id, 42);
+            assert_eq!(opts.id, TodoID::Legacy(42));
             assert_eq!(opts.format, OutputFormat::Raw);
         } else {
             panic!("expected Ok(Cli(Todo(Get)))");
@@ -496,7 +494,7 @@ mod tests {
             "tdz", "todo", "get", "--format", "json", "54",
         ]));
         if let Ok(Mode::Cli(Command::Todo(TodoCommand::Get(opts)))) = result {
-            assert_eq!(opts.id, 54);
+            assert_eq!(opts.id, TodoID::Legacy(54));
             assert_eq!(opts.format, OutputFormat::Json);
         } else {
             panic!("expected Ok(Cli(Todo(Get)))");
@@ -511,7 +509,7 @@ mod tests {
 
     #[test]
     fn todo_get_invalid_id_returns_error() {
-        let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "get", "abc"]));
+        let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "get", "xyz"]));
         assert!(result.is_err());
     }
 
@@ -520,9 +518,7 @@ mod tests {
         let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "add", "--all"]));
         assert!(matches!(
             result,
-            Ok(Mode::Cli(Command::Todo(
-                TodoCommand::Add(_)
-            )))
+            Ok(Mode::Cli(Command::Todo(TodoCommand::Add(_))))
         ));
     }
 
@@ -531,9 +527,7 @@ mod tests {
         let result = parse_args(lexopt::Parser::from_iter(["tdz", "tag", "list"]));
         assert!(matches!(
             result,
-            Ok(Mode::Cli(Command::Tag(TagCommand::List(
-                _
-            ))))
+            Ok(Mode::Cli(Command::Tag(TagCommand::List(_))))
         ));
     }
 

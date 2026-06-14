@@ -55,6 +55,21 @@ impl FileSystemProvider {
             })
             .collect())
     }
+
+    pub fn get_todo_from_hash(&self, hash: &str) -> Result<Option<Todo>> {
+        let todos = self.get_todos()?;
+        let matches: Vec<Todo> = todos
+            .into_iter()
+            .filter(|t| t.display_hash(hash.len()).starts_with(hash))
+            .collect();
+        if matches.len() > 1 {
+            return Err(format!("Multiple todos found for hash: {}", hash).into());
+        } else if matches.len() == 1 {
+            Ok(Some(matches.into_iter().next().unwrap()))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 impl Provider for FileSystemProvider {

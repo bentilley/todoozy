@@ -2,9 +2,9 @@ use super::{OutputFormat, TodoCommand};
 use crate::cli::args::{Command, Mode};
 use crate::cli::config;
 use crate::cli::error;
-use todoozy::todo::TodoIdentifier;
-use todoozy::provider::{vcs, FileSystemProvider, Provider};
 use std::process::ExitCode;
+use todoozy::provider::{vcs, FileSystemProvider, Provider};
+use todoozy::todo::TodoIdentifier;
 
 pub const USAGE: &str = r#"Show full details for a specific todo
 
@@ -20,8 +20,39 @@ Options:
         --help             Print help
 "#;
 
+#[derive(Debug, PartialEq)]
+pub enum TodoID {
+    Legacy(u32),
+    Hash(String),
+}
+
+impl std::str::FromStr for TodoID {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(id) = s.parse::<u32>() {
+            Ok(TodoID::Legacy(id))
+        } else if u64::from_str_radix(s, 16).is_ok() {
+            Ok(TodoID::Hash(s.to_string()))
+        } else {
+            Err(format!(
+                "invalid ID '{}', expected a number or hexadecimal hash",
+                s
+            ))
+        }
+    }
+}
+
+impl std::fmt::Display for TodoID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TodoID::Legacy(id) => write!(f, "#{}", id),
+            TodoID::Hash(hash) => write!(f, "{}", hash),
+        }
+    }
+}
+
 pub struct TodoGetOptions {
-    pub id: u32,
+    pub id: TodoID,
     pub format: OutputFormat,
     pub include_completed: bool,
     pub version: Option<String>,
@@ -30,7 +61,7 @@ pub struct TodoGetOptions {
 pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     use lexopt::prelude::*;
 
-    let mut id: Option<u32> = None;
+    let mut id: Option<TodoID> = None;
     let mut format = OutputFormat::Raw;
     let mut include_completed = false;
     let mut version: Option<String> = None;
@@ -42,9 +73,7 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
             Long("format") => format = parser.value()?.parse()?,
             Long("help") => return Ok(Mode::Help(USAGE)),
             Value(val) if id.is_none() => {
-                id = Some(val.parse().map_err(|_| {
-                    error::Error::from(format!("invalid ID '{}'", val.to_string_lossy()))
-                })?);
+                id = Some(val.parse()?);
             }
             _ => return Err(arg.unexpected().into()),
         }
@@ -60,22 +89,35 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
     }))))
 }
 
+fn fs_lookup(conf: &config::Config, id: &TodoID) -> error::Result<Option<todoozy::todo::Todo>> {
+    match id {
+        TodoID::Hash(hash_id) => {
+            let fs_provider = FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone());
+            let todo = fs_provider.get_todo_from_hash(hash_id)?;
+            Ok(todo)
+        }
+        TodoID::Legacy(legacy_id) => {
+            let fs_provider = FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone());
+            let todo = fs_provider.get_todo(legacy_id.clone())?;
+            Ok(todo)
+        }
+    }
+}
+
 pub fn get(conf: &config::Config, opts: &TodoGetOptions) -> error::Result<ExitCode> {
     let todo = if let Some(ref version) = opts.version {
         // --version: VCS lookup at specific version
-        get_todo_from_vcs(conf, opts.id, version)?
+        get_todo_from_vcs(conf, &opts.id, version)?
     } else if opts.include_completed {
         // --all: filesystem first, then VCS fallback
-        let fs_todo = FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone())
-            .get_todo(opts.id)?;
+        let fs_todo = fs_lookup(conf, &opts.id)?;
         match fs_todo {
             Some(todo) => Some(todo),
-            None => get_todo_from_vcs(conf, opts.id, "HEAD")?,
+            None => get_todo_from_vcs(conf, &opts.id, "HEAD")?,
         }
     } else {
         // Default: filesystem only
-        FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone())
-            .get_todo(opts.id)?
+        fs_lookup(conf, &opts.id)?
     };
 
     match todo {
@@ -98,24 +140,35 @@ pub fn get(conf: &config::Config, opts: &TodoGetOptions) -> error::Result<ExitCo
 
 fn get_todo_from_vcs(
     conf: &config::Config,
-    id: u32,
+    id: &TodoID,
     version: &str,
 ) -> error::Result<Option<todoozy::todo::Todo>> {
-    let cwd = std::env::current_dir()?;
-    match vcs::create_vcs_backend(&cwd, &conf.get_todo_token(), None) {
-        Ok(vcs_backend) => match vcs_backend.get_todo_for_version(id, version) {
-            Ok(todo) => Ok(Some(todo)),
-            Err(vcs::error::Error::Custom(msg)) if msg.contains("not found") => Ok(None),
-            Err(e) => Err(e.into()),
-        },
-        Err(vcs::error::Error::NotARepository) => {
-            if version != "HEAD" {
-                return Err("--version requires a git repository".into());
-            }
-            eprintln!("Warning: --all requires a git repository; searching only current files");
-            Ok(None)
+    match id {
+        TodoID::Hash(_) => {
+            return Err("--version only supports legacy numeric IDs".into());
         }
-        Err(e) => Err(e.into()),
+        TodoID::Legacy(legacy_id) => {
+            let cwd = std::env::current_dir()?;
+            match vcs::create_vcs_backend(&cwd, &conf.get_todo_token(), None) {
+                Ok(vcs_backend) => match vcs_backend
+                    .get_todo_for_version(legacy_id.clone(), version)
+                {
+                    Ok(todo) => Ok(Some(todo)),
+                    Err(vcs::error::Error::Custom(msg)) if msg.contains("not found") => Ok(None),
+                    Err(e) => Err(e.into()),
+                },
+                Err(vcs::error::Error::NotARepository) => {
+                    if version != "HEAD" {
+                        return Err("--version requires a git repository".into());
+                    }
+                    eprintln!(
+                        "Warning: --all requires a git repository; searching only current files"
+                    );
+                    Ok(None)
+                }
+                Err(e) => Err(e.into()),
+            }
+        }
     }
 }
 
@@ -295,7 +348,7 @@ fn write_json(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use todoozy::todo::{TodoInfoBuilder, Location, Metadata, Todo, TodoIdentifier};
+    use todoozy::todo::{Location, Metadata, Todo, TodoIdentifier, TodoInfoBuilder};
 
     #[test]
     fn test_write_raw_format() {

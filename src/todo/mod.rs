@@ -17,6 +17,7 @@ use crate::fs::FileTypeAwarePath;
 use tempfile::NamedTempFile;
 
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 pub use error::Result;
 pub use syntax::{TodoInfo, TodoInfoBuilder};
@@ -266,6 +267,16 @@ impl Todo {
         }
     }
 
+    /// A simple hash of the todo's location and title, suitable for generating a unique identifier.
+    ///
+    /// Plan is to use this for generating "IDs" for Todos on the fly, like a git commit hash.
+    pub fn simple_hash<H: Hasher>(&self, state: &mut H) -> u64 {
+        self.location.file_path.hash(state);
+        self.location.start_line_num.hash(state);
+        self.title.hash(state);
+        state.finish()
+    }
+
     pub fn write_id(&self) -> Result<()> {
         let id = match &self.id {
             Some(TodoIdentifier::Primary(id)) => *id,
@@ -473,12 +484,19 @@ impl Todo {
 
         tags
     }
+
     pub fn display_id(&self) -> String {
         match &self.id {
             Some(TodoIdentifier::Primary(id)) => format!("#{}", id),
             Some(TodoIdentifier::Reference(id)) => format!("&{}", id),
             None => "#-".to_string(),
         }
+    }
+
+    pub fn display_hash(&self, len: usize) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        let h = self.simple_hash(&mut DefaultHasher::new());
+        format!("{:016x}", h)[..len].to_string()
     }
 
     pub fn display_priority(&self) -> String {
@@ -672,6 +690,22 @@ impl Todos {
         }
         self.unimported.extend(other.unimported);
         self.warnings.extend(other.warnings);
+    }
+
+    /// Return an enumerated Vec of all todos, sorted by simple hash.
+    pub fn with_hash_ids(&self) -> Vec<(usize, Todo)> {
+        let mut todos: Vec<Todo> = self.clone().into();
+        todos.sort_by(|a, b| {
+            use std::collections::hash_map::DefaultHasher;
+            let a_hash = a.simple_hash(&mut DefaultHasher::new());
+            let b_hash = b.simple_hash(&mut DefaultHasher::new());
+            a_hash.cmp(&b_hash)
+        });
+        todos
+            .into_iter()
+            .enumerate()
+            .map(|(i, td)| (i + 1, td))
+            .collect()
     }
 }
 

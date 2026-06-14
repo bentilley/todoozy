@@ -169,7 +169,8 @@ fn write_raw(w: &mut impl std::io::Write, todos: &[todoozy::todo::Todo]) -> std:
         };
         writeln!(
             w,
-            "[{}] {:<id_width$} {} {:<location_width$} {} {}",
+            "{} [{}] {:<id_width$} {} {:<location_width$} {} {}",
+            todo.display_hash(6),
             status,
             todo.display_id(),
             todo.display_priority(),
