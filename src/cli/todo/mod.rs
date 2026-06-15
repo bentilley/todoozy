@@ -4,6 +4,7 @@ pub mod add;
 pub mod import;
 pub mod list;
 pub mod remove;
+pub mod trace;
 
 use super::args::Mode;
 use super::error;
@@ -19,6 +20,7 @@ Commands:
     import    Restore the todo store from VCS history
     edit      Open todo in $EDITOR at its file location
     remove    Delete a todo comment from its source file
+    trace     Show the commit history of a todo
 
 Options:
     --help    Print help
@@ -31,6 +33,7 @@ pub enum TodoCommand {
     Import(import::TodoImportOptions),
     Edit(edit::TodoEditOptions),
     Remove(remove::TodoRemoveOptions),
+    Trace(trace::TodoTraceOptions),
 }
 
 pub use edit::edit;
@@ -39,6 +42,7 @@ pub use add::add;
 pub use import::import;
 pub use list::list;
 pub use remove::remove;
+pub use trace::trace;
 
 pub fn parse_cmd(mut parser: lexopt::Parser) -> error::Result<Mode> {
     use lexopt::prelude::*;
@@ -50,6 +54,7 @@ pub fn parse_cmd(mut parser: lexopt::Parser) -> error::Result<Mode> {
         Some(Value(val)) if val == "edit" => edit::parse_opts(parser),
         Some(Value(val)) if val == "import" => import::parse_opts(parser),
         Some(Value(val)) if val == "remove" => remove::parse_opts(parser),
+        Some(Value(val)) if val == "trace" => trace::parse_opts(parser),
         Some(Long("help")) => Ok(Mode::Help(USAGE)),
         Some(Value(other)) => {
             Err(format!("unknown todo action '{}'", other.to_string_lossy()).into())

@@ -40,6 +40,9 @@ pub trait VcsBackend: Send {
     /// Get multiple TODOs by ID for a specific version (commit/tag/branch).
     fn get_todos_for_version(&self, id: &[u32], version: &str) -> Result<Todos>;
 
+    /// Trace the history of a TODO through the VCS.
+    fn trace_todo(&self, todo: &Todo) -> Result<Vec<(CommitMetadata, Todo)>>;
+
     /// Stage a TODO's source-line change into the VCS index.
     ///
     /// Builds a synthetic patch covering exactly the TODO's comment lines

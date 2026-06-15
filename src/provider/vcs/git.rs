@@ -478,6 +478,124 @@ impl GitBackend {
 
         Ok(patch)
     }
+
+    /// Parse all TODOs from `rel_path` as it exists in `commit`.
+    ///
+    /// Returns an empty `Vec` if the file does not exist in `commit` (e.g. it
+    /// was added later or already deleted at this point in history).
+    fn todos_in_commit_file(&self, commit: &Commit<'_>, rel_path: &Path) -> Result<Vec<Todo>> {
+        let entry = match commit.tree()?.get_path(rel_path) {
+            Ok(entry) => entry,
+            Err(_) => return Ok(Vec::new()),
+        };
+        let blob = entry.to_object(&self.repo)?.peel_to_blob()?;
+        let file_type = rel_path.get_filetype_from_name().ok_or_else(|| {
+            Error::Custom(format!("unsupported file type: {}", rel_path.display()))
+        })?;
+        Ok(self.parser.parse_bytes(blob.content(), file_type))
+    }
+
+    fn get_history_for_todo(&self, todo: &Todo) -> Result<Vec<(CommitMetadata, Todo)>> {
+        // 1. get the file path for the todo
+        let file_path = todo
+            .location
+            .file_path
+            .as_ref()
+            .ok_or_else(|| Error::Custom("todo has no file path".to_string()))?;
+        // `file_path` on todos from `get_all_todos`/`revparse_todos` is already
+        // repo-relative (and may no longer exist on disk for removed todos), so
+        // only resolve it when it can be canonicalized; otherwise use it as-is.
+        let rel_path = self
+            .to_repo_relative_path(file_path)
+            .unwrap_or_else(|_| file_path.clone());
+
+        // 2. get the git blame for that file path
+        let blame = self.repo.blame_file(&rel_path, None)?;
+        // 3. get the blame hunk for the start line of the todo
+        let hunk = blame
+            .get_line(todo.location.start_line_num)
+            .ok_or_else(|| {
+                Error::Custom(format!(
+                    "no blame info for {}:{}",
+                    rel_path.display(),
+                    todo.location.start_line_num
+                ))
+            })?;
+        // 4. get the commit for that hunk (target commit)
+        let mut commit = self.repo.find_commit(hunk.final_commit_id())?;
+
+        // The hunk's path is the path of the file as it existed in `commit`,
+        // which may differ from `rel_path` (HEAD's path) if the file was
+        // renamed at some point between `commit` and HEAD.
+        let tracking_path = hunk.path().map(Path::to_path_buf).unwrap_or(rel_path);
+
+        // 5. get the blob for the target commit and file path and parse all todos from that blob
+        //
+        // The hunk covers a contiguous run of lines starting at
+        // `hunk.final_start_line()` (HEAD's numbering) / `hunk.orig_start_line()`
+        // (the target commit's own numbering). Translate the todo's HEAD line
+        // number to the target commit's numbering by applying the same offset
+        // from the start of the hunk.
+        let target_line = hunk.orig_start_line()
+            + (todo.location.start_line_num - hunk.final_start_line());
+        let todos = self.todos_in_commit_file(&commit, &tracking_path)?;
+        let mut current = todos
+            .into_iter()
+            .find(|t| t.location.start_line_num == target_line)
+            .ok_or_else(|| Error::Custom("todo not found in blamed commit".to_string()))?;
+        current.location.file_path = Some(tracking_path.clone());
+
+        let mut history = Vec::new();
+
+        loop {
+            history.push((CommitMetadata::from(&commit), current.clone()));
+
+            // 6. for each parent commit get the blob for that commit and file path and parse all todos
+            // 7. for each parent check if either:
+            let mut next: Option<(Commit<'_>, Todo)> = None;
+
+            //   a. the parent todos contain a todo with the same start line [todo was edited]
+            for parent in commit.parents() {
+                let parent_todos = self.todos_in_commit_file(&parent, &tracking_path)?;
+                if let Some(t) = parent_todos
+                    .iter()
+                    .find(|t| t.location.start_line_num == current.location.start_line_num)
+                {
+                    next = Some((parent, t.clone()));
+                    break;
+                }
+            }
+            //   b. the parent todos contain a todo with the same title [todo was moved]
+            if next.is_none() {
+                for parent in commit.parents() {
+                    let parent_todos = self.todos_in_commit_file(&parent, &tracking_path)?;
+                    if let Some(t) = parent_todos.iter().find(|t| t.title == current.title) {
+                        next = Some((parent, t.clone()));
+                        break;
+                    }
+                }
+            }
+
+            // 8. if c. (neither a. nor b. matched in any parent) then we're done,
+            //    this commit was the one that created the todo. Otherwise go back
+            //    to 5. with the parent commit as the new target commit.
+            // 9. repeat until we reach a commit with no parents or the todo is
+            //    not found in any parent commits
+            match next {
+                Some((parent_commit, mut parent_todo)) => {
+                    parent_todo.location.file_path = Some(tracking_path.clone());
+                    commit = parent_commit;
+                    current = parent_todo;
+                }
+                None => break,
+            }
+        }
+
+        // `history` was built newest-first (target commit -> creation commit);
+        // reverse so callers see chronological order (creation first).
+        history.reverse();
+        Ok(history)
+    }
 }
 
 impl VcsBackend for GitBackend {
@@ -497,6 +615,10 @@ impl VcsBackend for GitBackend {
             })
             .collect::<Vec<_>>()
             .into())
+    }
+
+    fn trace_todo(&self, todo: &Todo) -> Result<Vec<(CommitMetadata, Todo)>> {
+        self.get_history_for_todo(todo)
     }
 
     fn stage_todo(&mut self, todo: &mut Todo) -> Result<()> {
@@ -542,14 +664,8 @@ impl VcsBackend for GitBackend {
         let tree = self.repo.find_tree(tree_id)?;
         let sig = self.repo.signature()?;
         let parent = self.repo.head()?.peel_to_commit()?;
-        self.repo.commit(
-            Some("HEAD"),
-            &sig,
-            &sig,
-            message,
-            &tree,
-            &[&parent],
-        )?;
+        self.repo
+            .commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent])?;
 
         Ok(())
     }
@@ -649,6 +765,13 @@ mod tests {
             "expected path `{}` to end with `{expected_suffix}`",
             actual.display()
         );
+    }
+
+    /// Returns the SHA of the current HEAD commit.
+    fn head_sha(dir: &Path) -> String {
+        let repo = Repository::open(dir).expect("failed to open repo");
+        let sha = repo.head().unwrap().peel_to_commit().unwrap().id().to_string();
+        sha
     }
 
     /// Returns the content of a file as it exists in the HEAD commit tree.
@@ -1541,6 +1664,178 @@ mod tests {
         assert!(
             todos.get(&3).is_some(),
             "TODO after cutoff should be included"
+        );
+    }
+
+    // ====== get_history_for_todo / trace_todo tests ======
+
+    #[test]
+    fn test_trace_todo_single_commit() {
+        let dir = create_test_repo();
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 Fix bug\nfn main() {}",
+            "Add TODO",
+        );
+        let sha = head_sha(dir.path());
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        let todos = backend.get_all_todos().expect("failed to scan");
+        let todo = todos.get(&1).expect("TODO #1 should exist").clone();
+
+        let history = backend.trace_todo(&todo).expect("trace_todo failed");
+
+        assert_eq!(history.len(), 1, "should have exactly one history entry");
+        assert_eq!(history[0].0.sha, sha);
+        assert_eq!(history[0].1.title, "Fix bug");
+    }
+
+    #[test]
+    fn test_trace_todo_tracks_edits() {
+        let dir = create_test_repo();
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 Original title\nfn main() {}",
+            "Add TODO",
+        );
+        let sha_a = head_sha(dir.path());
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 (A) Modified title +urgent\nfn main() {}",
+            "Modify TODO",
+        );
+        let sha_b = head_sha(dir.path());
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        let todos = backend.get_all_todos().expect("failed to scan");
+        let todo = todos.get(&1).expect("TODO #1 should exist").clone();
+
+        let history = backend.trace_todo(&todo).expect("trace_todo failed");
+
+        assert_eq!(
+            history.len(),
+            2,
+            "should track both the creation and the edit"
+        );
+        assert_eq!(
+            history[0].0.sha, sha_a,
+            "oldest entry should be the creation commit"
+        );
+        assert_eq!(history[0].1.title, "Original title");
+        assert_eq!(
+            history[1].0.sha, sha_b,
+            "newest entry should be the edit commit"
+        );
+        assert_eq!(history[1].1.title, "Modified title");
+    }
+
+    #[test]
+    fn test_trace_todo_tracks_moves_via_title() {
+        let dir = create_test_repo();
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 Stable title\nfn main() {}",
+            "Add TODO",
+        );
+        let sha_a = head_sha(dir.path());
+
+        // Insert a line above the TODO and add a priority/tag to it. The
+        // edited TODO line keeps its title but moves to line 2, so blame
+        // attributes line 2 to this commit while the parent's matching
+        // todo is found by title rather than start line.
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "fn helper() {}\n// TODO #1 (A) Stable title +urgent\nfn main() {}",
+            "Annotate and shift TODO",
+        );
+        let sha_b = head_sha(dir.path());
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        let todos = backend.get_all_todos().expect("failed to scan");
+        let todo = todos.get(&1).expect("TODO #1 should exist").clone();
+        assert_eq!(todo.location.start_line_num, 2);
+
+        let history = backend.trace_todo(&todo).expect("trace_todo failed");
+
+        assert_eq!(
+            history.len(),
+            2,
+            "should track creation and the title-matched move"
+        );
+        assert_eq!(history[0].0.sha, sha_a);
+        assert_eq!(history[0].1.location.start_line_num, 1);
+        assert_eq!(history[0].1.title, "Stable title");
+        assert_eq!(history[1].0.sha, sha_b);
+        assert_eq!(history[1].1.location.start_line_num, 2);
+        assert_eq!(history[1].1.title, "Stable title");
+    }
+
+    #[test]
+    fn test_trace_todo_stops_at_root_commit() {
+        let dir = create_test_repo();
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 Fix bug\nfn main() {}",
+            "Add TODO",
+        );
+        let sha_a = head_sha(dir.path());
+
+        // A later, unrelated commit that doesn't touch main.rs.
+        commit_file(dir.path(), "other.rs", "fn other() {}", "Add other file");
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        let todos = backend.get_all_todos().expect("failed to scan");
+        let todo = todos.get(&1).expect("TODO #1 should exist").clone();
+
+        let history = backend.trace_todo(&todo).expect("trace_todo failed");
+
+        assert_eq!(
+            history.len(),
+            1,
+            "history should stop at the root commit that created the todo"
+        );
+        assert_eq!(history[0].0.sha, sha_a);
+    }
+
+    #[test]
+    fn test_trace_todo_requires_file_path() {
+        let dir = create_test_repo();
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 Fix bug\nfn main() {}",
+            "Add TODO",
+        );
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+
+        let todo = Todo {
+            id: Some(TodoIdentifier::Primary(1)),
+            title: "Fix bug".to_string(),
+            location: crate::todo::Location {
+                file_path: None,
+                start_line_num: 1,
+                end_line_num: 1,
+            },
+            ..Default::default()
+        };
+
+        let result = backend.trace_todo(&todo);
+        assert!(
+            matches!(result, Err(Error::Custom(_))),
+            "expected Error::Custom when todo has no file path, got {:?}",
+            result
         );
     }
 }

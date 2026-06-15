@@ -62,6 +62,7 @@ fn run() -> Result<ExitCode, Box<dyn error::Error>> {
                 Todo(TodoCommand::Edit(ref opts)) => cli::todo::edit(&config, opts),
                 Todo(TodoCommand::Import(ref opts)) => cli::todo::import(&mut config, opts),
                 Todo(TodoCommand::Remove(ref opts)) => cli::todo::remove(&config, opts),
+                Todo(TodoCommand::Trace(ref opts)) => cli::todo::trace(&config, opts),
                 Tag(TagCommand::List(ref opts)) => cli::tag::list(&config, opts),
             }
         }

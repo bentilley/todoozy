@@ -518,6 +518,28 @@ mod tests {
     }
 
     #[test]
+    fn todo_trace_basic() {
+        let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "trace", "123"]));
+        if let Ok(Mode::Cli(Command::Todo(TodoCommand::Trace(opts)))) = result {
+            assert_eq!(opts.id, 123);
+        } else {
+            panic!("expected Ok(Cli(Todo(Trace)))");
+        }
+    }
+
+    #[test]
+    fn todo_trace_missing_id_returns_error() {
+        let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "trace"]));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn todo_trace_invalid_id_returns_error() {
+        let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "trace", "xyz"]));
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn todo_add_returns_cli_mode() {
         let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "add", "--all"]));
         assert!(matches!(
