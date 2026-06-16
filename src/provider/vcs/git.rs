@@ -7,7 +7,7 @@ use super::{
 use crate::fs::{FileType, FileTypeAwarePath};
 use crate::todo::{parser::TodoParser, Todo, TodoIdentifier, Todos};
 use chrono::{DateTime, TimeZone, Utc};
-use git2::{ApplyLocation, Commit, Diff, DiffOptions, Oid, Repository};
+use git2::{ApplyLocation, BlameOptions, Commit, Diff, DiffOptions, Oid, Repository};
 use itertools::Itertools;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -509,6 +509,8 @@ impl GitBackend {
             .to_repo_relative_path(file_path)
             .unwrap_or_else(|_| file_path.clone());
 
+        let todo_id = todo.id.clone();
+
         // 2. get the git blame for that file path
         let blame = self.repo.blame_file(&rel_path, None)?;
         // 3. get the blame hunk for the start line of the todo
@@ -527,7 +529,7 @@ impl GitBackend {
         // The hunk's path is the path of the file as it existed in `commit`,
         // which may differ from `rel_path` (HEAD's path) if the file was
         // renamed at some point between `commit` and HEAD.
-        let tracking_path = hunk.path().map(Path::to_path_buf).unwrap_or(rel_path);
+        let mut tracking_path = hunk.path().map(Path::to_path_buf).unwrap_or(rel_path);
 
         // 5. get the blob for the target commit and file path and parse all todos from that blob
         //
@@ -536,8 +538,8 @@ impl GitBackend {
         // (the target commit's own numbering). Translate the todo's HEAD line
         // number to the target commit's numbering by applying the same offset
         // from the start of the hunk.
-        let target_line = hunk.orig_start_line()
-            + (todo.location.start_line_num - hunk.final_start_line());
+        let target_line =
+            hunk.orig_start_line() + (todo.location.start_line_num - hunk.final_start_line());
         let todos = self.todos_in_commit_file(&commit, &tracking_path)?;
         let mut current = todos
             .into_iter()
@@ -550,42 +552,66 @@ impl GitBackend {
         loop {
             history.push((CommitMetadata::from(&commit), current.clone()));
 
-            // 6. for each parent commit get the blob for that commit and file path and parse all todos
-            // 7. for each parent check if either:
-            let mut next: Option<(Commit<'_>, Todo)> = None;
+            // 6. For each parent, locate this todo (by its stable ID) in the
+            //    parent's version of the file, then re-blame the file with
+            //    that parent set as the *newest* commit to consider. The
+            //    resulting hunk for the todo's line tells us the commit that
+            //    actually last touched it before `commit` - which may be the
+            //    parent itself, or an earlier ancestor if the parent simply
+            //    inherited the line unchanged (e.g. unrelated edits elsewhere
+            //    in the file, or merge commits).
+            let mut next: Option<(Commit<'_>, PathBuf, usize)> = None;
 
-            //   a. the parent todos contain a todo with the same start line [todo was edited]
             for parent in commit.parents() {
                 let parent_todos = self.todos_in_commit_file(&parent, &tracking_path)?;
-                if let Some(t) = parent_todos
-                    .iter()
-                    .find(|t| t.location.start_line_num == current.location.start_line_num)
-                {
-                    next = Some((parent, t.clone()));
-                    break;
-                }
-            }
-            //   b. the parent todos contain a todo with the same title [todo was moved]
-            if next.is_none() {
-                for parent in commit.parents() {
-                    let parent_todos = self.todos_in_commit_file(&parent, &tracking_path)?;
-                    if let Some(t) = parent_todos.iter().find(|t| t.title == current.title) {
-                        next = Some((parent, t.clone()));
-                        break;
-                    }
-                }
+                let parent_todo = match parent_todos.iter().find(|t| {
+                    t.id == todo_id || t.title == current.title || t.location.start_line_num == current.location.start_line_num
+                }) {
+                    Some(t) => t,
+                    None => continue, // todo doesn't exist on this parent's side
+                };
+
+                let mut opts = BlameOptions::new();
+                opts.newest_commit(parent.id());
+                let parent_blame = self.repo.blame_file(&tracking_path, Some(&mut opts))?;
+                let parent_hunk = parent_blame
+                    .get_line(parent_todo.location.start_line_num)
+                    .ok_or_else(|| {
+                        Error::Custom(format!(
+                            "no blame info for {}:{}",
+                            tracking_path.display(),
+                            parent_todo.location.start_line_num
+                        ))
+                    })?;
+
+                let next_commit = self.repo.find_commit(parent_hunk.final_commit_id())?;
+                let next_path = parent_hunk
+                    .path()
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(|| tracking_path.clone());
+                let next_line = parent_hunk.orig_start_line();
+
+                next = Some((next_commit, next_path, next_line));
+                break;
             }
 
-            // 8. if c. (neither a. nor b. matched in any parent) then we're done,
-            //    this commit was the one that created the todo. Otherwise go back
-            //    to 5. with the parent commit as the new target commit.
-            // 9. repeat until we reach a commit with no parents or the todo is
-            //    not found in any parent commits
+            // 7. If no parent has this todo, `commit` is the one that created
+            //    it and we're done. Otherwise go back to 5. with the commit
+            //    and line found above as the new target.
             match next {
-                Some((parent_commit, mut parent_todo)) => {
-                    parent_todo.location.file_path = Some(tracking_path.clone());
-                    commit = parent_commit;
-                    current = parent_todo;
+                Some((next_commit, next_path, next_line)) => {
+                    let next_todos = self.todos_in_commit_file(&next_commit, &next_path)?;
+                    let mut next_todo = next_todos
+                        .into_iter()
+                        .find(|t| t.location.start_line_num == next_line)
+                        .ok_or_else(|| {
+                            Error::Custom("todo not found in blamed commit".to_string())
+                        })?;
+                    next_todo.location.file_path = Some(next_path.clone());
+
+                    commit = next_commit;
+                    tracking_path = next_path;
+                    current = next_todo;
                 }
                 None => break,
             }
@@ -770,7 +796,13 @@ mod tests {
     /// Returns the SHA of the current HEAD commit.
     fn head_sha(dir: &Path) -> String {
         let repo = Repository::open(dir).expect("failed to open repo");
-        let sha = repo.head().unwrap().peel_to_commit().unwrap().id().to_string();
+        let sha = repo
+            .head()
+            .unwrap()
+            .peel_to_commit()
+            .unwrap()
+            .id()
+            .to_string();
         sha
     }
 
@@ -1777,6 +1809,57 @@ mod tests {
         assert_eq!(history[1].0.sha, sha_b);
         assert_eq!(history[1].1.location.start_line_num, 2);
         assert_eq!(history[1].1.title, "Stable title");
+    }
+
+    #[test]
+    fn test_trace_todo_skips_unrelated_intermediate_commits() {
+        let dir = create_test_repo();
+
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "// TODO #1 Fix bug\nfn main() {}\n",
+            "Add TODO",
+        );
+        let sha_a = head_sha(dir.path());
+
+        // Unrelated change: insert a line above the TODO, shifting it from
+        // line 1 to line 2 without altering its content. This commit must
+        // not appear in the trace.
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "fn helper() {}\n// TODO #1 Fix bug\nfn main() {}\n",
+            "Add helper function",
+        );
+
+        // Edit the TODO itself.
+        commit_file(
+            dir.path(),
+            "main.rs",
+            "fn helper() {}\n// TODO #1 (A) Fixed bug +urgent\nfn main() {}\n",
+            "Modify TODO",
+        );
+        let sha_c = head_sha(dir.path());
+
+        let backend = GitBackend::new(dir.path(), "TODO", None).expect("failed to create backend");
+        let todos = backend.get_all_todos().expect("failed to scan");
+        let todo = todos.get(&1).expect("TODO #1 should exist").clone();
+        assert_eq!(todo.location.start_line_num, 2);
+
+        let history = backend.trace_todo(&todo).expect("trace_todo failed");
+
+        assert_eq!(
+            history.len(),
+            2,
+            "the unrelated intermediate commit should not appear in the trace, got: {history:#?}"
+        );
+        assert_eq!(history[0].0.sha, sha_a);
+        assert_eq!(history[0].1.location.start_line_num, 1);
+        assert_eq!(history[0].1.title, "Fix bug");
+        assert_eq!(history[1].0.sha, sha_c);
+        assert_eq!(history[1].1.location.start_line_num, 2);
+        assert_eq!(history[1].1.title, "Fixed bug");
     }
 
     #[test]
