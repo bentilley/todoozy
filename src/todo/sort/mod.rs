@@ -131,7 +131,12 @@ impl Sorter for PropertySorter {
                 a_priority.cmp(&b_priority)
             }
             Property::CreationDate => a.creation_date.cmp(&b.creation_date),
-            Property::CompletionDate => a.completion_date.cmp(&b.completion_date),
+            Property::CompletionDate => match (a.completion_date, b.completion_date) {
+                (Some(a), Some(b)) => a.cmp(&b),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            },
         };
         self.direction.apply(ord)
     }
@@ -297,5 +302,44 @@ mod tests {
         todos.sort_by(|a, b| sorter.compare(a, b));
         assert_eq!(todos[0].title, "B");
         assert_eq!(todos[1].title, "A");
+    }
+
+    #[test]
+    fn test_completion_date_sorter_none_sorts_last() {
+        let sorter: Box<dyn Sorter> = "completion_date:asc".parse().unwrap();
+
+        let mut incomplete = Todo::new(
+            TodoInfoBuilder::default()
+                .title("Incomplete".to_string())
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        incomplete.completion_date = None;
+
+        let mut older = Todo::new(
+            TodoInfoBuilder::default()
+                .title("Older".to_string())
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        older.completion_date = Some(chrono::DateTime::from_timestamp(0, 0).unwrap());
+
+        let mut newer = Todo::new(
+            TodoInfoBuilder::default()
+                .title("Newer".to_string())
+                .build()
+                .unwrap(),
+            Location::default(),
+        );
+        newer.completion_date = Some(chrono::DateTime::from_timestamp(100, 0).unwrap());
+
+        let mut todos = vec![incomplete, newer, older];
+        todos.sort_by(|a, b| sorter.compare(a, b));
+
+        assert_eq!(todos[0].title, "Older");
+        assert_eq!(todos[1].title, "Newer");
+        assert_eq!(todos[2].title, "Incomplete");
     }
 }
