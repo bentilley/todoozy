@@ -198,16 +198,18 @@ mod tests {
         line: usize,
         completion_date: chrono::NaiveDate,
     ) -> Todo {
-        Todo::new(
+        let mut todo = Todo::new(
             TodoInfoBuilder::default()
                 .id(Some(TodoIdentifier::Primary(id)))
                 .priority(Some(priority))
                 .title(title.to_string())
-                .completion_date(Some(completion_date))
                 .build()
                 .unwrap(),
             Location::new(Some(file.to_string()), line, line),
-        )
+        );
+        todo.completion_date =
+            Some(completion_date.and_hms_opt(0, 0, 0).unwrap().and_utc());
+        todo
     }
 
     #[test]

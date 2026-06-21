@@ -197,7 +197,8 @@ fn parse_tui_args(mut parser: lexopt::Parser) -> error::Result<Mode> {
 #[cfg(test)]
 mod tests {
     use super::tag::TagCommand;
-    use super::todo::{get::TodoID, OutputFormat, TodoCommand};
+    use crate::cli::tdz::TodoID;
+    use super::todo::{OutputFormat, TodoCommand};
     use super::*;
 
     #[test]

@@ -4,7 +4,6 @@ use crate::cli::config;
 use crate::cli::error;
 use std::process::ExitCode;
 use todoozy::provider::vcs::CommitMetadata;
-use todoozy::provider::{vcs, FileSystemProvider, Provider};
 use todoozy::todo::Todo;
 
 pub const USAGE: &str = r#"Show the commit history of a todo
@@ -45,30 +44,9 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
 }
 
 pub fn trace(conf: &config::Config, opts: &TodoTraceOptions) -> error::Result<ExitCode> {
-    let cwd = std::env::current_dir()?;
-    let vcs_backend =
-        vcs::create_vcs_backend(&cwd, &conf.get_todo_token(), None).map_err(|e| match e {
-            vcs::error::Error::NotARepository => {
-                error::Error::from("todo trace requires a git repository")
-            }
-            e => e.into(),
-        })?;
-
-    let fs_provider = FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone());
-    let todo = match fs_provider.get_todo(opts.id)? {
-        Some(todo) => todo,
-        None => match vcs_backend.get_todo_for_version(opts.id, "HEAD") {
-            Ok(todo) => todo,
-            Err(vcs::error::Error::Custom(msg)) if msg.contains("not found") => {
-                return Err(format!("Todo #{} not found", opts.id).into());
-            }
-            Err(e) => return Err(e.into()),
-        },
-    };
-
-    let history = vcs_backend.trace_todo(&todo)?;
+    let tdz = crate::cli::tdz::Tdz::open(conf)?;
+    let (todo, history) = tdz.trace_todo(opts.id)?;
     print_raw(&todo, &history);
-
     Ok(ExitCode::SUCCESS)
 }
 

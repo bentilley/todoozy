@@ -3,8 +3,6 @@ use crate::cli::args::{Command, Mode};
 use crate::cli::config;
 use crate::cli::error;
 use std::process::ExitCode;
-use todoozy::provider::vcs::create_vcs_backend;
-use todoozy::todo::store::{SqliteStore, Store};
 
 pub const USAGE: &str = r#"Restore the todo store from VCS history
 
@@ -32,36 +30,22 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
 }
 
 pub fn import(conf: &mut config::Config, _opts: &TodoImportOptions) -> error::Result<ExitCode> {
-    let repo = git2::Repository::open_from_env()?;
-    let root = repo.workdir().ok_or("Could not find workdir")?;
-
-    let vcs = create_vcs_backend(root, &conf.get_todo_token(), None)?;
-    let todos = vcs.get_all_todos()?;
-    let store = SqliteStore::new()?;
-
-    let mut imported_count = 0;
-    let mut ids: Vec<u32> = todos.ids().collect();
-    ids.sort_unstable();
-
-    for id in ids {
-        let todo = todos.get(&id).unwrap();
-        match store.import_todo(id, todo) {
-            Ok(()) => {
-                println!("Imported: #{} {}", id, todo.title);
-                imported_count += 1;
+    let tdz = crate::cli::tdz::Tdz::open(conf)?;
+    match tdz.import_todos() {
+        Ok(imported) => {
+            for (id, title) in &imported {
+                println!("Imported: #{} {}", id, title);
             }
-            Err(e) => {
-                eprintln!("Error importing #{}: {}", id, e);
-                return Ok(ExitCode::FAILURE);
+            if imported.is_empty() {
+                println!("No todos found in VCS history.");
+            } else {
+                println!("Imported {} todo(s).", imported.len());
             }
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(e) => {
+            eprintln!("{}", e);
+            Ok(ExitCode::FAILURE)
         }
     }
-
-    if imported_count == 0 {
-        println!("No todos found in VCS history.");
-    } else {
-        println!("Imported {} todo(s).", imported_count);
-    }
-
-    Ok(ExitCode::SUCCESS)
 }

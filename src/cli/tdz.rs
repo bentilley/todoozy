@@ -1,10 +1,14 @@
 use crate::cli::config::Config;
 use crate::cli::error::Result;
 use todoozy::provider::{
-    vcs::{create_vcs_backend, error::Error as VcsError, VcsBackend},
+    vcs::{create_vcs_backend, error::Error as VcsError, CommitMetadata, VcsBackend},
     FileSystemProvider, Provider,
 };
-use todoozy::todo::{Todo, Todos};
+use todoozy::todo::{
+    id::{IDStrategy, MergeFileIDStrategy},
+    store::{SqliteStore, Store},
+    Todo, Todos,
+};
 
 #[derive(Debug, PartialEq)]
 pub enum TodoID {
@@ -40,6 +44,7 @@ impl std::fmt::Display for TodoID {
 pub struct Tdz {
     fs: FileSystemProvider,
     vcs: Option<Box<dyn VcsBackend>>,
+    id_strategy: Option<Box<dyn IDStrategy>>,
 }
 
 impl Tdz {
@@ -47,7 +52,10 @@ impl Tdz {
         let fs = FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone());
         let cwd = std::env::current_dir()?;
         let vcs = create_vcs_backend(&cwd, &conf.get_todo_token(), None).ok();
-        Ok(Tdz { fs, vcs })
+        let id_strategy = MergeFileIDStrategy::open(conf.get_id_file_path())
+            .ok()
+            .map(|s| -> Box<dyn IDStrategy> { Box::new(s) });
+        Ok(Tdz { fs, vcs, id_strategy })
     }
 
     pub fn get_current_todos(&self) -> Result<Todos> {
@@ -125,5 +133,101 @@ impl Tdz {
         editor_cmd.execute().map_err(|e| format!("{}", e))?;
 
         Ok(())
+    }
+
+    pub fn add_todos(
+        &mut self,
+        filter: impl Fn(&Todo) -> bool,
+    ) -> Result<Vec<(u32, String)>> {
+        let todos = self.fs.get_todos()?;
+        let vcs = self.vcs.as_mut().ok_or("No VCS backend available")?;
+        let id_strategy = self
+            .id_strategy
+            .as_mut()
+            .ok_or("No ID strategy available")?;
+
+        let mut added = Vec::new();
+
+        for mut todo in todos {
+            if todo.id.is_some() || !filter(&todo) {
+                continue;
+            }
+
+            todo.add_id(id_strategy.next(&todo)?)
+                .map_err(|e| -> crate::cli::error::Error { e.to_string().into() })?;
+
+            match vcs.stage_todo(&mut todo) {
+                Ok(_) => {
+                    if let Some(path) = id_strategy.file_path() {
+                        if let Err(e) = vcs.stage_file(path) {
+                            eprintln!("Warning: could not stage id file: {e}");
+                        }
+                    }
+                    match vcs.commit(&format!("chore: add todo {}", todo.display_id())) {
+                        Ok(_) => {
+                            let id = match todo.id {
+                                Some(todoozy::todo::TodoIdentifier::Primary(id)) => id,
+                                _ => unreachable!("add_id assigns a primary ID"),
+                            };
+                            added.push((id, todo.title.clone()));
+                        }
+                        Err(e) => eprintln!("Warning: could not commit todo to vcs: {e}"),
+                    }
+                }
+                Err(e) => eprintln!("Warning: could not stage todo: {e}"),
+            }
+        }
+
+        Ok(added)
+    }
+
+    pub fn remove_todo(&self, id: &TodoID) -> Result<Todo> {
+        let todo = self
+            .fs_lookup(id)?
+            .ok_or_else(|| format!("Todo {} not found", id))?;
+        todo.remove()
+            .map_err(|e| format!("Error removing todo: {}", e))?;
+        Ok(todo)
+    }
+
+    pub fn trace_todo(&self, id: u32) -> Result<(Todo, Vec<(CommitMetadata, Todo)>)> {
+        let vcs = self
+            .vcs
+            .as_ref()
+            .ok_or("todo trace requires a git repository")?;
+
+        let todo = match self.fs.get_todo(id)? {
+            Some(todo) => todo,
+            None => match vcs.get_todo_for_version(id, "HEAD") {
+                Ok(todo) => todo,
+                Err(VcsError::Custom(msg)) if msg.contains("not found") => {
+                    return Err(format!("Todo #{} not found", id).into());
+                }
+                Err(e) => return Err(e.into()),
+            },
+        };
+
+        let history = vcs.trace_todo(&todo)?;
+        Ok((todo, history))
+    }
+
+    pub fn import_todos(&self) -> Result<Vec<(u32, String)>> {
+        let vcs = self.vcs.as_ref().ok_or("No VCS backend available")?;
+        let todos = vcs.get_all_todos()?;
+        let store = SqliteStore::new()?;
+
+        let mut imported = Vec::new();
+        let mut ids: Vec<u32> = todos.ids().collect();
+        ids.sort_unstable();
+
+        for id in ids {
+            let todo = todos.get(&id).unwrap();
+            store
+                .import_todo(id, todo)
+                .map_err(|e| format!("Error importing #{}: {}", id, e))?;
+            imported.push((id, todo.title.clone()));
+        }
+
+        Ok(imported)
     }
 }

@@ -4,11 +4,7 @@ use crate::cli::config;
 use crate::cli::error;
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
-use todoozy::provider::{vcs::create_vcs_backend, FileSystemProvider, Provider};
-use todoozy::todo::{
-    id::{IDStrategy, MergeFileIDStrategy},
-    Todo,
-};
+use todoozy::todo::Todo;
 
 pub const USAGE: &str = r#"Add untracked todos (assign IDs)
 
@@ -125,60 +121,22 @@ fn normalize_location_path(path: impl AsRef<Path>) -> PathBuf {
 }
 
 pub fn add(conf: &mut config::Config, opts: &TodoAddOptions) -> error::Result<ExitCode> {
-    let todos =
-        FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone()).get_todos()?;
-
-    let cwd = std::env::current_dir()?;
     // TODO #105 (C) Make the VCS and ID strategy configurable in the config file
-    let mut vcs = create_vcs_backend(&cwd, &conf.get_todo_token(), None)?;
-    let mut id_strategy = MergeFileIDStrategy::open(conf.get_id_file_path())?;
+    let mut tdz = crate::cli::tdz::Tdz::open(conf)?;
 
-    let mut added_count = 0;
+    let added = if opts.all {
+        tdz.add_todos(|_| true)?
+    } else if let Some(ref location) = opts.location {
+        tdz.add_todos(|todo| todo_matches_location(todo, location))?
+    } else {
+        unreachable!("parse_opts ensures --all or --location is set")
+    };
 
-    for mut todo in todos {
-        if todo.id.is_some() {
-            continue;
-        }
-
-        // Apply location filter if specified
-        if let Some(ref location) = opts.location {
-            if !todo_matches_location(&todo, location) {
-                continue;
-            }
-        }
-
-        todo.add_id(id_strategy.next(&todo)?)
-            .map_err(|e| -> error::Error { e.to_string().into() })?;
-
-        match vcs.stage_todo(&mut todo) {
-            Ok(_) => {
-                if let Some(id_file) = id_strategy.file_path() {
-                    if let Err(e) = vcs.stage_file(id_file) {
-                        eprintln!("Warning: could not stage id file: {e}");
-                    }
-                }
-
-                match vcs.commit(&format!("chore: add todo {}", todo.display_id())) {
-                    Ok(_) => {
-                        let id = match todo.id {
-                            Some(todoozy::todo::TodoIdentifier::Primary(id)) => id,
-                            _ => unreachable!("add_id assigns a primary ID"),
-                        };
-                        println!("Added: #{} {}", id, todo.title);
-                        added_count += 1;
-                    }
-                    Err(e) => {
-                        eprintln!("Warning: could not commit todo to vcs: {e}");
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("Warning: could not stage todo: {e}");
-            }
-        }
+    for (id, title) in &added {
+        println!("Added: #{} {}", id, title);
     }
 
-    if added_count == 0 {
+    if added.is_empty() {
         println!("No untracked todos found matching the criteria.");
     }
 

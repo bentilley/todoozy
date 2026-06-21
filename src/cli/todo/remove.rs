@@ -4,7 +4,7 @@ use super::TodoCommand;
 use crate::cli::args::{Command, Mode};
 use crate::cli::config;
 use crate::cli::error;
-use todoozy::provider::{FileSystemProvider, Provider};
+use crate::cli::tdz::TodoID;
 
 pub const USAGE: &str = r#"Delete a todo comment from its source file
 
@@ -48,12 +48,8 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
 }
 
 pub fn remove(conf: &config::Config, opts: &TodoRemoveOptions) -> error::Result<ExitCode> {
-    let todo = FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone())
-        .get_todo(opts.id)?
-        .ok_or_else(|| error::Error::from(format!("Todo #{} not found", opts.id)))?;
-
-    todo.remove()
-        .map_err(|e| error::Error::from(format!("Error removing todo: {}", e)))?;
+    let tdz = crate::cli::tdz::Tdz::open(conf)?;
+    let todo = tdz.remove_todo(&TodoID::Legacy(opts.id))?;
 
     println!("Removed: #{} {}", opts.id, todo.title);
 
