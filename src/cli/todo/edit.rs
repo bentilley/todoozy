@@ -47,6 +47,13 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
 }
 
 pub fn edit(conf: &config::Config, opts: &TodoEditOptions) -> error::Result<ExitCode> {
-    crate::cli::tdz::Tdz::open(&conf)?.edit_todo(&crate::cli::tdz::TodoID::Legacy(opts.id))?;
+    let todo = crate::cli::tdz::Tdz::open(&conf)?
+        .get_todo(&crate::cli::tdz::TodoID::Legacy(opts.id))?
+        .ok_or_else(|| format!("Todo #{} not found", &opts.id))?;
+
+    let editor_cmd = todo.editor_command().map_err(|e| format!("{}", e))?;
+
+    editor_cmd.execute().map_err(|e| format!("{}", e))?;
+
     Ok(ExitCode::SUCCESS)
 }

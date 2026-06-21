@@ -123,18 +123,6 @@ impl Tdz {
         }
     }
 
-    pub fn edit_todo(&self, id: &TodoID) -> Result<()> {
-        let todo = self
-            .get_todo(id)?
-            .ok_or_else(|| format!("Todo #{} not found", id))?;
-
-        let editor_cmd = todo.editor_command().map_err(|e| format!("{}", e))?;
-
-        editor_cmd.execute().map_err(|e| format!("{}", e))?;
-
-        Ok(())
-    }
-
     pub fn add_todos(
         &mut self,
         filter: impl Fn(&Todo) -> bool,
