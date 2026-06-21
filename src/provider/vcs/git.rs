@@ -621,7 +621,7 @@ impl GitBackend {
 
         // `history` was built newest-first (target commit -> creation commit);
         // reverse so callers see chronological order (creation first).
-        history.reverse();
+        // history.reverse();
         Ok(history)
     }
 }
