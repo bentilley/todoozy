@@ -23,9 +23,7 @@ use ratatui::{
 };
 
 use super::input::{Input, InputFor};
-use todoozy::provider::Provider;
 use todoozy::todo::filter;
-use todoozy::todo::id::{IDStrategy, MergeFileIDStrategy};
 use todoozy::todo::sort;
 use todoozy::todo::TodoIdentifier;
 use todoozy::Todo;
@@ -98,6 +96,7 @@ impl TodoItem {
 }
 
 use crate::cli::config::Config;
+use crate::cli::tdz::Tdz;
 
 /// This struct holds the current state of the app. In particular, it has the `todo_list` field
 /// which is a wrapper around `ListState`. Keeping track of the state lets us render the
@@ -123,23 +122,15 @@ pub struct App {
     input_for: Option<InputFor>,
     message: Option<String>,
 
-    fs_provider: todoozy::provider::FileSystemProvider,
-    vcs: Box<dyn todoozy::provider::vcs::VcsBackend>,
-    id_strategy: MergeFileIDStrategy,
+    tdz: Tdz,
 }
 
 impl App {
     pub fn new(config: Config) -> Result<Self, Box<dyn std::error::Error>> {
         // Start up admin
-        let fs_provider = todoozy::provider::FileSystemProvider::new(
-            &config.get_todo_token(),
-            config.exclude.clone(),
-        );
-        let cwd = std::env::current_dir()?;
-        let vcs = todoozy::provider::vcs::create_vcs_backend(&cwd, &config.get_todo_token(), None)?;
-        let id_strategy = MergeFileIDStrategy::open(config.get_id_file_path())?;
+        let tdz = Tdz::open(&config)?;
 
-        let todos = fs_provider.get_todos().unwrap();
+        let todos = tdz.get_current_todos().unwrap();
 
         let todo_view: Vec<Rc<RefCell<Todo>>> = todos
             .into_iter()
@@ -165,9 +156,7 @@ impl App {
             input: None,
             input_for: None,
             message: None,
-            fs_provider,
-            vcs,
-            id_strategy,
+            tdz,
         };
 
         app.todo_list = TodoList::new(app.todo_view.clone(), &app.filter, &app.sorter);
@@ -353,7 +342,7 @@ impl App {
     }
 
     fn refresh_todos(&mut self) {
-        let todo_data = self.fs_provider.get_todos().unwrap();
+        let todo_data = self.tdz.get_current_todos().unwrap();
         self.todo_view = todo_data
             .into_iter()
             .map(|t| Rc::new(RefCell::new(t)))
@@ -361,46 +350,34 @@ impl App {
         self.todo_list = TodoList::new(self.todo_view.clone(), &self.filter, &self.sorter);
     }
 
-    fn import_todo(&mut self, todo: &mut Todo) -> Result<(), Box<dyn std::error::Error>> {
-        todo.add_id(self.id_strategy.next(todo)?)?;
-
-        self.vcs.stage_todo(todo)?;
-        if let Some(id_file) = self.id_strategy.file_path() {
-            self.vcs.stage_file(id_file)?;
-        }
-        self.vcs
-            .commit(&format!("chore: add todo {}", todo.display_id()))?;
-        Ok(())
-    }
-
     fn import_selected(&mut self) {
-        let Some(todo_rc) = self.todo_list.selected().map(|item| Rc::clone(&item.todo)) else {
+        let Some(target) = self
+            .todo_list
+            .selected()
+            .map(|item| item.todo.borrow().clone())
+        else {
             return;
         };
-        let mut todo = todo_rc.borrow_mut();
-        match self.import_todo(&mut todo) {
-            Ok(_) => self.message = Some("Todo added".to_string()),
+        match self.tdz.add_todos(|t| *t == target) {
+            Ok(added) if !added.is_empty() => {
+                self.message = Some("Todo added".to_string());
+                self.refresh_todos();
+            }
+            Ok(_) => self.message = Some("Todo already added".to_string()),
             Err(e) => self.message = Some(format!("Error adding todo: {}", e)),
         }
     }
 
     fn import_all(&mut self) {
-        let mut num_imported = 0;
-        let todos: Vec<_> = self.todo_view.iter().map(Rc::clone).collect();
-        for todo_rc in &todos {
-            let mut todo = todo_rc.borrow_mut();
-            if todo.id.is_some() {
-                continue;
+        match self.tdz.add_todos(|_| true) {
+            Ok(added) => {
+                self.refresh_todos();
+                match added.len() {
+                    0 => self.message = Some("No todos to add".to_string()),
+                    n => self.message = Some(format!("{} todos added", n)),
+                }
             }
-
-            match self.import_todo(&mut todo) {
-                Ok(_) => num_imported += 1,
-                Err(e) => self.message = Some(format!("Error adding todo: {}", e)),
-            }
-        }
-        match num_imported {
-            0 => self.message = Some("No todos to add".to_string()),
-            n => self.message = Some(format!("{} todos added", n)),
+            Err(e) => self.message = Some(format!("Error adding todos: {}", e)),
         }
     }
 
