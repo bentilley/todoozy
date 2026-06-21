@@ -565,7 +565,9 @@ impl GitBackend {
             for parent in commit.parents() {
                 let parent_todos = self.todos_in_commit_file(&parent, &tracking_path)?;
                 let parent_todo = match parent_todos.iter().find(|t| {
-                    t.id == todo_id || t.title == current.title || t.location.start_line_num == current.location.start_line_num
+                    t.id == todo_id
+                        || t.title == current.title
+                        || t.location.start_line_num == current.location.start_line_num
                 }) {
                     Some(t) => t,
                     None => continue, // todo doesn't exist on this parent's side
