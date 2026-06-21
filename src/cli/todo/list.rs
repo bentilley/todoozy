@@ -95,10 +95,9 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
 pub fn list(conf: &config::Config, opts: &TodoListOptions) -> error::Result<ExitCode> {
     let tdz = crate::cli::tdz::Tdz::open(conf)?;
 
-    let mut todos = if opts.include_completed {
-        tdz.get_all_todos()?
-    } else {
-        tdz.get_current_todos()?
+    let mut todos = match opts.include_completed {
+        true => tdz.get_all_todos()?,
+        false => tdz.get_current_todos()?,
     };
 
     // Use opts.filter if present, otherwise fall back to conf.filter
@@ -132,29 +131,30 @@ pub fn list(conf: &config::Config, opts: &TodoListOptions) -> error::Result<Exit
 }
 
 fn write_raw(w: &mut impl std::io::Write, todos: &[todoozy::todo::Todo]) -> std::io::Result<()> {
-    let id_width = todos
-        .iter()
-        .map(|t| t.display_id().len())
-        .max()
-        .unwrap_or(0);
+    let ids: Vec<String> = todos.iter().map(|t| t.display_id()).collect();
+    let id_width = ids.iter().map(|id| id.len()).max().unwrap_or(0);
 
-    let location_width = todos
-        .iter()
-        .map(|t| t.location.display_start().len())
-        .max()
-        .unwrap_or(0);
+    let locations: Vec<String> = todos.iter().map(|t| t.location.display_start()).collect();
+    let location_width = locations.iter().map(|l| l.len()).max().unwrap_or(0);
 
-    for todo in todos {
-        let status = if todo.completion_date.is_some() {
-            "x"
-        } else {
-            " "
-        };
+    let is_completed: Vec<bool> = todos.iter().map(|t| t.completion_date.is_some()).collect();
+    let has_completed = is_completed.iter().any(|s| *s);
+
+    for (i, todo) in todos.iter().enumerate() {
+        if has_completed {
+            write!(
+                w,
+                "[{}] ",
+                match is_completed[i] {
+                    true => "x",
+                    false => " ",
+                }
+            )?;
+        }
         writeln!(
             w,
-            "{} [{}] {:<id_width$} {} {:<location_width$} {} {}",
+            "{} {:<id_width$} {} {:<location_width$} {} {}",
             todo.display_hash(6),
-            status,
             todo.display_id(),
             todo.display_priority(),
             todo.location.display_start(),
@@ -207,8 +207,7 @@ mod tests {
                 .unwrap(),
             Location::new(Some(file.to_string()), line, line),
         );
-        todo.completion_date =
-            Some(completion_date.and_hms_opt(0, 0, 0).unwrap().and_utc());
+        todo.completion_date = Some(completion_date.and_hms_opt(0, 0, 0).unwrap().and_utc());
         todo
     }
 
@@ -220,7 +219,7 @@ mod tests {
         write_raw(&mut buf, &todos).unwrap();
         let output = String::from_utf8(buf).unwrap();
 
-        assert!(output.contains("[ ]"), "active todo should show [ ]");
+        assert!(!output.contains("[ ]"), "active-only list should not show checkbox column");
         assert!(output.contains("#1"));
         assert!(output.contains("(A)"));
         assert!(output.contains("Test todo"));
