@@ -81,8 +81,9 @@ fn write_raw(
     todo: &Todo,
     history: &[(CommitMetadata, Todo)],
 ) -> std::io::Result<()> {
-    writeln!(w, "Trace for {}: {}", todo.display_id(), todo.title)?;
-    writeln!(w, "Current location: {}", todo.location)?;
+    writeln!(w, "commit HEAD")?;
+    writeln!(w, "    {}", todo.title)?;
+    writeln!(w, "    {}", todo.location)?;
 
     if history.is_empty() {
         writeln!(w)?;
@@ -93,7 +94,11 @@ fn write_raw(
     for (commit, entry) in history {
         writeln!(w)?;
         writeln!(w, "commit {}", commit.sha)?;
-        writeln!(w, "Author: {} <{}>", commit.author_name, commit.author_email)?;
+        writeln!(
+            w,
+            "Author: {} <{}>",
+            commit.author_name, commit.author_email
+        )?;
         writeln!(w, "Date:   {}", commit.timestamp)?;
         writeln!(w)?;
         writeln!(w, "    {}", entry.title)?;
