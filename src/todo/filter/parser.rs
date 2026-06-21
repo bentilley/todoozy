@@ -481,29 +481,16 @@ mod tests {
 
         let (i, f) = conjunction("creation_date>=2024-08-22").expect("Failed to parse");
         assert_eq!(i, "");
-        let todo = Todo::new(
-            TodoInfoBuilder::default()
-                .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 08, 23))
-                .build()
-                .unwrap(),
-            Location::default(),
-        );
+        let make_todo_with_creation_date = |date: chrono::NaiveDate| {
+            let mut todo = Todo::new(TodoInfoBuilder::default().build().unwrap(), Location::default());
+            todo.creation_date = Some(date.and_hms_opt(0, 0, 0).unwrap().and_utc());
+            todo
+        };
+        let todo = make_todo_with_creation_date(chrono::NaiveDate::from_ymd_opt(2024, 08, 23).unwrap());
         assert!(f.filter(&todo));
-        let todo = Todo::new(
-            TodoInfoBuilder::default()
-                .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 08, 22))
-                .build()
-                .unwrap(),
-            Location::default(),
-        );
+        let todo = make_todo_with_creation_date(chrono::NaiveDate::from_ymd_opt(2024, 08, 22).unwrap());
         assert!(f.filter(&todo));
-        let todo = Todo::new(
-            TodoInfoBuilder::default()
-                .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 08, 21))
-                .build()
-                .unwrap(),
-            Location::default(),
-        );
+        let todo = make_todo_with_creation_date(chrono::NaiveDate::from_ymd_opt(2024, 08, 21).unwrap());
         assert!(!f.filter(&todo));
     }
 

@@ -1757,15 +1757,15 @@ mod tests {
             "should track both the creation and the edit"
         );
         assert_eq!(
-            history[0].0.sha, sha_a,
+            history[1].0.sha, sha_a,
             "oldest entry should be the creation commit"
         );
-        assert_eq!(history[0].1.title, "Original title");
+        assert_eq!(history[1].1.title, "Original title");
         assert_eq!(
-            history[1].0.sha, sha_b,
+            history[0].0.sha, sha_b,
             "newest entry should be the edit commit"
         );
-        assert_eq!(history[1].1.title, "Modified title");
+        assert_eq!(history[0].1.title, "Modified title");
     }
 
     #[test]
@@ -1804,12 +1804,12 @@ mod tests {
             2,
             "should track creation and the title-matched move"
         );
-        assert_eq!(history[0].0.sha, sha_a);
-        assert_eq!(history[0].1.location.start_line_num, 1);
-        assert_eq!(history[0].1.title, "Stable title");
-        assert_eq!(history[1].0.sha, sha_b);
-        assert_eq!(history[1].1.location.start_line_num, 2);
+        assert_eq!(history[1].0.sha, sha_a);
+        assert_eq!(history[1].1.location.start_line_num, 1);
         assert_eq!(history[1].1.title, "Stable title");
+        assert_eq!(history[0].0.sha, sha_b);
+        assert_eq!(history[0].1.location.start_line_num, 2);
+        assert_eq!(history[0].1.title, "Stable title");
     }
 
     #[test]
@@ -1855,12 +1855,12 @@ mod tests {
             2,
             "the unrelated intermediate commit should not appear in the trace, got: {history:#?}"
         );
-        assert_eq!(history[0].0.sha, sha_a);
-        assert_eq!(history[0].1.location.start_line_num, 1);
-        assert_eq!(history[0].1.title, "Fix bug");
-        assert_eq!(history[1].0.sha, sha_c);
-        assert_eq!(history[1].1.location.start_line_num, 2);
-        assert_eq!(history[1].1.title, "Fixed bug");
+        assert_eq!(history[1].0.sha, sha_a);
+        assert_eq!(history[1].1.location.start_line_num, 1);
+        assert_eq!(history[1].1.title, "Fix bug");
+        assert_eq!(history[0].0.sha, sha_c);
+        assert_eq!(history[0].1.location.start_line_num, 2);
+        assert_eq!(history[0].1.title, "Fixed bug");
     }
 
     #[test]

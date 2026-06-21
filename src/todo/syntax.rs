@@ -660,7 +660,7 @@ And here is some text that follows.
         );
         assert_eq!(
             todo(
-                r#"(A) 2024-08-11 Test todo +tag1
+                r#"(A) Test todo +tag1
 
 This is a test todo with a description. more:data
 
@@ -687,7 +687,7 @@ With multiple paragraphs, and some paragraphs that contain tags. +extra"#
         );
         assert_eq!(
             todo(
-                r#"(A) 2024-08-14 2024-08-11 Test todo +tag1
+                r#"(A) Test todo +tag1
 
 - Can it handle indented lines?
   - Yes, it can. +extra"#
@@ -707,7 +707,7 @@ With multiple paragraphs, and some paragraphs that contain tags. +extra"#
         );
         assert_eq!(
             todo(
-                r#"#3 (C) 2024-09-06 Meta data parsing interferes with code in todos +bug
+                r#"#3 (C) Meta data parsing interferes with code in todos +bug
 
 This code needs to be in some kind of escaped string so that it can be parsed correctly because
 it contains `:` characters which immediately flip the parser into metadata munching."#
@@ -728,7 +728,7 @@ it contains `:` characters which immediately flip the parser into metadata munch
         );
         assert_eq!(
             todo(
-                r##"#3 (C) 2024-09-06 Meta data parsing interferes with code in todos +bug
+                r##"#3 (C) Meta data parsing interferes with code in todos +bug
 
 ```
 Span::styled(
@@ -758,7 +758,7 @@ Span::styled(
         );
         assert_eq!(
             todo(
-                r##"#3 (C) 2024-09-06 Meta data parsing interferes with code in todos +bug
+                r##"#3 (C) Meta data parsing interferes with code in todos +bug
 
 ```
 Span::styled(
