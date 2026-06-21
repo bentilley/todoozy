@@ -4,5 +4,6 @@ pub mod error;
 pub mod lint;
 pub mod summary;
 pub mod tag;
+pub mod tdz;
 pub mod todo;
 pub mod tui;

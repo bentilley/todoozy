@@ -3,7 +3,6 @@ use crate::cli::args::{Command, Mode};
 use crate::cli::config;
 use crate::cli::error;
 use std::process::ExitCode;
-use todoozy::provider::{vcs, FileSystemProvider, Provider};
 use todoozy::todo::filter;
 use todoozy::todo::sort;
 
@@ -94,28 +93,12 @@ pub fn parse_opts(mut parser: lexopt::Parser) -> error::Result<Mode> {
 }
 
 pub fn list(conf: &config::Config, opts: &TodoListOptions) -> error::Result<ExitCode> {
+    let tdz = crate::cli::tdz::Tdz::open(conf)?;
+
     let mut todos = if opts.include_completed {
-        let cwd = std::env::current_dir()?;
-        match vcs::create_vcs_backend(&cwd, &conf.get_todo_token(), None) {
-            Ok(vcs_backend) => {
-                let mut vcs_todos = vcs_backend.get_all_todos()?;
-
-                // Load current filesystem todos and merge (filesystem overrides VCS)
-                let fs_todos =
-                    FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone())
-                        .get_todos()?;
-
-                vcs_todos.merge(fs_todos);
-                vcs_todos
-            }
-            Err(vcs::error::Error::NotARepository) => {
-                eprintln!("Warning: --all requires a git repository; showing only current todos");
-                FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone()).get_todos()?
-            }
-            Err(e) => return Err(e.into()),
-        }
+        tdz.get_all_todos()?
     } else {
-        FileSystemProvider::new(&conf.get_todo_token(), conf.exclude.clone()).get_todos()?
+        tdz.get_current_todos()?
     };
 
     // Use opts.filter if present, otherwise fall back to conf.filter
