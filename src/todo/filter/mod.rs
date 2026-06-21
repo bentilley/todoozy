@@ -133,24 +133,38 @@ impl Filter for PropertyFilter {
                         return false;
                     }
                 };
+                let datetime = chrono::DateTime::from_naive_utc_and_offset(
+                    chrono::NaiveDateTime::new(
+                        date,
+                        chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+                    ),
+                    chrono::Utc,
+                );
                 match self.relation {
-                    Relation::Equal => todo.creation_date == Some(date),
-                    Relation::NotEqual => todo.creation_date != Some(date),
-                    Relation::Greater => todo.creation_date > Some(date),
-                    Relation::GreaterEqual => todo.creation_date >= Some(date),
-                    Relation::Less => todo.creation_date < Some(date),
-                    Relation::LessEqual => todo.creation_date <= Some(date),
+                    Relation::Equal => todo.creation_date == Some(datetime),
+                    Relation::NotEqual => todo.creation_date != Some(datetime),
+                    Relation::Greater => todo.creation_date > Some(datetime),
+                    Relation::GreaterEqual => todo.creation_date >= Some(datetime),
+                    Relation::Less => todo.creation_date < Some(datetime),
+                    Relation::LessEqual => todo.creation_date <= Some(datetime),
                 }
             }
             Property::CompletionDate => {
                 let date = self.value.parse::<chrono::NaiveDate>().unwrap();
+                let datetime = chrono::DateTime::from_naive_utc_and_offset(
+                    chrono::NaiveDateTime::new(
+                        date,
+                        chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+                    ),
+                    chrono::Utc,
+                );
                 match self.relation {
-                    Relation::Equal => todo.completion_date == Some(date),
-                    Relation::NotEqual => todo.completion_date != Some(date),
-                    Relation::Greater => todo.completion_date > Some(date),
-                    Relation::GreaterEqual => todo.completion_date >= Some(date),
-                    Relation::Less => todo.completion_date < Some(date),
-                    Relation::LessEqual => todo.completion_date <= Some(date),
+                    Relation::Equal => todo.completion_date == Some(datetime),
+                    Relation::NotEqual => todo.completion_date != Some(datetime),
+                    Relation::Greater => todo.completion_date > Some(datetime),
+                    Relation::GreaterEqual => todo.completion_date >= Some(datetime),
+                    Relation::Less => todo.completion_date < Some(datetime),
+                    Relation::LessEqual => todo.completion_date <= Some(datetime),
                 }
             }
         }
@@ -278,7 +292,7 @@ impl FromStr for Box<dyn Filter> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::todo::{TodoInfoBuilder, Location, Todo};
+    use crate::todo::{Location, Todo, TodoInfoBuilder};
 
     #[test]
     fn test_serialize_json_filter() {

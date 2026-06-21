@@ -2,7 +2,7 @@ use crate::todo::{Metadata, TodoIdentifier};
 use derive_builder::Builder;
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag, take, take_until},
+    bytes::complete::{is_not, tag, take_until},
     character::complete::{
         alphanumeric1, digit1, line_ending, multispace1, one_of, space0, space1,
     },
@@ -15,7 +15,6 @@ use nom::{
 
 #[derive(Debug, PartialEq)]
 pub enum Error<I> {
-    InvalidDate(String),
     Nom(I, ErrorKind),
     Parser(String),
 }
@@ -33,7 +32,6 @@ impl<I> ParseError<I> for Error<I> {
 impl<I: std::fmt::Debug> std::fmt::Display for Error<I> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::InvalidDate(msg) => write!(f, "invalid date: {}", msg),
             Error::Nom(input, kind) => write!(f, "parse error ({:?}): {:?}", kind, input),
             Error::Parser(msg) => write!(f, "parse error: {}", msg),
         }
@@ -63,30 +61,6 @@ fn uppercase(i: &str) -> IResult<&str, char, Error<&str>> {
 
 fn priority(i: &str) -> IResult<&str, char, Error<&str>> {
     terminated(delimited(tag("("), uppercase, tag(")")), multispace1)(i)
-}
-
-fn date_fmt(i: &str) -> IResult<&str, chrono::NaiveDate, Error<&str>> {
-    let (i, year) = take(4usize)(i)?;
-    let (i, _) = tag("-")(i)?;
-    let (i, month) = take(2usize)(i)?;
-    let (i, _) = tag("-")(i)?;
-    let (i, day) = take(2usize)(i)?;
-
-    match chrono::NaiveDate::from_ymd_opt(
-        year.parse().unwrap(),
-        month.parse().unwrap(),
-        day.parse().unwrap(),
-    ) {
-        Some(date) => Ok((i, date)),
-        None => Err(nom::Err::Error(Error::InvalidDate(format!(
-            "{}-{}-{}",
-            year, month, day
-        )))),
-    }
-}
-
-fn date(i: &str) -> IResult<&str, chrono::NaiveDate, Error<&str>> {
-    terminated(date_fmt, multispace1)(i)
 }
 
 #[derive(Debug, PartialEq)]
@@ -178,10 +152,6 @@ pub struct TodoInfo {
 
     #[builder(default)]
     pub priority: Option<char>,
-    #[builder(default)]
-    pub completion_date: Option<chrono::NaiveDate>,
-    #[builder(default)]
-    pub creation_date: Option<chrono::NaiveDate>,
 
     #[builder(default)]
     pub title: String,
@@ -212,15 +182,6 @@ impl TryFrom<&str> for TodoInfo {
 pub fn todo(s: &str) -> IResult<&str, TodoInfo, Error<&str>> {
     let (i, id) = opt(identifier)(s)?;
     let (i, priority) = opt(priority)(i)?;
-    let (i, date1) = opt(date)(i)?;
-    let (i, date2) = opt(date)(i)?;
-
-    let (completion_date, creation_date) = if date2.is_none() {
-        (None, date1)
-    } else {
-        (date1, date2)
-    };
-
     let (i, text) = opt(text)(i)?;
 
     let mut title = String::new();
@@ -278,8 +239,6 @@ pub fn todo(s: &str) -> IResult<&str, TodoInfo, Error<&str>> {
         TodoInfoBuilder::default()
             .id(id)
             .priority(priority)
-            .completion_date(completion_date)
-            .creation_date(creation_date)
             .title(title.trim().to_string())
             .description(description)
             .tags(tags)
@@ -332,34 +291,6 @@ mod tests {
         assert_eq!(
             priority("(A]"),
             Err(nom::Err::Error(Error::Nom("]", ErrorKind::Tag)))
-        );
-    }
-
-    #[test]
-    fn test_date_fmt() {
-        assert_eq!(
-            date_fmt("2024-08-05"),
-            Ok(("", chrono::NaiveDate::from_ymd_opt(2024, 8, 5).unwrap()))
-        );
-        assert_eq!(
-            date_fmt("2024-08-32"),
-            Err(nom::Err::Error(Error::InvalidDate(
-                "2024-08-32".to_string()
-            )))
-        );
-    }
-
-    #[test]
-    fn test_date() {
-        assert_eq!(
-            date("2024-08-05 "),
-            Ok(("", chrono::NaiveDate::from_ymd_opt(2024, 8, 5).unwrap()))
-        );
-        assert_eq!(
-            date("2024-08-32"),
-            Err(nom::Err::Error(Error::InvalidDate(
-                "2024-08-32".to_string()
-            )))
         );
     }
 
@@ -741,7 +672,6 @@ With multiple paragraphs, and some paragraphs that contain tags. +extra"#
                     .title("Test todo".to_string())
                     .priority(Some('A'))
                     .tags(vec!["tag1".to_string(), "extra".to_string()])
-                    .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 8, 11))
                     .metadata(
                         vec![("more".to_string(), "data".to_string())]
                             .into_iter()
@@ -768,8 +698,6 @@ With multiple paragraphs, and some paragraphs that contain tags. +extra"#
                     .title("Test todo".to_string())
                     .priority(Some('A'))
                     .tags(vec!["tag1".to_string(), "extra".to_string()])
-                    .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 8, 11))
-                    .completion_date(chrono::NaiveDate::from_ymd_opt(2024, 8, 14))
                     .description(Some(
                         "- Can it handle indented lines?\n  - Yes, it can.".to_string()
                     ))
@@ -791,7 +719,6 @@ it contains `:` characters which immediately flip the parser into metadata munch
                     .id(Some(TodoIdentifier::Primary(3)))
                     .priority(Some('C'))
                     .tags(vec!["bug".to_string()])
-                    .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 9, 6))
                     .description(Some(
                         "This code needs to be in some kind of escaped string so that it can be parsed correctly because\nit contains `:` characters which immediately flip the parser into metadata munching.".to_string()
                     ))
@@ -818,7 +745,6 @@ Span::styled(
                     .id(Some(TodoIdentifier::Primary(3)))
                     .priority(Some('C'))
                     .tags(vec!["bug".to_string()])
-                    .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 9, 6))
                     .description(Some(
                         r##"Span::styled(
     format!("#{} ", todo_item.todo.id.unwrap_or(0)),
@@ -852,7 +778,6 @@ a case by case basis feels impossible.
                     .id(Some(TodoIdentifier::Primary(3)))
                     .priority(Some('C'))
                     .tags(vec!["bug".to_string()])
-                    .creation_date(chrono::NaiveDate::from_ymd_opt(2024, 9, 6))
                     .description(Some(
                         r##"Span::styled(
     format!("#{} ", todo_item.todo.id.unwrap_or(0)),

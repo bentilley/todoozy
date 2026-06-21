@@ -220,9 +220,9 @@ pub struct Todo {
     #[builder(default)]
     pub priority: Option<char>,
     #[builder(default)]
-    pub completion_date: Option<chrono::NaiveDate>,
+    pub completion_date: Option<chrono::DateTime<chrono::Utc>>,
     #[builder(default)]
-    pub creation_date: Option<chrono::NaiveDate>,
+    pub creation_date: Option<chrono::DateTime<chrono::Utc>>,
 
     #[builder(default)]
     pub title: String,
@@ -256,8 +256,8 @@ impl Todo {
         Todo {
             id: info.id,
             priority: info.priority,
-            completion_date: info.completion_date,
-            creation_date: info.creation_date,
+            completion_date: None,
+            creation_date: None,
             title: info.title,
             description: info.description,
             tags: info.tags,

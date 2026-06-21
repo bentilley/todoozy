@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::path::PathBuf;
 
-use chrono::NaiveDate;
 use rusqlite::{params, Connection};
 
 use super::error::Result;
@@ -152,10 +151,16 @@ impl SqliteStore {
         Ok(Some(Todo {
             id: Some(TodoIdentifier::Primary(id)),
             priority: priority.and_then(|s| s.chars().next()),
-            completion_date: completion_date
-                .and_then(|s| NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok()),
-            creation_date: creation_date
-                .and_then(|s| NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok()),
+            completion_date: completion_date.and_then(|s| {
+                chrono::DateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%SZ")
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                    .ok()
+            }),
+            creation_date: creation_date.and_then(|s| {
+                chrono::DateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%SZ")
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                    .ok()
+            }),
             title,
             description,
             tags,
@@ -323,10 +328,20 @@ mod tests {
     fn set_todo_returns_incrementing_ids() {
         let store = SqliteStore::in_memory().unwrap();
         let id1 = store
-            .set_todo(&TodoBuilder::default().title("First".to_string()).build().unwrap())
+            .set_todo(
+                &TodoBuilder::default()
+                    .title("First".to_string())
+                    .build()
+                    .unwrap(),
+            )
             .unwrap();
         let id2 = store
-            .set_todo(&TodoBuilder::default().title("Second".to_string()).build().unwrap())
+            .set_todo(
+                &TodoBuilder::default()
+                    .title("Second".to_string())
+                    .build()
+                    .unwrap(),
+            )
             .unwrap();
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
@@ -425,7 +440,10 @@ mod tests {
     #[test]
     fn import_todo_preserves_explicit_id() {
         let store = SqliteStore::in_memory().unwrap();
-        let t = TodoBuilder::default().title("Imported".to_string()).build().unwrap();
+        let t = TodoBuilder::default()
+            .title("Imported".to_string())
+            .build()
+            .unwrap();
         store.import_todo(50, &t).unwrap();
         let got = store.get_todo(50).unwrap();
         assert_eq!(got.id, Some(TodoIdentifier::Primary(50)));
@@ -435,19 +453,33 @@ mod tests {
     #[test]
     fn import_todo_fails_on_duplicate() {
         let store = SqliteStore::in_memory().unwrap();
-        let t = TodoBuilder::default().title("First".to_string()).build().unwrap();
+        let t = TodoBuilder::default()
+            .title("First".to_string())
+            .build()
+            .unwrap();
         store.import_todo(50, &t).unwrap();
-        let t2 = TodoBuilder::default().title("Second".to_string()).build().unwrap();
+        let t2 = TodoBuilder::default()
+            .title("Second".to_string())
+            .build()
+            .unwrap();
         assert!(store.import_todo(50, &t2).is_err());
     }
 
     #[test]
     fn set_todo_after_import_continues_from_high_water_mark() {
         let store = SqliteStore::in_memory().unwrap();
-        let t = TodoBuilder::default().title("Imported".to_string()).build().unwrap();
+        let t = TodoBuilder::default()
+            .title("Imported".to_string())
+            .build()
+            .unwrap();
         store.import_todo(50, &t).unwrap();
         let next_id = store
-            .set_todo(&TodoBuilder::default().title("New".to_string()).build().unwrap())
+            .set_todo(
+                &TodoBuilder::default()
+                    .title("New".to_string())
+                    .build()
+                    .unwrap(),
+            )
             .unwrap();
         assert_eq!(next_id, 51);
     }
@@ -456,13 +488,28 @@ mod tests {
     fn get_todos_returns_all() {
         let store = SqliteStore::in_memory().unwrap();
         store
-            .set_todo(&TodoBuilder::default().title("Alpha".to_string()).build().unwrap())
+            .set_todo(
+                &TodoBuilder::default()
+                    .title("Alpha".to_string())
+                    .build()
+                    .unwrap(),
+            )
             .unwrap();
         store
-            .set_todo(&TodoBuilder::default().title("Beta".to_string()).build().unwrap())
+            .set_todo(
+                &TodoBuilder::default()
+                    .title("Beta".to_string())
+                    .build()
+                    .unwrap(),
+            )
             .unwrap();
         store
-            .set_todo(&TodoBuilder::default().title("Gamma".to_string()).build().unwrap())
+            .set_todo(
+                &TodoBuilder::default()
+                    .title("Gamma".to_string())
+                    .build()
+                    .unwrap(),
+            )
             .unwrap();
         let todos = store.get_todos();
         assert_eq!(todos.len(), 3);
@@ -476,7 +523,12 @@ mod tests {
     fn update_todo_changes_fields() {
         let store = SqliteStore::in_memory().unwrap();
         let id = store
-            .set_todo(&TodoBuilder::default().title("Original".to_string()).build().unwrap())
+            .set_todo(
+                &TodoBuilder::default()
+                    .title("Original".to_string())
+                    .build()
+                    .unwrap(),
+            )
             .unwrap();
         let updated = TodoBuilder::default()
             .title("Updated".to_string())

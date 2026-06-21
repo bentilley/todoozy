@@ -323,12 +323,11 @@ impl GitBackend {
                             Some(todo) => todo,
                             None => continue,
                         };
-                        t.creation_date = Some(created_datetime.date_naive());
+                        t.creation_date = Some(created_datetime);
                         t.completion_date = Some(
                             Utc.timestamp_opt(commit.time().seconds(), 0)
                                 .single()
-                                .unwrap_or_else(Utc::now)
-                                .date_naive(),
+                                .unwrap_or_else(Utc::now),
                         );
                         t.location.file_path = Some(path.clone().into());
                         t
@@ -354,7 +353,7 @@ impl GitBackend {
                             Some(todo) => todo,
                             None => continue,
                         };
-                        t.creation_date = Some(created_datetime.date_naive());
+                        t.creation_date = Some(created_datetime);
                         t.location.file_path = Some(path.clone().into());
                         t
                     }
