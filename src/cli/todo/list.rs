@@ -274,29 +274,48 @@ mod tests {
 
     #[test]
     fn test_write_json_includes_dates() {
-        let todos = vec![
-            Todo::new(
-                TodoInfoBuilder::default()
-                    .id(Some(TodoIdentifier::Primary(1)))
-                    .priority(Some('A'))
-                    .title("Active".to_string())
-                    .creation_date(Some(chrono::NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()))
-                    .build()
-                    .unwrap(),
-                Location::new(Some("src/main.rs".to_string()), 10, 10),
-            ),
-            Todo::new(
-                TodoInfoBuilder::default()
-                    .id(Some(TodoIdentifier::Primary(2)))
-                    .priority(Some('B'))
-                    .title("Completed".to_string())
-                    .creation_date(Some(chrono::NaiveDate::from_ymd_opt(2026, 3, 1).unwrap()))
-                    .completion_date(Some(chrono::NaiveDate::from_ymd_opt(2026, 4, 15).unwrap()))
-                    .build()
-                    .unwrap(),
-                Location::new(Some("src/lib.rs".to_string()), 20, 20),
-            ),
-        ];
+        let mut active = Todo::new(
+            TodoInfoBuilder::default()
+                .id(Some(TodoIdentifier::Primary(1)))
+                .priority(Some('A'))
+                .title("Active".to_string())
+                .build()
+                .unwrap(),
+            Location::new(Some("src/main.rs".to_string()), 10, 10),
+        );
+        active.creation_date = Some(
+            chrono::NaiveDate::from_ymd_opt(2026, 4, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc(),
+        );
+
+        let mut completed = Todo::new(
+            TodoInfoBuilder::default()
+                .id(Some(TodoIdentifier::Primary(2)))
+                .priority(Some('B'))
+                .title("Completed".to_string())
+                .build()
+                .unwrap(),
+            Location::new(Some("src/lib.rs".to_string()), 20, 20),
+        );
+        completed.creation_date = Some(
+            chrono::NaiveDate::from_ymd_opt(2026, 3, 1)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc(),
+        );
+        completed.completion_date = Some(
+            chrono::NaiveDate::from_ymd_opt(2026, 4, 15)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc(),
+        );
+
+        let todos = vec![active, completed];
 
         let mut buf = Vec::new();
         write_json(&mut buf, &todos).unwrap();
@@ -305,13 +324,13 @@ mod tests {
 
         // First todo: active with creation_date, no completion_date
         assert_eq!(parsed[0]["id"], 1);
-        assert_eq!(parsed[0]["creation_date"], "2026-04-01");
+        assert_eq!(parsed[0]["creation_date"], "2026-04-01 00:00:00 UTC");
         assert!(parsed[0]["completion_date"].is_null());
 
         // Second todo: completed with both dates
         assert_eq!(parsed[1]["id"], 2);
-        assert_eq!(parsed[1]["creation_date"], "2026-03-01");
-        assert_eq!(parsed[1]["completion_date"], "2026-04-15");
+        assert_eq!(parsed[1]["creation_date"], "2026-03-01 00:00:00 UTC");
+        assert_eq!(parsed[1]["completion_date"], "2026-04-15 00:00:00 UTC");
     }
 
     #[test]
