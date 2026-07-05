@@ -84,7 +84,7 @@ impl Metadata {
     }
 }
 
-// TODO #68 (E) 2026-03-22 Deprecate in-comment created/completed dates +model +vcs
+// TODO #68 (E) Deprecate in-comment created/completed dates +model +vcs
 //
 // With VCS integration providing accurate created/completed dates from git
 // history, the in-comment date fields become redundant:

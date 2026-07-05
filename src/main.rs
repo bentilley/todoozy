@@ -3,7 +3,7 @@ use std::process::ExitCode;
 
 mod cli;
 
-// TODO #11 (Z) 2024-09-04 Sync with external project management tools +feature
+// TODO #11 (Z) Sync with external project management tools +feature
 //
 // Philosophy: Maybe if we manage to sync this data with external project management tools, this is
 // somewhere where we would expect them to pick up the slack, rather that making this a full

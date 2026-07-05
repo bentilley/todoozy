@@ -6,7 +6,7 @@ use super::todo;
 use todoozy::todo::filter;
 use todoozy::todo::sort;
 
-//TODO #77 (E) 2026-03-31 Should some of the cli commands take file paths
+//TODO #77 (E) Should some of the cli commands take file paths
 //
 // I feel like it would be good to be able to pass specific files to tdz commands, and possibly
 // even the TUI - i.e. `tdz file.rs` or `tdz dir` would start the TUI showing only todos in those
@@ -14,7 +14,7 @@ use todoozy::todo::sort;
 // useful if you want to just see todos for a specific package in a monorepo. Needs some scoping
 // first +idea.
 
-// TODO #67 (D) 2026-03-22 Implement `tdz cache build` command +cli +ids
+// TODO #67 (D) Implement `tdz cache build` command +cli +ids
 //
 // Build cache of all TODO IDs ever used in git history.
 //
@@ -30,7 +30,7 @@ use todoozy::todo::sort;
 // - Accurate: knows IDs from all branches/history
 // - Fast: cached results reused
 
-// TODO #63 (E) 2026-03-22 Implement `tdz file convert` command +cli +tdz
+// TODO #63 (E) Implement `tdz file convert` command +cli +tdz
 //
 // Convert a .tdz file into a source file with TODOs as comments.
 //
@@ -153,7 +153,7 @@ fn parse_tui_args(mut parser: lexopt::Parser) -> error::Result<Mode> {
     let mut args = TuiOptions::new();
     while let Some(arg) = parser.next()? {
         match arg {
-            // TODO #7 (Z) 2024-08-05 Implement a .tdzignore file +idea
+            // TODO #7 (Z) Implement a .tdzignore file +idea
             //
             // This would allow users to specify a list of directories or files to exclude without
             // having to pass them as arguments in every tdz call.

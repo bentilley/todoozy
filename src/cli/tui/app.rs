@@ -539,7 +539,7 @@ impl App {
 
         text.push_line("\n");
 
-        // TODO #6 (E) 2024-08-15 Make it so the status reflects todos done since opening the tui
+        // TODO #6 (E) Make it so the status reflects todos done since opening the tui
         // +feature
         //
         // While you're editing todos in the app it keeps track of which ones you've deleted since
@@ -638,7 +638,7 @@ impl App {
                     None => Color::Yellow,
                 }),
             ),
-            // TODO #2 (E) 2024-09-05 What are we going to do with the [ ] checkbox in the UI?
+            // TODO #2 (E) What are we going to do with the [ ] checkbox in the UI?
             //
             // Not sure how useful this is as toggling the status of todos from the UI is still
             // not well defined. It would be nice to see in progress etc. especially if someone
