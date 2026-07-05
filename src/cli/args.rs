@@ -502,10 +502,51 @@ mod tests {
         }
     }
 
-    // TODO #107 (B) Test for `todo get` with hash style ID
-    //
-    // Currently only testing `todo get 123` numeric IDs, need to also add some arg parsing tests
-    // for hexidecimal hash IDs.
+    #[test]
+    fn todo_get_hash_basic() {
+        let result = parse_args(lexopt::Parser::from_iter([
+            "tdz", "todo", "get", "a1b2c3d4",
+        ]));
+        if let Ok(Mode::Cli(Command::Todo(TodoCommand::Get(opts)))) = result {
+            assert_eq!(opts.id, TodoID::Hash("a1b2c3d4".to_string()));
+            assert_eq!(opts.format, OutputFormat::Raw);
+        } else {
+            panic!("expected Ok(Cli(Todo(Get)))");
+        }
+    }
+
+    #[test]
+    fn todo_get_hash_with_format_json() {
+        let result = parse_args(lexopt::Parser::from_iter([
+            "tdz", "todo", "get", "a1b2c3d4", "--format", "json",
+        ]));
+        if let Ok(Mode::Cli(Command::Todo(TodoCommand::Get(opts)))) = result {
+            assert_eq!(opts.id, TodoID::Hash("a1b2c3d4".to_string()));
+            assert_eq!(opts.format, OutputFormat::Json);
+        } else {
+            panic!("expected Ok(Cli(Todo(Get)))");
+        }
+    }
+
+    #[test]
+    fn todo_get_hash_format_before_id() {
+        let result = parse_args(lexopt::Parser::from_iter([
+            "tdz", "todo", "get", "--format", "json", "a1b2c3d4",
+        ]));
+        if let Ok(Mode::Cli(Command::Todo(TodoCommand::Get(opts)))) = result {
+            assert_eq!(opts.id, TodoID::Hash("a1b2c3d4".to_string()));
+            assert_eq!(opts.format, OutputFormat::Json);
+        } else {
+            panic!("expected Ok(Cli(Todo(Get)))");
+        }
+    }
+
+    #[test]
+    fn todo_get_hash_non_hex_returns_error() {
+        let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "get", "12g4"]));
+        assert!(result.is_err());
+    }
+
     #[test]
     fn todo_get_missing_id_returns_error() {
         let result = parse_args(lexopt::Parser::from_iter(["tdz", "todo", "get"]));
