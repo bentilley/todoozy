@@ -24,6 +24,8 @@ Commands:
 
 Options:
     --help    Print help
+
+See 'tdz todo list --help' for filter and sort syntax.
 "#;
 
 pub enum TodoCommand {

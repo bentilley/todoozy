@@ -17,6 +17,38 @@ Options:
     -s, --sort <SORT>       How to sort the todos
     --format <FORMAT>       Output format: raw, json (default: raw)
     --help                  Print help
+
+Filter syntax (-f, --filter '<FILTER>'):
+
+    <property><relation><value>
+
+    Properties:   file, priority, tag, creation_date, completion_date
+    Relations:    =  !=  >  >=  <  <=
+    Values:       priority letter (A-Z, A is highest), date (YYYY-MM-DD),
+                  tag name, or file path
+
+    Combine expressions with 'and', 'or', 'not', and parentheses:
+
+        priority=A
+        priority>B                          higher priority than (B)
+        tag=backend
+        creation_date>=2024-03-01
+        (priority=A or priority=B) and tag=backend
+        not tag=personal
+
+Sort syntax (-s, --sort '<SORT>'):
+
+    <field>[:asc|:desc] [> <field>[:asc|:desc] ...]
+
+    Fields:       id, title, file, line_number, priority, creation_date,
+                  completion_date
+    Special:      tag:<name>   todos with the tag sort first
+    Direction:    asc (default) or desc; '>' chains fields with
+                  left-to-right precedence
+
+        priority:asc
+        priority:asc > creation_date:desc
+        tag:backend > file:asc > line_number:asc
 "#;
 
 pub struct TodoListOptions {
